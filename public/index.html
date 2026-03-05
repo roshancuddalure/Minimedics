@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MiniMedics - Home</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Medical Community</span>
+        <h1>MiniMedics</h1>
+        <p class="muted">A one-stop platform for medicos.</p>
+      </div>
+
+      <div class="search-wrap">
+        <input id="searchInput" type="text" placeholder="Search people or posts..." />
+      </div>
+
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/login.html">Log in</a>
+        <a class="btn primary" href="/register.html">Create account</a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="stack">
+        <section id="profileBox" class="card profile"></section>
+        <section class="card">
+          <h3>Why MiniMedics</h3>
+          <p class="muted">Built for medical students and early-career doctors who need one place for people, tasks, and daily coordination.</p>
+        </section>
+      </aside>
+
+      <section class="stack">
+        <section class="card">
+          <h3>Live Community Feed</h3>
+          <div id="feed" class="feed section-gap"></div>
+        </section>
+
+        <section class="card">
+          <h3>Everything In One Workspace</h3>
+          <div class="feature-grid section-gap">
+            <article class="feature-item">
+              <h4>Professional Social Connections</h4>
+              <p class="muted">Connect with peers, residents, and mentors, then build trusted circles for case discussions and support.</p>
+            </article>
+            <article class="feature-item">
+              <h4>Task + Reminder Posts</h4>
+              <p class="muted">Turn posts into actionable reminders for rounds, assignments, follow-ups, and personal study plans.</p>
+            </article>
+            <article class="feature-item">
+              <h4>Quick Team Messaging</h4>
+              <p class="muted">Move from a connection request to a focused 1:1 chat without leaving your dashboard.</p>
+            </article>
+            <article class="feature-item">
+              <h4>Profile-Driven Discovery</h4>
+              <p class="muted">Show your interests and grow your network through searchable profiles and visible activity.</p>
+            </article>
+            <article class="feature-item">
+              <h4>Visual Post Updates</h4>
+              <p class="muted">Share diagrams, notes, event snapshots, and practical resources through image-supported posts.</p>
+            </article>
+            <article class="feature-item">
+              <h4>MiniMedics Daily Hub</h4>
+              <p class="muted">Replace scattered apps with one lightweight place for communication, planning, and progress tracking.</p>
+            </article>
+          </div>
+          <div class="landing-cta">
+            <a class="btn primary" href="/register.html">Start Building Your Network</a>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

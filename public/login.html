@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login - MiniMedics</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="auth-page">
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <main class="auth-shell">
+    <section class="auth-intro">
+      <span class="eyebrow">Welcome Back</span>
+      <h1>Log in to MiniMedics</h1>
+      <p class="muted">Stay connected with your medical community and pick up where you left off.</p>
+      <a class="btn secondary" href="/">Back to Home</a>
+    </section>
+
+    <section class="card auth-card">
+      <h2>Log in</h2>
+      <form id="loginForm" class="form">
+        <input id="loginUser" placeholder="Username" required />
+        <input id="loginPass" type="password" placeholder="Password" required />
+        <div class="row">
+          <button class="btn primary" type="submit">Log in</button>
+        </div>
+      </form>
+      <p class="muted auth-link">New here? <a href="/register.html">Create an account</a></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

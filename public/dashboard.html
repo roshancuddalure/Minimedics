@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard - MiniMedics</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Your Space</span>
+        <h1>MiniMedics</h1>
+        <p class="muted">Manage your profile, feed, requests, and conversations.</p>
+      </div>
+
+      <div class="search-wrap">
+        <input id="searchInput" type="text" placeholder="Search people or posts..." />
+      </div>
+
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/">Home</a>
+        <button id="logoutBtn" class="btn">Logout</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="stack">
+        <section id="profileBox" class="card profile"></section>
+
+        <section class="card">
+          <h3>Incoming Requests</h3>
+          <div id="requests" class="section-gap"></div>
+        </section>
+
+        <section class="card">
+          <h3>Connections</h3>
+          <div id="connections" class="section-gap"></div>
+        </section>
+
+        <section class="card">
+          <h3>Communities</h3>
+          <form id="groupCreateForm" class="form">
+            <input id="groupName" type="text" maxlength="80" placeholder="Create a new group name" />
+            <input id="groupDescription" type="text" maxlength="180" placeholder="Short description" />
+            <label class="inline-check"><input id="groupPrivate" type="checkbox" checked /> Private group (approval required)</label>
+            <div class="row">
+              <button class="btn primary" type="submit">Create Group</button>
+            </div>
+          </form>
+          <div id="groupsList" class="section-gap"></div>
+        </section>
+
+        <section class="card">
+          <h3>Top Medics</h3>
+          <div id="leaderboard" class="section-gap"></div>
+        </section>
+      </aside>
+
+      <section class="stack">
+        <section class="card composer">
+          <h3>Share Something</h3>
+          <form id="postForm">
+            <textarea id="postContent" placeholder="What's on your mind?"></textarea>
+            <div class="composer-tools">
+              <div class="tool-group">
+                <label class="tool-label" for="postImage">Attach Image</label>
+                <input id="postImage" type="file" accept="image/*" />
+                <div id="postImagePreview" class="post-image-preview hidden"></div>
+              </div>
+              <div class="tool-group">
+                <label class="tool-label" for="postReminderAt">Reminder Date & Time</label>
+                <input id="postReminderAt" type="datetime-local" />
+              </div>
+              <div class="tool-group">
+                <label class="tool-label" for="postReminderNote">Reminder Note</label>
+                <input id="postReminderNote" type="text" maxlength="240" placeholder="Example: Review meds before morning round" />
+              </div>
+            </div>
+            <div class="row">
+              <button class="btn primary" type="submit">Post</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Your Activity</h3>
+          <div id="feed" class="feed section-gap"></div>
+        </section>
+
+        <section class="card">
+          <h3 id="groupFeedTitle">Group Space</h3>
+          <form id="groupPostForm" class="form">
+            <textarea id="groupPostContent" placeholder="Share with your selected community..."></textarea>
+            <div class="row">
+              <button class="btn primary" type="submit">Post to Group</button>
+            </div>
+          </form>
+          <div id="groupPendingRequests" class="section-gap"></div>
+          <div id="groupFeed" class="feed section-gap"></div>
+        </section>
+
+        <section id="chatPanel" class="card chat-panel" style="display:none">
+          <h3 id="chatTitle">Chat</h3>
+          <div id="messages"></div>
+          <form id="chatForm">
+            <input id="chatInput" placeholder="Type a message" />
+            <button class="btn primary" type="submit">Send</button>
+          </form>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+  document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+    await fetch('/api/logout',{method:'POST'});
+    location.href='/';
+  });
+  </script>
+  <script src="/app.js"></script>
+</body>
+</html>
