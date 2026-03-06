@@ -1372,14 +1372,14 @@ async function handleForgotPassword(e) {
 async function loadProfile() {
   const holder = document.getElementById('profileBox');
   if (!holder) return;
-  const res = await api('/api/me');
-  cachedMe = res.user || null;
-  window.__me = cachedMe;
-  if (isPublicHomePage() && !cachedMe) {
+  if (isPublicHomePage()) {
     holder.classList.add('hidden');
     holder.innerHTML = '';
     return;
   }
+  const res = await api('/api/me');
+  cachedMe = res.user || null;
+  window.__me = cachedMe;
   holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
