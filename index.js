@@ -370,8 +370,18 @@ async function initializeDatabase() {
 		id BIGSERIAL PRIMARY KEY,
 		post_id BIGINT NOT NULL,
 		user_id BIGINT NOT NULL,
+		list_name TEXT DEFAULT 'General',
 		created_at BIGINT,
 		UNIQUE(post_id, user_id)
+	)`);
+	await runAsync(`ALTER TABLE saved_posts ADD COLUMN IF NOT EXISTS list_name TEXT DEFAULT 'General'`);
+	await runAsync(`UPDATE saved_posts SET list_name = 'General' WHERE list_name IS NULL OR TRIM(list_name) = ''`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS saved_post_lists (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		name TEXT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(user_id, name)
 	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS post_shares (
 		id BIGSERIAL PRIMARY KEY,
@@ -394,12 +404,14 @@ async function initializeDatabase() {
 		id BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL,
 		description TEXT,
+		profile_picture TEXT,
 		is_private INTEGER DEFAULT 1,
 		clan_xp INTEGER DEFAULT 0,
 		clan_level INTEGER DEFAULT 1,
 		created_by BIGINT NOT NULL,
 		created_at BIGINT
 	)`);
+	await runAsync(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS profile_picture TEXT`);
 	await runAsync(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS clan_xp INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS clan_level INTEGER DEFAULT 1`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS group_memberships (
@@ -1390,18 +1402,34 @@ app.post('/api/post/:id/like', requireAuth, async (req, res) => {
 app.post('/api/post/:id/save', requireAuth, async (req, res) => {
 	const postId = Number(req.params.id);
 	const userId = Number(req.session.userId);
+	const listNameRaw = typeof req.body.listName === 'string' ? req.body.listName.trim() : '';
+	const listName = listNameRaw || 'General';
 	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	if (listName.length > 40) return res.status(400).json({ error: 'List name is too long' });
 	try {
 		const existing = await getAsync('SELECT id FROM saved_posts WHERE post_id = ? AND user_id = ?', [postId, userId]);
 		if (existing) {
-			await runAsync('DELETE FROM saved_posts WHERE id = ?', [existing.id]);
+			const existingRow = await getAsync('SELECT list_name FROM saved_posts WHERE id = ?', [existing.id]);
+			const existingList = String(existingRow && existingRow.list_name ? existingRow.list_name : 'General');
+			if (existingList.toLowerCase() === listName.toLowerCase()) {
+				await runAsync('DELETE FROM saved_posts WHERE id = ?', [existing.id]);
+				const c = await getAsync('SELECT COUNT(*) as cnt FROM saved_posts WHERE post_id = ?', [postId]);
+				return res.json({ success: true, saved: false, count: c.cnt || 0, listName: existingList });
+			}
+			await runAsync('UPDATE saved_posts SET list_name = ? WHERE id = ?', [listName, existing.id]);
+			await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
+				VALUES (?, ?, ?)
+				ON CONFLICT (user_id, name) DO NOTHING`, [userId, listName, Date.now()]);
 			const c = await getAsync('SELECT COUNT(*) as cnt FROM saved_posts WHERE post_id = ?', [postId]);
-			return res.json({ success: true, saved: false, count: c.cnt || 0 });
+			return res.json({ success: true, saved: true, moved: true, count: c.cnt || 0, listName });
 		}
-		await runAsync('INSERT INTO saved_posts (post_id, user_id, created_at) VALUES (?, ?, ?)', [postId, userId, Date.now()]);
+		await runAsync('INSERT INTO saved_posts (post_id, user_id, list_name, created_at) VALUES (?, ?, ?, ?)', [postId, userId, listName, Date.now()]);
+		await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT (user_id, name) DO NOTHING`, [userId, listName, Date.now()]);
 		await addXp(userId, 'POST_SAVE', 'post', postId);
 		const c = await getAsync('SELECT COUNT(*) as cnt FROM saved_posts WHERE post_id = ?', [postId]);
-		return res.json({ success: true, saved: true, count: c.cnt || 0 });
+		return res.json({ success: true, saved: true, count: c.cnt || 0, listName });
 	} catch (e) {
 		console.error('Save API error:', e);
 		return res.status(500).json({ error: 'Server error' });
@@ -1439,13 +1467,71 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 
 app.get('/api/saved-posts', requireAuth, async (req, res) => {
 	try {
+		const listName = typeof req.query.list === 'string' ? req.query.list.trim() : '';
 		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM saved_posts sp
 			JOIN posts p ON p.id = sp.post_id
 			JOIN users u ON u.id = p.user_id
 			WHERE sp.user_id = ?
-			ORDER BY sp.created_at DESC`, [req.session.userId]);
+			AND (? = '' OR sp.list_name = ?)
+			ORDER BY sp.created_at DESC`, [req.session.userId, listName, listName]);
 		res.json({ posts: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/saved-lists', requireAuth, async (req, res) => {
+	try {
+		const rows = await allAsync(`SELECT name,
+			(SELECT COUNT(*) FROM saved_posts sp WHERE sp.user_id = ? AND sp.list_name = l.name) AS post_count
+			FROM saved_post_lists l
+			WHERE l.user_id = ?
+			UNION
+			SELECT 'General' as name,
+			(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.user_id = ? AND sp2.list_name = 'General') as post_count
+			ORDER BY name ASC`, [req.session.userId, req.session.userId, req.session.userId]);
+		const dedup = [];
+		const seen = new Set();
+		for (const r of rows) {
+			const key = String(r.name || '');
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			dedup.push(r);
+		}
+		res.json({ lists: dedup });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/saved-lists', requireAuth, async (req, res) => {
+	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+	if (!name) return res.status(400).json({ error: 'List name is required' });
+	if (name.length > 40) return res.status(400).json({ error: 'List name is too long' });
+	try {
+		await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT (user_id, name) DO NOTHING`, [req.session.userId, name, Date.now()]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/saved-post/:id/list', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	const listName = typeof req.body.listName === 'string' ? req.body.listName.trim() : '';
+	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	if (!listName) return res.status(400).json({ error: 'List name is required' });
+	if (listName.length > 40) return res.status(400).json({ error: 'List name is too long' });
+	try {
+		const updated = await runAsync('UPDATE saved_posts SET list_name = ? WHERE post_id = ? AND user_id = ?', [listName, postId, req.session.userId]);
+		if (!updated.changes) return res.status(404).json({ error: 'Saved post not found' });
+		await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT (user_id, name) DO NOTHING`, [req.session.userId, listName, Date.now()]);
+		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1462,7 +1548,17 @@ app.get('/api/xp/history', requireAuth, async (req, res) => {
 
 app.get('/api/leaderboard', async (req, res) => {
 	try {
-		const rows = await allAsync('SELECT id, username, name, profile_picture, xp, level, title FROM users ORDER BY xp DESC, id ASC LIMIT 20');
+		const rows = await allAsync(`SELECT
+			u.id, u.username, u.name, u.profile_picture, u.xp, u.level, u.title,
+			(SELECT g.name
+			 FROM group_memberships gm
+			 JOIN groups g ON g.id = gm.group_id
+			 WHERE gm.user_id = u.id AND gm.status = 'active'
+			 ORDER BY gm.created_at DESC
+			 LIMIT 1) AS clan_name
+			FROM users u
+			ORDER BY u.xp DESC, u.id ASC
+			LIMIT 20`);
 		res.json({ users: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1489,13 +1585,85 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 
 app.get('/api/groups', requireAuth, async (req, res) => {
 	try {
-		const rows = await allAsync(`SELECT g.id, g.name, g.description, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
+		const rows = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
 			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
 			(SELECT role FROM group_memberships gm2 WHERE gm2.group_id = g.id AND gm2.user_id = ?) as my_role,
 			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status
 			FROM groups g
 			ORDER BY g.created_at DESC`, [req.session.userId, req.session.userId]);
 		res.json({ groups: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/groups/:id/detail', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const group = await getAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
+			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
+			(SELECT role FROM group_memberships gm2 WHERE gm2.group_id = g.id AND gm2.user_id = ?) as my_role,
+			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status
+			FROM groups g WHERE g.id = ?`, [req.session.userId, req.session.userId, groupId]);
+		if (!group) return res.status(404).json({ error: 'Clan not found' });
+		const mine = await getGroupRole(groupId, req.session.userId);
+		if (Number(group.is_private) === 1 && (!mine || mine.status !== 'active')) {
+			return res.status(403).json({ error: 'Join this private clan to view details' });
+		}
+		const posts = await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
+			FROM group_posts gp
+			JOIN users u ON u.id = gp.user_id
+			WHERE gp.group_id = ?
+			ORDER BY gp.created_at DESC
+			LIMIT 100`, [groupId]);
+		const members = await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, gm.created_at, u.username, u.name, u.profile_picture
+			FROM group_memberships gm
+			JOIN users u ON u.id = gm.user_id
+			WHERE gm.group_id = ? AND gm.status = 'active'
+			ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId]);
+		res.json({ group, posts, members });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/groups/:id/activity', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const mine = await getGroupRole(groupId, req.session.userId);
+		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Not an active clan member' });
+		const postActivity = await allAsync(`SELECT 'post' AS type, gp.created_at, u.username, u.name, gp.content
+			FROM group_posts gp JOIN users u ON u.id = gp.user_id
+			WHERE gp.group_id = ?
+			ORDER BY gp.created_at DESC
+			LIMIT 20`, [groupId]);
+		const joinActivity = await allAsync(`SELECT CASE WHEN gm.status = 'pending' THEN 'join_request' ELSE 'join' END AS type,
+			gm.created_at, u.username, u.name, '' AS content
+			FROM group_memberships gm JOIN users u ON u.id = gm.user_id
+			WHERE gm.group_id = ?
+			ORDER BY gm.created_at DESC
+			LIMIT 20`, [groupId]);
+		const events = [...postActivity, ...joinActivity]
+			.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))
+			.slice(0, 30);
+		res.json({ events });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/picture', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const image = typeof req.body.image === 'string' ? req.body.image : '';
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	if (!image || !image.startsWith('data:image')) return res.status(400).json({ error: 'Invalid image' });
+	try {
+		const mine = await getGroupRole(groupId, req.session.userId);
+		if (!mine || mine.status !== 'active' || mine.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+		await runAsync('UPDATE groups SET profile_picture = ? WHERE id = ?', [image, groupId]);
+		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1691,6 +1859,10 @@ app.get('/admin', requireAdmin, (req, res) => {
 
 app.get('/profile', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+app.get('/clan', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'clan.html'));
 });
 
 app.get('/verify-email.html', (req, res) => {

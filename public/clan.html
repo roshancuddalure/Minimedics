@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Clan Management - MiniMedics</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Clan</span>
+        <h1>MiniMedics</h1>
+        <p id="clanHeaderMeta" class="muted">Manage clan details, activity, and requests.</p>
+      </div>
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/dashboard">Back to Dashboard</a>
+      </div>
+    </header>
+    <main class="layout" style="margin-top:1rem">
+      <aside class="stack">
+        <section id="clanProfileCard" class="card"></section>
+        <section class="card">
+          <h3>Clan Activity</h3>
+          <div id="clanActivity" class="section-gap"></div>
+        </section>
+      </aside>
+      <section class="stack">
+        <section class="card">
+          <h3>Clan Posts</h3>
+          <form id="clanPostForm" class="form">
+            <textarea id="clanPostContent" maxlength="1200" placeholder="Share update with clan..."></textarea>
+            <div class="row">
+              <button class="btn primary" type="submit">Post</button>
+            </div>
+          </form>
+          <div id="clanPosts" class="feed section-gap"></div>
+        </section>
+        <section class="card">
+          <h3>Members</h3>
+          <div id="clanMembers" class="section-gap"></div>
+        </section>
+        <section class="card">
+          <h3>Join Requests</h3>
+          <div id="clanRequests" class="section-gap"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

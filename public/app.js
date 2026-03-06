@@ -106,6 +106,7 @@ let selectedGroupId = null;
 let selectedGroupRole = null;
 let cachedMe = null;
 let postMode = null;
+let currentSavedListFilter = 'General';
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {}, cache: 'no-store' };
@@ -345,11 +346,14 @@ async function toggleLike(postId, btn) {
 }
 
 async function toggleSave(postId, btn) {
+  const picker = document.getElementById('savedListSelect');
+  const listName = picker && picker.value ? picker.value : 'General';
   setLoading(btn, true);
-  const res = await api(`/api/post/${postId}/save`, 'POST');
+  const res = await api(`/api/post/${postId}/save`, 'POST', { listName });
   setLoading(btn, false);
   if (res && res.success) {
     btn.textContent = `${res.saved ? 'Saved' : 'Save'} (${res.count || 0})`;
+    if (document.getElementById('savedPostsBox')) loadSavedPosts();
   } else {
     showToast(res.error || 'Unable to save post', 'error');
   }
@@ -928,6 +932,230 @@ async function handleProfileEditSubmit(e) {
   }
 }
 
+async function loadSavedLists() {
+  const selectEl = document.getElementById('savedListSelect');
+  if (!selectEl) return;
+  const res = await api('/api/saved-lists');
+  if (res.error) {
+    selectEl.innerHTML = '<option value="General">General</option>';
+    return;
+  }
+  const lists = Array.isArray(res.lists) ? res.lists : [];
+  if (!lists.length) lists.push({ name: 'General', post_count: 0 });
+  selectEl.innerHTML = lists.map((l) => {
+    const name = String(l.name || 'General');
+    const cnt = Number(l.post_count) || 0;
+    return `<option value="${escapeHtml(name)}">${escapeHtml(name)} (${cnt})</option>`;
+  }).join('');
+  if ([...selectEl.options].some((opt) => opt.value === currentSavedListFilter)) {
+    selectEl.value = currentSavedListFilter;
+  } else {
+    currentSavedListFilter = selectEl.value || 'General';
+  }
+  selectEl.onchange = () => {
+    currentSavedListFilter = selectEl.value || 'General';
+    loadSavedPosts();
+  };
+}
+
+async function createSavedList() {
+  const input = document.getElementById('newSavedListName');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    showToast('Enter list name', 'error');
+    return;
+  }
+  const res = await api('/api/saved-lists', 'POST', { name });
+  if (res && res.success) {
+    if (input) input.value = '';
+    await loadSavedLists();
+    showToast('List created');
+  } else {
+    showToast(res.error || 'Unable to create list', 'error');
+  }
+}
+
+async function moveSavedPostToList(postId, listName) {
+  const res = await api(`/api/saved-post/${postId}/list`, 'POST', { listName });
+  if (res && res.success) {
+    await loadSavedLists();
+    await loadSavedPosts();
+    showToast('Saved post moved');
+  } else {
+    showToast(res.error || 'Unable to move post', 'error');
+  }
+}
+
+async function loadSavedPosts() {
+  const box = document.getElementById('savedPostsBox');
+  const selectEl = document.getElementById('savedListSelect');
+  if (!box || !selectEl) return;
+  const listName = selectEl.value || 'General';
+  currentSavedListFilter = listName;
+  box.innerHTML = '<div class="muted">Loading saved posts...</div>';
+  const res = await api(`/api/saved-posts?list=${encodeURIComponent(listName)}`);
+  if (res.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(res.error)}</div>`;
+    return;
+  }
+  if (!res.posts || !res.posts.length) {
+    box.innerHTML = '<div class="muted">No saved posts in this list.</div>';
+    return;
+  }
+  const listsRes = await api('/api/saved-lists');
+  const listNames = (listsRes && Array.isArray(listsRes.lists) ? listsRes.lists.map((l) => String(l.name || '')).filter(Boolean) : ['General']);
+  box.innerHTML = '';
+  res.posts.forEach((p) => {
+    const card = document.createElement('div');
+    card.className = 'post';
+    const options = listNames.map((n) => `<option value="${escapeHtml(n)}"${n === listName ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+    card.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div>
+      <div>${escapeHtml(p.content || '')}</div>
+      <div class="row" style="justify-content:flex-start;margin-top:0.6rem">
+        <select data-post-id="${p.id}" class="saved-move-select">${options}</select>
+        <button class="btn secondary tiny-btn" data-remove-post-id="${p.id}" type="button">Remove</button>
+      </div>`;
+    const moveSelect = card.querySelector('.saved-move-select');
+    if (moveSelect) {
+      moveSelect.addEventListener('change', () => moveSavedPostToList(p.id, moveSelect.value));
+    }
+    const removeBtn = card.querySelector('[data-remove-post-id]');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', async () => {
+        const unsave = await api(`/api/post/${p.id}/save`, 'POST', { listName });
+        if (unsave && unsave.success) {
+          await loadSavedLists();
+          await loadSavedPosts();
+          showToast('Removed from saved');
+        } else {
+          showToast(unsave.error || 'Unable to remove', 'error');
+        }
+      });
+    }
+    box.appendChild(card);
+  });
+}
+
+async function loadClanManagementPage() {
+  const profileCard = document.getElementById('clanProfileCard');
+  if (!profileCard) return;
+  const clanId = new URLSearchParams(window.location.search).get('id');
+  if (!clanId) {
+    profileCard.innerHTML = '<div class="muted">Invalid clan id.</div>';
+    return;
+  }
+  const detailRes = await api(`/api/groups/${encodeURIComponent(clanId)}/detail`);
+  if (detailRes.error || !detailRes.group) {
+    profileCard.innerHTML = `<div class="muted">${escapeHtml(detailRes.error || 'Unable to load clan')}</div>`;
+    return;
+  }
+  const g = detailRes.group;
+  const canManage = g.my_role === 'admin';
+  const header = document.getElementById('clanHeaderMeta');
+  if (header) header.textContent = `${g.name} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}`;
+  profileCard.innerHTML = `<img src="${g.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
+    <h3>${escapeHtml(g.name)}</h3>
+    <p class="muted">${escapeHtml(g.description || '')}</p>
+    <p class="muted">Members: ${g.member_count || 0} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}</p>
+    <p class="muted">Role: ${escapeHtml(g.my_role || 'none')} | Status: ${escapeHtml(g.my_status || 'none')}</p>
+    ${canManage ? '<input id="clanPictureInput" type="file" accept="image/*" /><button id="updateClanPicBtn" class="btn secondary tiny-btn" type="button">Update Clan Picture</button>' : ''}`;
+  if (canManage) {
+    const updateBtn = document.getElementById('updateClanPicBtn');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', async () => {
+        const input = document.getElementById('clanPictureInput');
+        const file = input && input.files ? input.files[0] : null;
+        if (!file) {
+          showToast('Select image first', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          const r = await api(`/api/groups/${encodeURIComponent(clanId)}/picture`, 'POST', { image: evt.target.result });
+          if (r && r.success) {
+            showToast('Clan picture updated');
+            loadClanManagementPage();
+            loadGroups();
+          } else {
+            showToast(r.error || 'Unable to update clan picture', 'error');
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  }
+
+  const postsBox = document.getElementById('clanPosts');
+  if (postsBox) {
+    const posts = Array.isArray(detailRes.posts) ? detailRes.posts : [];
+    if (!posts.length) postsBox.innerHTML = '<div class="muted">No clan posts yet.</div>';
+    else postsBox.innerHTML = posts.map((p) => `<div class="post"><div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div>${escapeHtml(p.content || '')}</div></div>`).join('');
+  }
+
+  const membersBox = document.getElementById('clanMembers');
+  if (membersBox) {
+    const members = Array.isArray(detailRes.members) ? detailRes.members : [];
+    if (!members.length) membersBox.innerHTML = '<div class="muted">No members found.</div>';
+    else membersBox.innerHTML = members.map((m) => `<div class="request-item"><img src="${getProfilePictureUrl(m)}" style="width:30px;height:30px;border-radius:50%" /><strong>${escapeHtml(m.name || m.username)}</strong><span class="muted">${escapeHtml(m.role || 'member')}</span></div>`).join('');
+  }
+
+  const activityBox = document.getElementById('clanActivity');
+  if (activityBox) {
+    const actRes = await api(`/api/groups/${encodeURIComponent(clanId)}/activity`);
+    if (actRes.error) activityBox.innerHTML = `<div class="muted">${escapeHtml(actRes.error)}</div>`;
+    else if (!actRes.events || !actRes.events.length) activityBox.innerHTML = '<div class="muted">No recent activity.</div>';
+    else activityBox.innerHTML = actRes.events.map((e) => `<div class="request-item"><span class="muted">${formatDateTime(e.created_at)}</span><span><strong>${escapeHtml(e.name || e.username || '')}</strong> ${escapeHtml(e.type || '')}${e.content ? `: ${escapeHtml(e.content)}` : ''}</span></div>`).join('');
+  }
+
+  const requestsBox = document.getElementById('clanRequests');
+  if (requestsBox) {
+    if (!['admin', 'moderator'].includes(g.my_role || '')) {
+      requestsBox.innerHTML = '<div class="muted">Only clan admins/moderators can review requests.</div>';
+    } else {
+      const reqRes = await api(`/api/groups/${encodeURIComponent(clanId)}/requests`);
+      const reqs = reqRes && Array.isArray(reqRes.requests) ? reqRes.requests : [];
+      if (!reqs.length) requestsBox.innerHTML = '<div class="muted">No pending requests.</div>';
+      else {
+        requestsBox.innerHTML = '';
+        reqs.forEach((r) => {
+          const item = document.createElement('div');
+          item.className = 'request-item';
+          item.innerHTML = `<img src="${getProfilePictureUrl(r)}" style="width:30px;height:30px;border-radius:50%" /><strong>${escapeHtml(r.name || r.username)}</strong>`;
+          const approveBtn = createActionButton('Approve', async () => {
+            const ar = await api(`/api/groups/${encodeURIComponent(clanId)}/requests/${encodeURIComponent(r.id)}`, 'POST', { action: 'approve' });
+            if (ar && ar.success) loadClanManagementPage();
+            else showToast(ar.error || 'Unable to approve', 'error');
+          }, 'btn tiny-btn');
+          const rejectBtn = createActionButton('Reject', async () => {
+            const rr = await api(`/api/groups/${encodeURIComponent(clanId)}/requests/${encodeURIComponent(r.id)}`, 'POST', { action: 'reject' });
+            if (rr && rr.success) loadClanManagementPage();
+            else showToast(rr.error || 'Unable to reject', 'error');
+          }, 'btn secondary tiny-btn');
+          item.appendChild(approveBtn);
+          item.appendChild(rejectBtn);
+          requestsBox.appendChild(item);
+        });
+      }
+    }
+  }
+}
+
+async function handleClanPostSubmit(e) {
+  e.preventDefault();
+  const clanId = new URLSearchParams(window.location.search).get('id');
+  const input = document.getElementById('clanPostContent');
+  const content = input ? input.value.trim() : '';
+  if (!clanId || !content) return;
+  const res = await api(`/api/groups/${encodeURIComponent(clanId)}/post`, 'POST', { content });
+  if (res && res.success) {
+    if (input) input.value = '';
+    showToast('Clan post shared');
+    loadClanManagementPage();
+  } else {
+    showToast(res.error || 'Unable to post to clan', 'error');
+  }
+}
+
 async function suggestSpeciality() {
   const input = document.getElementById('specialitySuggestionInput');
   const suggestion = input ? input.value.trim() : '';
@@ -1231,7 +1459,11 @@ async function loadLeaderboard() {
   res.users.slice(0, 8).forEach((u, idx) => {
     const row = document.createElement('div');
     row.className = 'leader-row';
-    row.innerHTML = `<span>#${idx + 1}</span><span>${escapeHtml(u.name || u.username)}</span><span>${u.level || 1}</span><span>${u.xp || 0} XP</span>`;
+    row.innerHTML = `<span>#${idx + 1}</span>
+      <span><a href="/user-profile.html?id=${encodeURIComponent(u.id)}">${escapeHtml(u.name || u.username)}</a></span>
+      <span>L${u.level || 1}</span>
+      <span>${u.xp || 0} XP</span>
+      <span class="muted">${escapeHtml(u.clan_name || 'No clan')}</span>`;
     box.appendChild(row);
   });
 }
@@ -1245,7 +1477,7 @@ async function loadGroups() {
     return;
   }
   if (!res.groups || !res.groups.length) {
-    box.innerHTML = '<div class="muted">No groups yet. Create one.</div>';
+    box.innerHTML = '<div class="muted">No clans yet. Create one.</div>';
     return;
   }
   box.innerHTML = '';
@@ -1260,23 +1492,38 @@ async function loadGroups() {
       <div class="muted">${myState}${g.my_role ? ` | ${g.my_role}` : ''}</div>`;
     const actions = document.createElement('div');
     actions.className = 'post-actions';
+    if (g.profile_picture) {
+      const pic = document.createElement('img');
+      pic.src = g.profile_picture;
+      pic.alt = 'Clan picture';
+      pic.style.width = '42px';
+      pic.style.height = '42px';
+      pic.style.objectFit = 'cover';
+      pic.style.borderRadius = '10px';
+      pic.style.border = '1px solid var(--line)';
+      card.prepend(pic);
+    }
     const openBtn = createActionButton('Open', async () => {
       selectedGroupId = g.id;
       selectedGroupRole = g.my_role || null;
       const title = document.getElementById('groupFeedTitle');
-      if (title) title.textContent = `Group Space - ${g.name}`;
+      if (title) title.textContent = `Clan Space - ${g.name}`;
       await loadGroupFeed();
       await loadGroupRequests();
     });
+    const manageBtn = createActionButton('Manage Clan', () => {
+      location.href = `/clan.html?id=${encodeURIComponent(g.id)}`;
+    }, 'btn tiny-btn');
     actions.appendChild(openBtn);
+    actions.appendChild(manageBtn);
     if (!g.my_status) {
       const joinBtn = createActionButton('Join', async () => {
         const joinRes = await api(`/api/groups/${g.id}/join`, 'POST', {});
         if (joinRes && joinRes.success) {
-          showToast(joinRes.status === 'active' ? 'Joined group' : 'Join request sent');
+          showToast(joinRes.status === 'active' ? 'Joined clan' : 'Join request sent');
           loadGroups();
         } else {
-          showToast(joinRes.error || 'Unable to join group', 'error');
+          showToast(joinRes.error || 'Unable to join clan', 'error');
         }
       }, 'btn tiny-btn');
       actions.appendChild(joinBtn);
@@ -1290,17 +1537,17 @@ async function loadGroupFeed() {
   const box = document.getElementById('groupFeed');
   if (!box) return;
   if (!selectedGroupId) {
-    box.innerHTML = '<div class="muted">Select a group from the left panel to view posts.</div>';
+    box.innerHTML = '<div class="muted">Select a clan from the left panel to view posts.</div>';
     return;
   }
-  box.innerHTML = '<div class="muted">Loading group posts...</div>';
+  box.innerHTML = '<div class="muted">Loading clan posts...</div>';
   const res = await api(`/api/groups/${selectedGroupId}/feed`);
   if (res.error) {
     box.innerHTML = `<div class="muted">${escapeHtml(res.error)}</div>`;
     return;
   }
   if (!res.posts || !res.posts.length) {
-    box.innerHTML = '<div class="muted">No group posts yet.</div>';
+    box.innerHTML = '<div class="muted">No clan posts yet.</div>';
     return;
   }
   box.innerHTML = '';
@@ -1315,16 +1562,16 @@ async function loadGroupFeed() {
       actions.className = 'post-actions';
       const delBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
       delBtn.addEventListener('click', async () => {
-        const ok = window.confirm('Delete this group post?');
+        const ok = window.confirm('Delete this clan post?');
         if (!ok) return;
         setLoading(delBtn, true);
         const deleteRes = await api(`/api/groups/${p.group_id}/post/${p.id}`, 'DELETE');
         setLoading(delBtn, false);
         if (deleteRes && deleteRes.success) {
           el.remove();
-          showToast('Group post deleted');
+          showToast('Clan post deleted');
         } else {
-          showToast(deleteRes.error || 'Unable to delete group post', 'error');
+          showToast(deleteRes.error || 'Unable to delete clan post', 'error');
         }
       });
       actions.appendChild(delBtn);
@@ -1378,25 +1625,25 @@ async function handleGroupCreate(e) {
   const name = nameEl ? nameEl.value.trim() : '';
   const description = descEl ? descEl.value.trim() : '';
   if (!name) {
-    showToast('Group name is required', 'error');
+    showToast('Clan name is required', 'error');
     return;
   }
   const res = await api('/api/groups', 'POST', { name, description, isPrivate: privateEl ? privateEl.checked : true });
   if (res && res.success) {
     if (nameEl) nameEl.value = '';
     if (descEl) descEl.value = '';
-    showToast('Group created');
+    showToast('Clan created');
     loadGroups();
     loadProfile();
   } else {
-    showToast(res.error || 'Unable to create group', 'error');
+    showToast(res.error || 'Unable to create clan', 'error');
   }
 }
 
 async function handleGroupPost(e) {
   e.preventDefault();
   if (!selectedGroupId) {
-    showToast('Select a group first', 'error');
+    showToast('Select a clan first', 'error');
     return;
   }
   const input = document.getElementById('groupPostContent');
@@ -1405,11 +1652,11 @@ async function handleGroupPost(e) {
   const res = await api(`/api/groups/${selectedGroupId}/post`, 'POST', { content });
   if (res && res.success) {
     if (input) input.value = '';
-    showToast('Posted to group');
+    showToast('Posted to clan');
     loadGroupFeed();
     loadProfile();
   } else {
-    showToast(res.error || 'Unable to post to group', 'error');
+    showToast(res.error || 'Unable to post to clan', 'error');
   }
 }
 
@@ -1949,14 +2196,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initChatControls();
   
   // Dashboard-specific
-  if (document.getElementById('connections')) { loadConnections(); loadRequests(); }
-  if (document.getElementById('connections')) setInterval(loadConnections, 15000);
+  if (document.getElementById('connections')) loadConnectionPanels();
+  if (document.getElementById('connections')) setInterval(loadConnectionPanels, 15000);
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
   if (document.getElementById('levelDetails')) loadLevelDetails();
   if (document.getElementById('groupFeed')) loadGroupFeed();
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
+  if (document.getElementById('clanPostForm')) document.getElementById('clanPostForm').addEventListener('submit', handleClanPostSubmit);
+  if (document.getElementById('clanProfileCard')) loadClanManagementPage();
   if (document.getElementById('changePasswordForm')) document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
   const openPasswordModalBtn = document.getElementById('openPasswordModalBtn');
   const closePasswordModalBtn = document.getElementById('closePasswordModalBtn');
@@ -2018,6 +2267,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
     loadProfileEditor();
+    loadSavedLists().then(() => loadSavedPosts());
+    const createListBtn = document.getElementById('createSavedListBtn');
+    if (createListBtn) createListBtn.addEventListener('click', createSavedList);
     const suggestBtn = document.getElementById('specialitySuggestBtn');
     if (suggestBtn) suggestBtn.addEventListener('click', suggestSpeciality);
   }
