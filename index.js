@@ -31,6 +31,30 @@ const XP_RULES = {
 	GROUP_POST: 10
 };
 
+// userId -> set of connected socket ids
+const userSockets = new Map();
+
+function markUserOnline(userId, socketId) {
+	const key = String(userId);
+	if (!key || !socketId) return;
+	if (!userSockets.has(key)) userSockets.set(key, new Set());
+	userSockets.get(key).add(String(socketId));
+}
+
+function markUserOffline(userId, socketId) {
+	const key = String(userId);
+	if (!key || !socketId) return;
+	const sockets = userSockets.get(key);
+	if (!sockets) return;
+	sockets.delete(String(socketId));
+	if (!sockets.size) userSockets.delete(key);
+}
+
+function isUserOnline(userId) {
+	const sockets = userSockets.get(String(userId));
+	return Boolean(sockets && sockets.size > 0);
+}
+
 function getLevelFromXp(xp) {
 	const safeXp = Number(xp) || 0;
 	return Math.floor(safeXp / 100) + 1;
@@ -126,12 +150,18 @@ db.serialize(() => {
 		user_id INTEGER,
 		content TEXT,
 		image TEXT,
+		quiz_question TEXT,
+		quiz_options TEXT,
+		quiz_correct_index INTEGER,
 		reminder_at INTEGER,
 		reminder_note TEXT,
 		created_at INTEGER,
 		FOREIGN KEY(user_id) REFERENCES users(id)
 	)`, (err) => { if(err) console.log('Posts table:', err); else console.log('Posts table ready'); });
 	db.run(`ALTER TABLE posts ADD COLUMN image TEXT`, () => {});
+	db.run(`ALTER TABLE posts ADD COLUMN quiz_question TEXT`, () => {});
+	db.run(`ALTER TABLE posts ADD COLUMN quiz_options TEXT`, () => {});
+	db.run(`ALTER TABLE posts ADD COLUMN quiz_correct_index INTEGER`, () => {});
 	db.run(`ALTER TABLE posts ADD COLUMN reminder_at INTEGER`, () => {});
 	db.run(`ALTER TABLE posts ADD COLUMN reminder_note TEXT`, () => {});
 	db.run(`CREATE TABLE IF NOT EXISTS connections (
@@ -327,6 +357,25 @@ app.post('/api/login', (req, res) => {
 	});
 });
 
+app.post('/api/change-password', requireAuth, async (req, res) => {
+	const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword.trim() : '';
+	const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
+	if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
+	if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+	try {
+		const user = await getAsync('SELECT id, password FROM users WHERE id = ?', [req.session.userId]);
+		if (!user) return res.status(404).json({ error: 'User not found' });
+		const ok = await bcrypt.compare(currentPassword, user.password);
+		if (!ok) return res.status(400).json({ error: 'Current password is incorrect' });
+		const hash = await bcrypt.hash(newPassword, 10);
+		await runAsync('UPDATE users SET password = ? WHERE id = ?', [hash, req.session.userId]);
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Change password error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.post('/api/forgot-password', async (req, res) => {
 	const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
 	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
@@ -395,7 +444,7 @@ app.get('/api/user/:id', (req, res) => {
 
 app.get('/api/feed', (req, res) => {
 	const uid = Number(req.session.userId || 0);
-	const q = `SELECT p.id, p.content, p.image, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
+	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
 		(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
 		(SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) as comment_count,
 		(SELECT COUNT(*) FROM saved_posts sp WHERE sp.post_id = p.id) as save_count,
@@ -411,24 +460,42 @@ app.get('/api/feed', (req, res) => {
 });
 
 app.post('/api/post', requireAuth, (req, res) => {
-	const { content, image, reminderAt, reminderNote } = req.body;
+	const { content, image, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex } = req.body;
 	const safeContent = typeof content === 'string' ? content.trim() : '';
 	const safeReminderNote = typeof reminderNote === 'string' ? reminderNote.trim() : '';
 	const hasImage = typeof image === 'string' && image.startsWith('data:image');
+	const safeQuizQuestion = typeof quizQuestion === 'string' ? quizQuestion.trim() : '';
+	const hasQuizCorrectIndex = quizCorrectIndex !== undefined && quizCorrectIndex !== null && quizCorrectIndex !== '';
+	const isQuizPost = safeQuizQuestion.length > 0 || Array.isArray(quizOptions) || hasQuizCorrectIndex;
+	let safeQuizOptions = null;
+	let safeQuizCorrectIndex = null;
+	if (isQuizPost) {
+		const normalized = Array.isArray(quizOptions) ? quizOptions.map((v) => String(v || '').trim()).filter((v) => v.length > 0) : [];
+		const parsedCorrect = Number(quizCorrectIndex);
+		if (!safeQuizQuestion) return res.status(400).json({ error: 'Quiz question is required' });
+		if (safeQuizQuestion.length > 400) return res.status(400).json({ error: 'Quiz question is too long' });
+		if (normalized.length < 2 || normalized.length > 6) return res.status(400).json({ error: 'Quiz must have 2 to 6 options' });
+		if (normalized.some((opt) => opt.length > 200)) return res.status(400).json({ error: 'Quiz option is too long' });
+		if (Number.isNaN(parsedCorrect) || parsedCorrect < 0 || parsedCorrect >= normalized.length) {
+			return res.status(400).json({ error: 'Choose a valid correct answer for the quiz' });
+		}
+		safeQuizOptions = JSON.stringify(normalized);
+		safeQuizCorrectIndex = parsedCorrect;
+	}
 	let reminderAtTs = null;
 	if (reminderAt) {
 		const parsed = Number(reminderAt);
 		if (!Number.isNaN(parsed) && parsed > 0) reminderAtTs = parsed;
 	}
-	if (!safeContent && !hasImage && !safeReminderNote) {
-		return res.status(400).json({ error: 'Add text, image, or a reminder before posting' });
+	if (!safeContent && !hasImage && !safeReminderNote && !isQuizPost) {
+		return res.status(400).json({ error: 'Add text, image, reminder, or quiz before posting' });
 	}
 	if (safeContent.length > 5000) return res.status(400).json({ error: 'Post too long' });
 	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Image is too large' });
 	if (safeReminderNote.length > 240) return res.status(400).json({ error: 'Reminder note is too long' });
 	const ts = Date.now();
-	db.run('INSERT INTO posts (user_id, content, image, reminder_at, reminder_note, created_at) VALUES (?, ?, ?, ?, ?, ?)', 
-		[req.session.userId, safeContent, hasImage ? image : null, reminderAtTs, safeReminderNote || null, ts], 
+	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, reminder_at, reminder_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, reminderAtTs, safeReminderNote || null, ts], 
 		async function (err) {
 			if (err) {
 				console.error('Post insert error:', err);
@@ -502,7 +569,8 @@ app.get('/api/connections', requireAuth, (req, res) => {
 	const q = `SELECT u.id, u.username, u.name, u.profile_picture FROM users u JOIN connections c ON ( (c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id) ) WHERE c.status = 'accepted'`;
 	db.all(q, [uid, uid], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
-		res.json({ connections: rows });
+		const withPresence = (rows || []).map((r) => ({ ...r, online: isUserOnline(r.id) }));
+		res.json({ connections: withPresence });
 	});
 });
 
@@ -650,7 +718,7 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 
 app.get('/api/saved-posts', requireAuth, async (req, res) => {
 	try {
-		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture
+		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM saved_posts sp
 			JOIN posts p ON p.id = sp.post_id
 			JOIN users u ON u.id = p.user_id
@@ -894,13 +962,10 @@ const server = http.createServer(app);
 const { Server: IOServer } = require('socket.io');
 const io = new IOServer(server);
 
-// simple in-memory map of userId -> socket ids
-const userSockets = new Map();
-
 io.on('connection', (socket) => {
 	socket.on('identify', (userId) => {
 		socket.userId = userId;
-		userSockets.set(String(userId), socket.id);
+		markUserOnline(userId, socket.id);
 		socket.join(`user:${userId}`);
 	});
 
@@ -925,7 +990,7 @@ io.on('connection', (socket) => {
 	});
 
 	socket.on('disconnect', () => {
-		if (socket.userId) userSockets.delete(String(socket.userId));
+		if (socket.userId) markUserOffline(socket.userId, socket.id);
 	});
 });
 

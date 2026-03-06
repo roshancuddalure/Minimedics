@@ -327,7 +327,22 @@ a {
   padding: 0.56rem 0.66rem;
 }
 
+.tool-group select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 0.56rem 0.66rem;
+}
+
 .tool-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tool-group select:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -400,6 +415,43 @@ a {
   background: var(--surface);
   color: var(--text);
   padding: 0.46rem 0.6rem;
+}
+
+.quiz-box {
+  margin-top: 0.65rem;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 0.62rem;
+  background: rgba(86, 214, 198, 0.06);
+}
+
+.quiz-question {
+  font-weight: 600;
+  margin-bottom: 0.45rem;
+}
+
+.quiz-options {
+  margin: 0 0 0.45rem 1.2rem;
+  padding: 0;
+}
+
+.quiz-answer {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.connection-status {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.status-online {
+  color: #22c55e;
+}
+
+.status-offline {
+  color: var(--text-dim);
 }
 
 .leader-row {

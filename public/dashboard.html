@@ -34,6 +34,18 @@
         <section id="profileBox" class="card profile"></section>
 
         <section class="card">
+          <h3>Change Password</h3>
+          <form id="changePasswordForm" class="form">
+            <input id="currentPassword" type="password" placeholder="Current password" required />
+            <input id="newPassword" type="password" placeholder="New password (min 6 chars)" required />
+            <input id="confirmNewPassword" type="password" placeholder="Confirm new password" required />
+            <div class="row">
+              <button class="btn primary" type="submit">Update Password</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
           <h3>Incoming Requests</h3>
           <div id="requests" class="section-gap"></div>
         </section>
@@ -80,6 +92,27 @@
               <div class="tool-group">
                 <label class="tool-label" for="postReminderNote">Reminder Note</label>
                 <input id="postReminderNote" type="text" maxlength="240" placeholder="Example: Review meds before morning round" />
+              </div>
+              <div class="tool-group">
+                <label class="tool-label" for="quizQuestion">Quiz Question</label>
+                <input id="quizQuestion" type="text" maxlength="400" placeholder="Optional: Add a quiz question" />
+              </div>
+              <div class="tool-group">
+                <label class="tool-label">Quiz Options</label>
+                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 1" />
+                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 2" />
+                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 3 (optional)" />
+                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 4 (optional)" />
+              </div>
+              <div class="tool-group">
+                <label class="tool-label" for="quizCorrectIndex">Correct Answer</label>
+                <select id="quizCorrectIndex">
+                  <option value="">Select correct option</option>
+                  <option value="0">Option 1</option>
+                  <option value="1">Option 2</option>
+                  <option value="2">Option 3</option>
+                  <option value="3">Option 4</option>
+                </select>
               </div>
             </div>
             <div class="row">
