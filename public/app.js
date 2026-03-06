@@ -128,6 +128,17 @@ function formatReminder(reminderAt) {
   return `${status.toUpperCase()} - ${reminderDate.toLocaleString()}`;
 }
 
+function parseQuizOptions(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map((v) => String(v || '').trim()).filter(Boolean);
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((v) => String(v || '').trim()).filter(Boolean) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
 function escapeHtml(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')
@@ -304,6 +315,35 @@ async function loadFeed() {
       el.appendChild(reminder);
     }
 
+    if (p.quiz_question || p.quiz_options) {
+      const quizQuestion = String(p.quiz_question || '').trim();
+      const quizOptions = parseQuizOptions(p.quiz_options);
+      if (quizQuestion && quizOptions.length >= 2) {
+        const quizWrap = document.createElement('div');
+        quizWrap.className = 'quiz-box';
+        const qEl = document.createElement('div');
+        qEl.className = 'quiz-question';
+        qEl.textContent = `Quiz: ${quizQuestion}`;
+        quizWrap.appendChild(qEl);
+        const list = document.createElement('ol');
+        list.className = 'quiz-options';
+        quizOptions.forEach((opt) => {
+          const li = document.createElement('li');
+          li.textContent = opt;
+          list.appendChild(li);
+        });
+        quizWrap.appendChild(list);
+        const correctIndex = Number(p.quiz_correct_index);
+        if (!Number.isNaN(correctIndex) && correctIndex >= 0 && correctIndex < quizOptions.length) {
+          const answer = document.createElement('div');
+          answer.className = 'quiz-answer';
+          answer.textContent = `Correct Answer: ${quizOptions[correctIndex]}`;
+          quizWrap.appendChild(answer);
+        }
+        el.appendChild(quizWrap);
+      }
+    }
+
     const actionsRow = document.createElement('div');
     actionsRow.className = 'post-actions';
     if (meId) {
@@ -441,11 +481,14 @@ async function loadConnections() {
   }
   box.innerHTML = '';
   res.connections.forEach(c => {
+    const statusText = c.online ? 'Online' : 'Offline';
+    const statusClass = c.online ? 'status-online' : 'status-offline';
     const el = document.createElement('div');
     el.innerHTML = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:var(--card);border-radius:8px;transition:all 0.2s;border:1px solid var(--border)" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
       <img src="${c.profile_picture || 'data:image/svg+xml,<svg></svg>'}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)" loading="lazy" />
       <div style="flex:1">
         <div style="font-weight:500">${c.name || c.username}</div>
+        <div class="connection-status ${statusClass}">${statusText}</div>
       </div>
       <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${(c.name || c.username).replace(/'/g, "\\'")}'  )">Chat</button>
     </div>`;
@@ -650,6 +693,43 @@ async function handleGroupPost(e) {
   }
 }
 
+async function handleChangePassword(e) {
+  e.preventDefault();
+  const form = e.target;
+  const currentEl = document.getElementById('currentPassword');
+  const nextEl = document.getElementById('newPassword');
+  const confirmEl = document.getElementById('confirmNewPassword');
+  const currentPassword = currentEl ? currentEl.value.trim() : '';
+  const newPassword = nextEl ? nextEl.value.trim() : '';
+  const confirmPassword = confirmEl ? confirmEl.value.trim() : '';
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    showToast('Please fill all password fields', 'error');
+    return;
+  }
+  if (newPassword.length < 6) {
+    showToast('New password must be at least 6 characters', 'error');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showToast('New password and confirm password do not match', 'error');
+    return;
+  }
+  const submitBtn = form.querySelector('button[type="submit"]');
+  setLoading(form, true);
+  if (submitBtn) submitBtn.textContent = 'Updating...';
+  const res = await api('/api/change-password', 'POST', { currentPassword, newPassword });
+  setLoading(form, false);
+  if (submitBtn) submitBtn.textContent = 'Update Password';
+  if (res && res.success) {
+    if (currentEl) currentEl.value = '';
+    if (nextEl) nextEl.value = '';
+    if (confirmEl) confirmEl.value = '';
+    showToast('Password updated');
+  } else {
+    showToast(res.error || 'Unable to change password', 'error');
+  }
+}
+
 // open chat with userId
 let socket = null;
 let currentChatUser = null;
@@ -748,13 +828,21 @@ async function submitPost(e) {
   const ta = document.getElementById('postContent');
   const reminderAtInput = document.getElementById('postReminderAt');
   const reminderNoteInput = document.getElementById('postReminderNote');
+  const quizQuestionInput = document.getElementById('quizQuestion');
+  const quizCorrectIndexInput = document.getElementById('quizCorrectIndex');
+  const quizOptionEls = Array.from(document.querySelectorAll('.quiz-option'));
   const content = ta.value.trim();
   const reminderNote = reminderNoteInput ? reminderNoteInput.value.trim() : '';
+  const quizQuestion = quizQuestionInput ? quizQuestionInput.value.trim() : '';
+  const quizOptions = quizOptionEls.map((el) => el.value.trim()).filter(Boolean);
+  const quizCorrectIndexRaw = quizCorrectIndexInput ? quizCorrectIndexInput.value : '';
+  const hasAnyQuizInput = Boolean(quizQuestion) || quizOptions.length > 0 || quizCorrectIndexRaw !== '';
+  const quizCorrectIndex = quizCorrectIndexRaw === '' ? null : Number(quizCorrectIndexRaw);
   const reminderAtRaw = reminderAtInput ? reminderAtInput.value : '';
   const reminderAt = reminderAtRaw ? new Date(reminderAtRaw).getTime() : null;
 
-  if (!content && !selectedPostImageDataUrl && !reminderNote) { 
-    showToast('Add text, image, or a reminder first.'); 
+  if (!content && !selectedPostImageDataUrl && !reminderNote && !hasAnyQuizInput) { 
+    showToast('Add text, image, reminder, or quiz first.'); 
     return;
   }
   if (content.length > 5000) {
@@ -769,6 +857,20 @@ async function submitPost(e) {
     showToast('Please choose a valid reminder date/time', 'error');
     return;
   }
+  if (hasAnyQuizInput) {
+    if (!quizQuestion) {
+      showToast('Quiz question is required when adding a quiz', 'error');
+      return;
+    }
+    if (quizOptions.length < 2 || quizOptions.length > 6) {
+      showToast('Quiz needs 2 to 6 options', 'error');
+      return;
+    }
+    if (Number.isNaN(quizCorrectIndex) || quizCorrectIndex < 0 || quizCorrectIndex >= quizOptions.length) {
+      showToast('Please select the correct quiz option', 'error');
+      return;
+    }
+  }
   
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
@@ -778,7 +880,10 @@ async function submitPost(e) {
     content,
     image: selectedPostImageDataUrl,
     reminderAt,
-    reminderNote
+    reminderNote,
+    quizQuestion: hasAnyQuizInput ? quizQuestion : null,
+    quizOptions: hasAnyQuizInput ? quizOptions : null,
+    quizCorrectIndex: hasAnyQuizInput ? quizCorrectIndex : null
   });
   
   setLoading(form, false);
@@ -788,6 +893,9 @@ async function submitPost(e) {
     ta.value='';
     if (reminderAtInput) reminderAtInput.value = '';
     if (reminderNoteInput) reminderNoteInput.value = '';
+    if (quizQuestionInput) quizQuestionInput.value = '';
+    if (quizCorrectIndexInput) quizCorrectIndexInput.value = '';
+    quizOptionEls.forEach((el) => { el.value = ''; });
     clearPostImageSelection();
     showToast('Post shared!');
     loadFeed();
@@ -1038,11 +1146,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   
   // Dashboard-specific
   if (document.getElementById('connections')) { loadConnections(); loadRequests(); }
+  if (document.getElementById('connections')) setInterval(loadConnections, 15000);
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
   if (document.getElementById('groupFeed')) loadGroupFeed();
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
+  if (document.getElementById('changePasswordForm')) document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
   
   // Post composer
   if (document.getElementById('postForm')) {
