@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin - MiniMedics</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Admin Area</span>
+        <h1>MiniMedics</h1>
+        <p class="muted">User management is restricted to administrator accounts.</p>
+      </div>
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/dashboard">Back to Dashboard</a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="stack">
+        <section class="card">
+          <h3 id="adminUsersTitle">Registered Users</h3>
+          <div id="adminUsers" class="section-gap"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

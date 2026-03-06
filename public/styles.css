@@ -311,6 +311,23 @@ a {
   gap: 0.75rem;
 }
 
+.post-mode-bar {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.post-mode-btn.active {
+  background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+  color: #032025;
+  border-color: transparent;
+}
+
+.mode-fields {
+  display: contents;
+}
+
 .tool-group {
   display: flex;
   flex-direction: column;
@@ -435,9 +452,37 @@ a {
   padding: 0;
 }
 
+.quiz-options.interactive {
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.quiz-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+}
+
+.quiz-option-row:hover {
+  border-color: var(--accent);
+}
+
 .quiz-answer {
   font-size: 0.85rem;
   color: var(--text-dim);
+}
+
+.quiz-answer.quiz-correct {
+  color: #22c55e;
+}
+
+.quiz-answer.quiz-incorrect {
+  color: #f87171;
 }
 
 .connection-status {
@@ -544,6 +589,55 @@ a {
   border-radius: 999px;
   border: 2px solid var(--accent);
   object-fit: cover;
+}
+
+.admin-users-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.admin-users-table th,
+.admin-users-table td {
+  border: 1px solid var(--line-soft);
+  padding: 0.42rem 0.48rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-users-table th {
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 8, 20, 0.66);
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(480px, 100%);
+  background: var(--card-strong);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 1rem;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
 .pic-upload {

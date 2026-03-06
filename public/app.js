@@ -104,6 +104,8 @@ const debouncedSearch = debounce(handleSearch, 300);
 let selectedPostImageDataUrl = null;
 let selectedGroupId = null;
 let selectedGroupRole = null;
+let cachedMe = null;
+let postMode = 'standard';
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {} };
@@ -139,6 +141,10 @@ function parseQuizOptions(raw) {
   }
 }
 
+function isPublicHomePage() {
+  return window.location.pathname === '/' || window.location.pathname.endsWith('/index.html');
+}
+
 function escapeHtml(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')
@@ -155,6 +161,102 @@ function createActionButton(label, onClick, className = 'btn secondary tiny-btn'
   btn.textContent = label;
   if (typeof onClick === 'function') btn.addEventListener('click', onClick);
   return btn;
+}
+
+function renderQuizBlock(post) {
+  const quizQuestion = String(post.quiz_question || '').trim();
+  const quizOptions = parseQuizOptions(post.quiz_options);
+  if (!quizQuestion || quizOptions.length < 2) return null;
+
+  const correctIndex = Number(post.quiz_correct_index);
+  const hasCorrectAnswer = !Number.isNaN(correctIndex) && correctIndex >= 0 && correctIndex < quizOptions.length;
+  if (!hasCorrectAnswer) return null;
+
+  const quizWrap = document.createElement('div');
+  quizWrap.className = 'quiz-box';
+  const qEl = document.createElement('div');
+  qEl.className = 'quiz-question';
+  qEl.textContent = `Quiz: ${quizQuestion}`;
+  quizWrap.appendChild(qEl);
+
+  const optionsWrap = document.createElement('div');
+  optionsWrap.className = 'quiz-options interactive';
+  const name = `quiz-${post.id}`;
+  quizOptions.forEach((opt, idx) => {
+    const optionId = `${name}-opt-${idx}`;
+    const row = document.createElement('label');
+    row.className = 'quiz-option-row';
+    row.setAttribute('for', optionId);
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = name;
+    input.id = optionId;
+    input.value = String(idx);
+
+    const text = document.createElement('span');
+    text.textContent = opt;
+    row.appendChild(input);
+    row.appendChild(text);
+    optionsWrap.appendChild(row);
+  });
+  quizWrap.appendChild(optionsWrap);
+
+  const controls = document.createElement('div');
+  controls.className = 'post-actions';
+  const submitBtn = createActionButton('Submit Answer', null, 'btn primary tiny-btn');
+  const feedback = document.createElement('div');
+  feedback.className = 'quiz-answer';
+  feedback.textContent = '';
+  submitBtn.addEventListener('click', () => {
+    const selected = quizWrap.querySelector(`input[name="${name}"]:checked`);
+    if (!selected) {
+      showToast('Select an option first', 'error');
+      return;
+    }
+    const selectedIndex = Number(selected.value);
+    const isCorrect = selectedIndex === correctIndex;
+    feedback.textContent = isCorrect ? 'Correct answer.' : `Incorrect. Correct answer: ${quizOptions[correctIndex]}`;
+    feedback.classList.remove('quiz-correct', 'quiz-incorrect');
+    feedback.classList.add(isCorrect ? 'quiz-correct' : 'quiz-incorrect');
+    submitBtn.disabled = true;
+    optionsWrap.querySelectorAll('input').forEach((input) => {
+      input.disabled = true;
+    });
+  });
+  controls.appendChild(submitBtn);
+  quizWrap.appendChild(controls);
+  quizWrap.appendChild(feedback);
+  return quizWrap;
+}
+
+function setPostMode(nextMode) {
+  postMode = nextMode;
+  const modeButtons = [
+    { id: 'postModeStandard', mode: 'standard' },
+    { id: 'postModeReminder', mode: 'reminder' },
+    { id: 'postModeQuiz', mode: 'quiz' }
+  ];
+  modeButtons.forEach((item) => {
+    const btn = document.getElementById(item.id);
+    if (!btn) return;
+    btn.classList.toggle('active', item.mode === postMode);
+  });
+  const reminderFields = document.getElementById('reminderModeFields');
+  const quizFields = document.getElementById('quizModeFields');
+  if (reminderFields) reminderFields.classList.toggle('hidden', postMode !== 'reminder');
+  if (quizFields) quizFields.classList.toggle('hidden', postMode !== 'quiz');
+}
+
+function initPostModeSwitcher() {
+  const standardBtn = document.getElementById('postModeStandard');
+  const reminderBtn = document.getElementById('postModeReminder');
+  const quizBtn = document.getElementById('postModeQuiz');
+  if (!standardBtn || !reminderBtn || !quizBtn) return;
+  standardBtn.addEventListener('click', () => setPostMode('standard'));
+  reminderBtn.addEventListener('click', () => setPostMode('reminder'));
+  quizBtn.addEventListener('click', () => setPostMode('quiz'));
+  setPostMode('standard');
 }
 
 async function toggleLike(postId, btn) {
@@ -263,8 +365,22 @@ async function loadFeed() {
   const box = document.getElementById('feed');
   if (!box) return;
   box.innerHTML = '<div class="muted center" style="padding:40px">Loading posts...</div>';
+  const meRes = await api('/api/me');
+  const me = meRes.user || null;
+  cachedMe = me;
+  window.__me = me;
+  if (isPublicHomePage() && !me) {
+    const feedCard = box.closest('.card');
+    if (feedCard) feedCard.classList.add('hidden');
+    return;
+  }
   const { posts, error } = await api('/api/feed');
   if (error) { 
+    if (isPublicHomePage()) {
+      const feedCard = box.closest('.card');
+      if (feedCard) feedCard.classList.add('hidden');
+      return;
+    }
     box.innerHTML = '<div class="muted" style="padding:20px;text-align:center">Unable to load posts</div>'; 
     return;
   }
@@ -273,9 +389,7 @@ async function loadFeed() {
     return;
   }
   box.innerHTML = '';
-  const meRes = await api('/api/me');
-  const meId = meRes.user ? meRes.user.id : null;
-  window.__me = meRes.user || null;
+  const meId = me ? me.id : null;
   posts.forEach(p => {
     const el = document.createElement('div'); el.className='post';
     const head = document.createElement('div');
@@ -315,34 +429,8 @@ async function loadFeed() {
       el.appendChild(reminder);
     }
 
-    if (p.quiz_question || p.quiz_options) {
-      const quizQuestion = String(p.quiz_question || '').trim();
-      const quizOptions = parseQuizOptions(p.quiz_options);
-      if (quizQuestion && quizOptions.length >= 2) {
-        const quizWrap = document.createElement('div');
-        quizWrap.className = 'quiz-box';
-        const qEl = document.createElement('div');
-        qEl.className = 'quiz-question';
-        qEl.textContent = `Quiz: ${quizQuestion}`;
-        quizWrap.appendChild(qEl);
-        const list = document.createElement('ol');
-        list.className = 'quiz-options';
-        quizOptions.forEach((opt) => {
-          const li = document.createElement('li');
-          li.textContent = opt;
-          list.appendChild(li);
-        });
-        quizWrap.appendChild(list);
-        const correctIndex = Number(p.quiz_correct_index);
-        if (!Number.isNaN(correctIndex) && correctIndex >= 0 && correctIndex < quizOptions.length) {
-          const answer = document.createElement('div');
-          answer.className = 'quiz-answer';
-          answer.textContent = `Correct Answer: ${quizOptions[correctIndex]}`;
-          quizWrap.appendChild(answer);
-        }
-        el.appendChild(quizWrap);
-      }
-    }
+    const quizBlock = renderQuizBlock(p);
+    if (quizBlock) el.appendChild(quizBlock);
 
     const actionsRow = document.createElement('div');
     actionsRow.className = 'post-actions';
@@ -414,6 +502,51 @@ async function loadFeed() {
     el.appendChild(commentsWrap);
     box.appendChild(el);
   });
+}
+
+async function loadAdminUsers() {
+  const title = document.getElementById('adminUsersTitle');
+  const box = document.getElementById('adminUsers');
+  if (!box) return;
+  const res = await api('/api/admin/users');
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Admin access required.</div>';
+    return;
+  }
+  const users = Array.isArray(res.users) ? res.users : [];
+  if (title) title.textContent = `Registered Users (${res.totalUsers || users.length || 0})`;
+  if (!users.length) {
+    box.innerHTML = '<div class="muted">No registered users found.</div>';
+    return;
+  }
+  const rows = users.slice(0, 100).map((u) => {
+    const email = u.email || (String(u.username || '').includes('@') ? u.username : 'Not provided');
+    const name = escapeHtml(u.name || u.username || 'Unknown');
+    const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : 'Never';
+    const xp = Number(u.xp) || 0;
+    const totalConnections = Number(u.total_connections) || 0;
+    return `<tr>
+      <td>${name}</td>
+      <td>${escapeHtml(email)}</td>
+      <td>${xp}</td>
+      <td>${escapeHtml(lastLogin)}</td>
+      <td>${totalConnections}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Email</th>
+          <th>XP</th>
+          <th>Last Login</th>
+          <th>Total Connections</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
 // Load incoming requests
@@ -725,9 +858,24 @@ async function handleChangePassword(e) {
     if (nextEl) nextEl.value = '';
     if (confirmEl) confirmEl.value = '';
     showToast('Password updated');
+    closePasswordModal();
   } else {
     showToast(res.error || 'Unable to change password', 'error');
   }
+}
+
+function openPasswordModal() {
+  const modal = document.getElementById('passwordModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closePasswordModal() {
+  const modal = document.getElementById('passwordModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
 }
 
 // open chat with userId
@@ -836,28 +984,31 @@ async function submitPost(e) {
   const quizQuestion = quizQuestionInput ? quizQuestionInput.value.trim() : '';
   const quizOptions = quizOptionEls.map((el) => el.value.trim()).filter(Boolean);
   const quizCorrectIndexRaw = quizCorrectIndexInput ? quizCorrectIndexInput.value : '';
-  const hasAnyQuizInput = Boolean(quizQuestion) || quizOptions.length > 0 || quizCorrectIndexRaw !== '';
   const quizCorrectIndex = quizCorrectIndexRaw === '' ? null : Number(quizCorrectIndexRaw);
   const reminderAtRaw = reminderAtInput ? reminderAtInput.value : '';
   const reminderAt = reminderAtRaw ? new Date(reminderAtRaw).getTime() : null;
+  const isReminderMode = postMode === 'reminder';
+  const isQuizMode = postMode === 'quiz';
+  const hasReminderInput = Boolean(reminderNote) || Boolean(reminderAtRaw);
+  const hasQuizInput = Boolean(quizQuestion) || quizOptions.length > 0 || quizCorrectIndexRaw !== '';
 
-  if (!content && !selectedPostImageDataUrl && !reminderNote && !hasAnyQuizInput) { 
-    showToast('Add text, image, reminder, or quiz first.'); 
+  if (!content && !selectedPostImageDataUrl && !hasReminderInput && !hasQuizInput) { 
+    showToast('Add text, image, reminder, or quiz first.');
     return;
   }
   if (content.length > 5000) {
     showToast('Post is too long (max 5000 characters)', 'error');
     return;
   }
-  if (reminderNote.length > 240) {
+  if (isReminderMode && reminderNote.length > 240) {
     showToast('Reminder note should be 240 chars or less', 'error');
     return;
   }
-  if (reminderAtRaw && Number.isNaN(reminderAt)) {
+  if (isReminderMode && reminderAtRaw && Number.isNaN(reminderAt)) {
     showToast('Please choose a valid reminder date/time', 'error');
     return;
   }
-  if (hasAnyQuizInput) {
+  if (isQuizMode) {
     if (!quizQuestion) {
       showToast('Quiz question is required when adding a quiz', 'error');
       return;
@@ -870,6 +1021,13 @@ async function submitPost(e) {
       showToast('Please select the correct quiz option', 'error');
       return;
     }
+  } else if (hasQuizInput) {
+    showToast('Switch to Quiz Post mode to add a quiz', 'error');
+    return;
+  }
+  if (!isReminderMode && hasReminderInput) {
+    showToast('Switch to Reminder Post mode to add a reminder', 'error');
+    return;
   }
   
   const btn = form.querySelector('button[type="submit"]');
@@ -879,11 +1037,11 @@ async function submitPost(e) {
   const res = await api('/api/post','POST',{
     content,
     image: selectedPostImageDataUrl,
-    reminderAt,
-    reminderNote,
-    quizQuestion: hasAnyQuizInput ? quizQuestion : null,
-    quizOptions: hasAnyQuizInput ? quizOptions : null,
-    quizCorrectIndex: hasAnyQuizInput ? quizCorrectIndex : null
+    reminderAt: isReminderMode ? reminderAt : null,
+    reminderNote: isReminderMode ? reminderNote : '',
+    quizQuestion: isQuizMode ? quizQuestion : null,
+    quizOptions: isQuizMode ? quizOptions : null,
+    quizCorrectIndex: isQuizMode ? quizCorrectIndex : null
   });
   
   setLoading(form, false);
@@ -896,6 +1054,7 @@ async function submitPost(e) {
     if (quizQuestionInput) quizQuestionInput.value = '';
     if (quizCorrectIndexInput) quizCorrectIndexInput.value = '';
     quizOptionEls.forEach((el) => { el.value = ''; });
+    setPostMode('standard');
     clearPostImageSelection();
     showToast('Post shared!');
     loadFeed();
@@ -912,6 +1071,8 @@ async function handleRegister(e) {
   const u=document.getElementById('regUser').value.trim();
   const p=document.getElementById('regPass').value.trim();
   const n=document.getElementById('regName').value.trim();
+  const emailEl = document.getElementById('regEmail');
+  const email = emailEl ? emailEl.value.trim() : '';
   
   if (!u || !p) { 
     showToast('Username and password required', 'error'); 
@@ -926,7 +1087,7 @@ async function handleRegister(e) {
   setLoading(form, true);
   submitBtn.textContent = 'Creating...';
   
-  const res = await api('/api/register','POST',{username:u,password:p,name:n});
+  const res = await api('/api/register','POST',{username:u,password:p,name:n,email});
   
   setLoading(form, false);
   submitBtn.textContent = 'Register';
@@ -1011,6 +1172,14 @@ async function loadProfile() {
   const holder = document.getElementById('profileBox');
   if (!holder) return;
   const res = await api('/api/me');
+  cachedMe = res.user || null;
+  window.__me = cachedMe;
+  if (isPublicHomePage() && !cachedMe) {
+    holder.classList.add('hidden');
+    holder.innerHTML = '';
+    return;
+  }
+  holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
       <h3>Welcome to MiniMedics</h3>
@@ -1024,6 +1193,7 @@ async function loadProfile() {
   }
   const last = res.user.last_login ? new Date(res.user.last_login).toLocaleString() : 'Never';
   const picUrl = res.user.profile_picture ? res.user.profile_picture : 'data:image/svg+xml,<svg></svg>';
+  const adminActions = res.user.role === 'admin' ? '<div class="row" style="justify-content:flex-start;margin-top:0.6rem"><a class="btn tiny-btn" href="/admin">Open Admin Management</a></div>' : '';
   holder.innerHTML = `<div class="profile card">
     <img id="profilePic" src="${picUrl}" class="profile-picture" />
     <h3>${res.user.name || res.user.username}</h3>
@@ -1031,6 +1201,7 @@ async function loadProfile() {
     <p class="muted">Level ${res.user.level || 1} | XP ${res.user.xp || 0}</p>
     <p class="muted">Connections: ${res.user.connections_count || 0}</p>
     <p class="muted">Last login: ${last}</p>
+    ${adminActions}
     <div class="pic-upload">
       <input id="picInput" type="file" accept="image/*" />
       <button class="pic-upload-btn" onclick="document.getElementById('picInput').click()">Upload Photo</button>
@@ -1153,10 +1324,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
   if (document.getElementById('changePasswordForm')) document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
+  const openPasswordModalBtn = document.getElementById('openPasswordModalBtn');
+  const closePasswordModalBtn = document.getElementById('closePasswordModalBtn');
+  const passwordModal = document.getElementById('passwordModal');
+  if (openPasswordModalBtn) openPasswordModalBtn.addEventListener('click', openPasswordModal);
+  if (closePasswordModalBtn) closePasswordModalBtn.addEventListener('click', closePasswordModal);
+  if (passwordModal) {
+    passwordModal.addEventListener('click', (evt) => {
+      if (evt.target === passwordModal) closePasswordModal();
+    });
+  }
   
   // Post composer
   if (document.getElementById('postForm')) {
     document.getElementById('postForm').addEventListener('submit', submitPost);
+    initPostModeSwitcher();
     const postImageInput = document.getElementById('postImage');
     if (postImageInput) postImageInput.addEventListener('change', handlePostImageSelection);
   }
@@ -1185,4 +1367,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   
   // Profile display
   loadProfile();
+  (async () => {
+    const meRes = await api('/api/me');
+    cachedMe = meRes.user || null;
+    window.__me = cachedMe;
+    if (document.getElementById('adminUsers')) loadAdminUsers();
+  })();
 });

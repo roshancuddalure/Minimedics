@@ -34,15 +34,9 @@
         <section id="profileBox" class="card profile"></section>
 
         <section class="card">
-          <h3>Change Password</h3>
-          <form id="changePasswordForm" class="form">
-            <input id="currentPassword" type="password" placeholder="Current password" required />
-            <input id="newPassword" type="password" placeholder="New password (min 6 chars)" required />
-            <input id="confirmNewPassword" type="password" placeholder="Confirm new password" required />
-            <div class="row">
-              <button class="btn primary" type="submit">Update Password</button>
-            </div>
-          </form>
+          <h3>Account Security</h3>
+          <p class="muted">Password change is available on demand.</p>
+          <button id="openPasswordModalBtn" class="btn primary" type="button">Change Password</button>
         </section>
 
         <section class="card">
@@ -72,6 +66,7 @@
           <h3>Top Medics</h3>
           <div id="leaderboard" class="section-gap"></div>
         </section>
+
       </aside>
 
       <section class="stack">
@@ -79,40 +74,49 @@
           <h3>Share Something</h3>
           <form id="postForm">
             <textarea id="postContent" placeholder="What's on your mind?"></textarea>
+            <div class="post-mode-bar">
+              <button id="postModeStandard" class="btn tiny-btn post-mode-btn active" type="button">Normal Post</button>
+              <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Post</button>
+              <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Post</button>
+            </div>
             <div class="composer-tools">
               <div class="tool-group">
                 <label class="tool-label" for="postImage">Attach Image</label>
                 <input id="postImage" type="file" accept="image/*" />
                 <div id="postImagePreview" class="post-image-preview hidden"></div>
               </div>
-              <div class="tool-group">
-                <label class="tool-label" for="postReminderAt">Reminder Date & Time</label>
-                <input id="postReminderAt" type="datetime-local" />
+              <div id="reminderModeFields" class="mode-fields hidden">
+                <div class="tool-group">
+                  <label class="tool-label" for="postReminderAt">Reminder Date & Time</label>
+                  <input id="postReminderAt" type="datetime-local" />
+                </div>
+                <div class="tool-group">
+                  <label class="tool-label" for="postReminderNote">Reminder Note</label>
+                  <input id="postReminderNote" type="text" maxlength="240" placeholder="Example: Review meds before morning round" />
+                </div>
               </div>
-              <div class="tool-group">
-                <label class="tool-label" for="postReminderNote">Reminder Note</label>
-                <input id="postReminderNote" type="text" maxlength="240" placeholder="Example: Review meds before morning round" />
-              </div>
-              <div class="tool-group">
-                <label class="tool-label" for="quizQuestion">Quiz Question</label>
-                <input id="quizQuestion" type="text" maxlength="400" placeholder="Optional: Add a quiz question" />
-              </div>
-              <div class="tool-group">
-                <label class="tool-label">Quiz Options</label>
-                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 1" />
-                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 2" />
-                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 3 (optional)" />
-                <input class="quiz-option" type="text" maxlength="200" placeholder="Option 4 (optional)" />
-              </div>
-              <div class="tool-group">
-                <label class="tool-label" for="quizCorrectIndex">Correct Answer</label>
-                <select id="quizCorrectIndex">
-                  <option value="">Select correct option</option>
-                  <option value="0">Option 1</option>
-                  <option value="1">Option 2</option>
-                  <option value="2">Option 3</option>
-                  <option value="3">Option 4</option>
-                </select>
+              <div id="quizModeFields" class="mode-fields hidden">
+                <div class="tool-group">
+                  <label class="tool-label" for="quizQuestion">Quiz Question</label>
+                  <input id="quizQuestion" type="text" maxlength="400" placeholder="Add a quiz question" />
+                </div>
+                <div class="tool-group">
+                  <label class="tool-label">Quiz Options</label>
+                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 1" />
+                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 2" />
+                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 3 (optional)" />
+                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 4 (optional)" />
+                </div>
+                <div class="tool-group">
+                  <label class="tool-label" for="quizCorrectIndex">Correct Answer</label>
+                  <select id="quizCorrectIndex">
+                    <option value="">Select correct option</option>
+                    <option value="0">Option 1</option>
+                    <option value="1">Option 2</option>
+                    <option value="2">Option 3</option>
+                    <option value="3">Option 4</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div class="row">
@@ -154,6 +158,23 @@
         </section>
       </section>
     </main>
+  </div>
+
+  <div id="passwordModal" class="modal-backdrop hidden" aria-hidden="true">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
+      <div class="modal-head">
+        <h3 id="passwordModalTitle">Change Password</h3>
+        <button id="closePasswordModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
+      </div>
+      <form id="changePasswordForm" class="form">
+        <input id="currentPassword" type="password" placeholder="Current password" required />
+        <input id="newPassword" type="password" placeholder="New password (min 6 chars)" required />
+        <input id="confirmNewPassword" type="password" placeholder="Confirm new password" required />
+        <div class="row">
+          <button class="btn primary" type="submit">Update Password</button>
+        </div>
+      </form>
+    </section>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>

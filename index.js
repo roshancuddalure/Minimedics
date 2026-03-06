@@ -138,6 +138,7 @@ db.serialize(() => {
 	db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, (err) => {
 		// It's OK if column already exists
 	});
+	db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN xp INTEGER DEFAULT 0`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN title TEXT DEFAULT 'Rookie Medic'`, () => {});
@@ -271,8 +272,12 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/register', async (req, res) => {
-	const { username, password, name } = req.body;
+	const { username, password, name, email } = req.body;
 	if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+	const safeEmail = typeof email === 'string' ? email.trim() : '';
+	if (safeEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
+		return res.status(400).json({ error: 'Please provide a valid email address' });
+	}
 	
 	try {
 		// Check if this is the first user
@@ -282,8 +287,8 @@ app.post('/api/register', async (req, res) => {
 			const hash = await bcrypt.hash(password, 10);
 			const role = isFirstUser ? 'admin' : 'user';
 			
-			db.run('INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, ?)', 
-				[username, hash, name || '', role], 
+			db.run('INSERT INTO users (username, password, name, email, role) VALUES (?, ?, ?, ?, ?)', 
+				[username, hash, name || '', safeEmail || null, role], 
 				function (err) {
 					if (err) {
 						console.error('Register insert error:', err.message);
@@ -405,7 +410,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, email, role, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -416,6 +421,26 @@ app.get('/api/me', (req, res) => {
 			res.json({ user });
 		});
 	});
+});
+
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+	try {
+		const rows = await allAsync(`SELECT
+			u.id,
+			u.username,
+			u.name,
+			u.email,
+			u.role,
+			u.xp,
+			u.last_login,
+			(SELECT COUNT(*) FROM connections c WHERE (c.user_a = u.id OR c.user_b = u.id) AND c.status = 'accepted') AS total_connections
+			FROM users u
+			ORDER BY u.id DESC`);
+		res.json({ totalUsers: rows.length, users: rows });
+	} catch (e) {
+		console.error('Admin users API error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
 });
 
 // upload profile picture
@@ -442,7 +467,7 @@ app.get('/api/user/:id', (req, res) => {
 	});
 });
 
-app.get('/api/feed', (req, res) => {
+app.get('/api/feed', requireAuth, (req, res) => {
 	const uid = Number(req.session.userId || 0);
 	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
 		(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
@@ -955,6 +980,10 @@ app.get('/api/search', (req, res) => {
 app.get('/dashboard', (req, res) => {
 	if (!req.session.userId) return res.redirect('/login.html');
 	res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+app.get('/admin', requireAdmin, (req, res) => {
+	res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
 const http = require('http');
