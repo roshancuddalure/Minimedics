@@ -25,6 +25,11 @@
       <aside class="stack">
         <section id="clanProfileCard" class="card"></section>
         <section class="card">
+          <h3>Invite Link</h3>
+          <p class="muted">Create and share clan invite links.</p>
+          <div id="clanInvitePanel" class="section-gap"></div>
+        </section>
+        <section class="card">
           <h3>Clan Activity</h3>
           <div id="clanActivity" class="section-gap"></div>
         </section>
@@ -33,7 +38,77 @@
         <section class="card">
           <h3>Clan Posts</h3>
           <form id="clanPostForm" class="form">
+            <label class="tool-group">
+              <span class="tool-label">Post Type</span>
+              <select id="clanPostType">
+                <option value="message">Message</option>
+                <option value="image">Image + Caption</option>
+                <option value="quiz">Quiz</option>
+                <option value="reminder">Reminder</option>
+                <option value="link">Link Share</option>
+              </select>
+            </label>
             <textarea id="clanPostContent" maxlength="1200" placeholder="Share update with clan..."></textarea>
+            <div id="clanImageFields" class="hidden">
+              <label class="tool-group">
+                <span class="tool-label">Attach Image</span>
+                <input id="clanPostImage" type="file" accept="image/*" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Caption</span>
+                <input id="clanPostCaption" type="text" maxlength="600" placeholder="Write an image caption" />
+              </label>
+            </div>
+            <div id="clanQuizFields" class="hidden">
+              <label class="tool-group">
+                <span class="tool-label">Quiz Question</span>
+                <input id="clanQuizQuestion" type="text" maxlength="400" placeholder="Ask a question" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Option 1</span>
+                <input class="clanQuizOption" type="text" maxlength="200" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Option 2</span>
+                <input class="clanQuizOption" type="text" maxlength="200" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Option 3</span>
+                <input class="clanQuizOption" type="text" maxlength="200" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Option 4</span>
+                <input class="clanQuizOption" type="text" maxlength="200" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Correct Option Index (0-based)</span>
+                <input id="clanQuizCorrectIndex" type="number" min="0" max="3" />
+              </label>
+            </div>
+            <div id="clanReminderFields" class="hidden">
+              <label class="tool-group">
+                <span class="tool-label">Reminder Date & Time</span>
+                <input id="clanReminderAt" type="datetime-local" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Reminder Note</span>
+                <input id="clanReminderNote" type="text" maxlength="300" />
+              </label>
+            </div>
+            <div id="clanLinkFields" class="hidden">
+              <label class="tool-group">
+                <span class="tool-label">Link URL</span>
+                <input id="clanLinkUrl" type="url" placeholder="https://example.com" />
+              </label>
+              <label class="tool-group">
+                <span class="tool-label">Link Label</span>
+                <input id="clanLinkLabel" type="text" maxlength="160" placeholder="Readable title" />
+              </label>
+            </div>
+            <label class="tool-group">
+              <span class="tool-label">Mentions (comma separated usernames)</span>
+              <input id="clanPostMentions" type="text" maxlength="200" placeholder="alice,bob,charlie" />
+            </label>
             <div class="row">
               <button class="btn primary" type="submit">Post</button>
             </div>
@@ -41,8 +116,19 @@
           <div id="clanPosts" class="feed section-gap"></div>
         </section>
         <section class="card">
-          <h3>Members</h3>
+          <h3>Members Dashboard</h3>
+          <div id="clanRolePanel" class="section-gap"></div>
           <div id="clanMembers" class="section-gap"></div>
+        </section>
+        <section class="card">
+          <h3>Clan Lounge</h3>
+          <form id="clanLoungeForm" class="form">
+            <input id="clanLoungeInput" type="text" maxlength="1200" placeholder="Message the clan lounge..." />
+            <div class="row">
+              <button class="btn primary" type="submit">Send</button>
+            </div>
+          </form>
+          <div id="clanLoungeMessages" class="feed section-gap"></div>
         </section>
         <section class="card">
           <h3>Join Requests</h3>

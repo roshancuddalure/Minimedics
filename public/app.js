@@ -102,11 +102,13 @@ async function handleSearch(query) {
 const debouncedSearch = debounce(handleSearch, 300);
 let selectedPostImageDataUrl = null;
 let selectedStoryImageDataUrl = null;
+let selectedClanPostImageDataUrl = null;
 let selectedGroupId = null;
 let selectedGroupRole = null;
 let cachedMe = null;
 let postMode = null;
 let currentSavedListFilter = 'General';
+let clanLoungeInterval = null;
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {}, cache: 'no-store' };
@@ -1183,17 +1185,33 @@ async function loadClanManagementPage() {
     return;
   }
   const g = detailRes.group;
-  const canManage = ['admin', 'moderator'].includes(String(g.my_role || ''));
+  const permissionList = Array.isArray(detailRes.myPermissions) ? detailRes.myPermissions : [];
+  const hasPermission = (permission) => String(g.my_role || '') === 'admin' || permissionList.includes(permission);
+  const canManage = hasPermission('manage_members') || hasPermission('manage_requests') || hasPermission('manage_roles');
   const isActiveMember = g.my_status === 'active';
   const header = document.getElementById('clanHeaderMeta');
   if (header) header.textContent = `${g.name} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}`;
+  const inviteToken = new URLSearchParams(window.location.search).get('invite');
+  if (inviteToken && !isActiveMember) {
+    const joinByInvite = await api(`/api/groups/invite/${encodeURIComponent(inviteToken)}/join`, 'POST', {});
+    if (joinByInvite && joinByInvite.success) {
+      showToast(joinByInvite.status === 'active' ? 'Joined via invite link' : 'Invite accepted, waiting for approval');
+      window.history.replaceState({}, '', `/clan.html?id=${encodeURIComponent(joinByInvite.groupId || clanId)}`);
+      loadClanManagementPage();
+      return;
+    } else if (joinByInvite && joinByInvite.error) {
+      showToast(joinByInvite.error, 'error');
+    }
+  }
   profileCard.innerHTML = `<img src="${g.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
     <h3>${escapeHtml(g.name)}</h3>
     <p class="muted">${escapeHtml(g.description || '')}</p>
     <p class="muted">Members: ${g.member_count || 0} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}</p>
     <p class="muted">Role: ${escapeHtml(g.my_role || 'none')} | Status: ${escapeHtml(g.my_status || 'none')}</p>
-    ${!isActiveMember ? '<button id="joinClanBtn" class="btn tiny-btn" type="button">Request to Join Clan</button>' : ''}
-    ${canManage ? '<input id="clanPictureInput" type="file" accept="image/*" /><button id="updateClanPicBtn" class="btn secondary tiny-btn" type="button">Update Clan Picture</button>' : ''}`;
+    ${!isActiveMember && g.my_status !== 'pending' ? '<button id="joinClanBtn" class="btn tiny-btn" type="button">Request to Join Clan</button>' : ''}
+    ${g.my_status === 'pending' ? '<button id="cancelClanJoinBtn" class="btn secondary tiny-btn" type="button">Cancel Join Request</button>' : ''}
+    ${isActiveMember ? '<button id="leaveClanBtn" class="btn secondary tiny-btn" type="button">Leave Clan</button>' : ''}
+    ${hasPermission('manage_members') ? '<input id="clanPictureInput" type="file" accept="image/*" /><button id="updateClanPicBtn" class="btn secondary tiny-btn" type="button">Update Clan Picture</button>' : ''}`;
   const joinBtn = document.getElementById('joinClanBtn');
   if (joinBtn) {
     joinBtn.addEventListener('click', async () => {
@@ -1207,7 +1225,33 @@ async function loadClanManagementPage() {
       }
     });
   }
-  if (canManage) {
+  const leaveBtn = document.getElementById('leaveClanBtn');
+  if (leaveBtn) {
+    leaveBtn.addEventListener('click', async () => {
+      const ok = window.confirm('Leave this clan now?');
+      if (!ok) return;
+      const leaveRes = await api(`/api/groups/${encodeURIComponent(clanId)}/leave`, 'POST', {});
+      if (leaveRes && leaveRes.success) {
+        showToast('You left the clan');
+        location.href = '/dashboard';
+      } else {
+        showToast(leaveRes.error || 'Unable to leave clan', 'error');
+      }
+    });
+  }
+  const cancelBtn = document.getElementById('cancelClanJoinBtn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      const cancelRes = await api(`/api/groups/${encodeURIComponent(clanId)}/leave`, 'POST', {});
+      if (cancelRes && cancelRes.success) {
+        showToast('Join request cancelled');
+        loadClanManagementPage();
+      } else {
+        showToast(cancelRes.error || 'Unable to cancel request', 'error');
+      }
+    });
+  }
+  if (hasPermission('manage_members')) {
     const updateBtn = document.getElementById('updateClanPicBtn');
     if (updateBtn) {
       updateBtn.addEventListener('click', async () => {
@@ -1232,15 +1276,18 @@ async function loadClanManagementPage() {
       });
     }
   }
+  renderClanInvitePanel({ clanId, isActiveMember, hasPermission, invite: detailRes.invite });
+  renderClanRolePanel({ clanId, isActiveMember, hasPermission });
 
   const postsBox = document.getElementById('clanPosts');
   if (postsBox) {
     const clanPostForm = document.getElementById('clanPostForm');
-    if (clanPostForm) clanPostForm.classList.toggle('hidden', !isActiveMember);
+    const canPostAny = hasPermission('post_messages') || hasPermission('post_quiz') || hasPermission('post_reminder') || hasPermission('post_links');
+    if (clanPostForm) clanPostForm.classList.toggle('hidden', !isActiveMember || !canPostAny);
     const posts = Array.isArray(detailRes.posts) ? detailRes.posts : [];
     if (!isActiveMember) postsBox.innerHTML = '<div class="muted">Join this clan to view posts.</div>';
     else if (!posts.length) postsBox.innerHTML = '<div class="muted">No clan posts yet.</div>';
-    else postsBox.innerHTML = posts.map((p) => `<div class="post"><div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div>${escapeHtml(p.content || '')}</div></div>`).join('');
+    else postsBox.innerHTML = posts.map(renderClanPostCard).join('');
   }
 
   const membersBox = document.getElementById('clanMembers');
@@ -1248,7 +1295,62 @@ async function loadClanManagementPage() {
     const members = Array.isArray(detailRes.members) ? detailRes.members : [];
     if (!isActiveMember) membersBox.innerHTML = '<div class="muted">Join this clan to view members.</div>';
     else if (!members.length) membersBox.innerHTML = '<div class="muted">No members found.</div>';
-    else membersBox.innerHTML = members.map((m) => `<div class="request-item"><img src="${getProfilePictureUrl(m)}" style="width:30px;height:30px;border-radius:50%" /><strong>${escapeHtml(m.name || m.username)}</strong><span class="muted">${escapeHtml(m.role || 'member')}</span></div>`).join('');
+    else {
+      membersBox.innerHTML = members.map((m) => {
+        const roleLabel = m.custom_role_name ? `${m.custom_role_name} (custom)` : (m.role || 'member');
+        return `<div class="request-item">
+          <img src="${getProfilePictureUrl(m)}" style="width:30px;height:30px;border-radius:50%" />
+          <strong>${escapeHtml(m.name || m.username)}</strong>
+          <span class="muted">${escapeHtml(roleLabel)}</span>
+          <button class="btn tiny-btn" data-chat-member-id="${m.id}" data-chat-member-name="${escapeHtml(m.name || m.username)}" type="button">Message</button>
+          ${hasPermission('remove_members') && Number(m.id) !== Number(window.__me ? window.__me.id : 0) ? `<button class="btn secondary tiny-btn" data-remove-member-id="${m.id}" type="button">Remove</button>` : ''}
+          ${hasPermission('manage_roles') ? `<button class="btn tiny-btn" data-role-member-id="${m.id}" type="button">Role</button>` : ''}
+        </div>`;
+      }).join('');
+      membersBox.querySelectorAll('[data-chat-member-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const memberId = Number(btn.getAttribute('data-chat-member-id'));
+          const memberName = btn.getAttribute('data-chat-member-name') || 'Member';
+          if (!memberId) return;
+          openChat(memberId, memberName);
+        });
+      });
+      membersBox.querySelectorAll('[data-remove-member-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const targetId = btn.getAttribute('data-remove-member-id');
+          if (!targetId) return;
+          const ok = window.confirm('Remove this member from clan?');
+          if (!ok) return;
+          const removeRes = await api(`/api/groups/${encodeURIComponent(clanId)}/member/${encodeURIComponent(targetId)}`, 'DELETE');
+          if (removeRes && removeRes.success) {
+            showToast('Member removed');
+            loadClanManagementPage();
+            loadGroups();
+          } else {
+            showToast(removeRes.error || 'Unable to remove member', 'error');
+          }
+        });
+      });
+      membersBox.querySelectorAll('[data-role-member-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const targetId = Number(btn.getAttribute('data-role-member-id'));
+          if (!targetId) return;
+          const roleInput = window.prompt('Set system role: admin/moderator/member. Or type custom:<id> for custom role.');
+          if (!roleInput) return;
+          const raw = roleInput.trim();
+          let payload = { userId: targetId };
+          if (raw.toLowerCase().startsWith('custom:')) payload.customRoleId = Number(raw.split(':')[1]);
+          else payload.role = raw.toLowerCase();
+          const setRes = await api(`/api/groups/${encodeURIComponent(clanId)}/member-role`, 'POST', payload);
+          if (setRes && setRes.success) {
+            showToast('Member role updated');
+            loadClanManagementPage();
+          } else {
+            showToast(setRes.error || 'Unable to update role', 'error');
+          }
+        });
+      });
+    }
   }
 
   const activityBox = document.getElementById('clanActivity');
@@ -1261,7 +1363,7 @@ async function loadClanManagementPage() {
 
   const requestsBox = document.getElementById('clanRequests');
   if (requestsBox) {
-    if (!['admin', 'moderator'].includes(g.my_role || '')) {
+    if (!hasPermission('manage_requests')) {
       requestsBox.innerHTML = '<div class="muted">Only clan admins/moderators can review requests.</div>';
     } else {
       const reqRes = await api(`/api/groups/${encodeURIComponent(clanId)}/requests`);
@@ -1290,21 +1392,255 @@ async function loadClanManagementPage() {
       }
     }
   }
+  if (isActiveMember) {
+    loadClanLounge(clanId);
+    if (clanLoungeInterval) window.clearInterval(clanLoungeInterval);
+    clanLoungeInterval = window.setInterval(() => loadClanLounge(clanId), 10000);
+  }
 }
 
 async function handleClanPostSubmit(e) {
   e.preventDefault();
   const clanId = new URLSearchParams(window.location.search).get('id');
+  const typeEl = document.getElementById('clanPostType');
   const input = document.getElementById('clanPostContent');
+  const mentionsEl = document.getElementById('clanPostMentions');
+  const postType = typeEl ? typeEl.value : 'message';
   const content = input ? input.value.trim() : '';
-  if (!clanId || !content) return;
-  const res = await api(`/api/groups/${encodeURIComponent(clanId)}/post`, 'POST', { content });
+  if (!clanId) return;
+  const mentions = mentionsEl ? mentionsEl.value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const payload = {
+    postType,
+    content,
+    mentions,
+    image: selectedClanPostImageDataUrl || null,
+    caption: document.getElementById('clanPostCaption') ? document.getElementById('clanPostCaption').value.trim() : '',
+    quizQuestion: document.getElementById('clanQuizQuestion') ? document.getElementById('clanQuizQuestion').value.trim() : '',
+    quizOptions: Array.from(document.querySelectorAll('.clanQuizOption')).map((el) => (el.value || '').trim()).filter(Boolean),
+    quizCorrectIndex: document.getElementById('clanQuizCorrectIndex') ? Number(document.getElementById('clanQuizCorrectIndex').value) : null,
+    reminderAt: document.getElementById('clanReminderAt') && document.getElementById('clanReminderAt').value ? new Date(document.getElementById('clanReminderAt').value).getTime() : null,
+    reminderNote: document.getElementById('clanReminderNote') ? document.getElementById('clanReminderNote').value.trim() : '',
+    linkUrl: document.getElementById('clanLinkUrl') ? document.getElementById('clanLinkUrl').value.trim() : '',
+    linkLabel: document.getElementById('clanLinkLabel') ? document.getElementById('clanLinkLabel').value.trim() : ''
+  };
+  const res = await api(`/api/groups/${encodeURIComponent(clanId)}/post`, 'POST', payload);
   if (res && res.success) {
     if (input) input.value = '';
+    if (mentionsEl) mentionsEl.value = '';
+    selectedClanPostImageDataUrl = null;
+    const clanImageInput = document.getElementById('clanPostImage');
+    if (clanImageInput) clanImageInput.value = '';
+    ['clanPostCaption', 'clanQuizQuestion', 'clanQuizCorrectIndex', 'clanReminderAt', 'clanReminderNote', 'clanLinkUrl', 'clanLinkLabel']
+      .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    document.querySelectorAll('.clanQuizOption').forEach((el) => { el.value = ''; });
     showToast('Clan post shared');
     loadClanManagementPage();
   } else {
     showToast(res.error || 'Unable to post to clan', 'error');
+  }
+}
+
+function escapeWithMentionsAndLinks(text) {
+  const escaped = escapeHtml(text || '');
+  const mentionized = escaped.replace(/(^|\s)@([a-zA-Z0-9_.-]{2,32})/g, '$1<span class="mention-tag">@$2</span>');
+  return mentionized.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+function renderClanPostCard(post) {
+  const type = String(post.post_type || 'message');
+  const mentions = (() => {
+    try {
+      const parsed = JSON.parse(post.mentions || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  })();
+  const mentionsHtml = mentions.length ? `<div class="muted">Mentions: ${mentions.map((m) => `<span class="mention-tag">@${escapeHtml(m)}</span>`).join(' ')}</div>` : '';
+  const reminderHtml = type === 'reminder' && post.reminder_at ? `<div class="reminder-chip">${formatReminder(post.reminder_at)} ${post.reminder_note ? `- ${escapeHtml(post.reminder_note)}` : ''}</div>` : '';
+  const linkHtml = type === 'link' && post.link_url ? `<div><a href="${escapeHtml(post.link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(post.link_label || post.link_url)}</a></div>` : '';
+  let quizHtml = '';
+  if (type === 'quiz') {
+    const options = parseQuizOptions(post.quiz_options);
+    quizHtml = `<div class="quiz-box"><div class="quiz-question">${escapeHtml(post.quiz_question || '')}</div>${options.map((o, idx) => `<div class="muted">${idx + 1}. ${escapeHtml(o)}</div>`).join('')}</div>`;
+  }
+  return `<div class="post">
+    <div class="meta">${escapeHtml(post.name || post.username)} - ${formatDateTime(post.created_at)} - ${escapeHtml(type)}</div>
+    <div>${escapeWithMentionsAndLinks(post.content || '')}</div>
+    ${post.image ? `<img class="post-image" src="${post.image}" alt="Clan post image" loading="lazy" />` : ''}
+    ${post.caption ? `<div>${escapeWithMentionsAndLinks(post.caption)}</div>` : ''}
+    ${mentionsHtml}
+    ${reminderHtml}
+    ${linkHtml}
+    ${quizHtml}
+  </div>`;
+}
+
+function setClanPostTypeUi() {
+  const typeEl = document.getElementById('clanPostType');
+  if (!typeEl) return;
+  const type = typeEl.value;
+  const visibilityMap = [
+    ['clanImageFields', type === 'image'],
+    ['clanQuizFields', type === 'quiz'],
+    ['clanReminderFields', type === 'reminder'],
+    ['clanLinkFields', type === 'link']
+  ];
+  visibilityMap.forEach(([id, show]) => {
+    const node = document.getElementById(id);
+    if (node) node.classList.toggle('hidden', !show);
+  });
+}
+
+async function handleClanPostImageSelection(e) {
+  const file = e.target && e.target.files ? e.target.files[0] : null;
+  if (!file) {
+    selectedClanPostImageDataUrl = null;
+    return;
+  }
+  if (!file.type.startsWith('image/')) {
+    showToast('Select a valid image file', 'error');
+    e.target.value = '';
+    return;
+  }
+  if (file.size > 4 * 1024 * 1024) {
+    showToast('Image must be less than 4MB', 'error');
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    selectedClanPostImageDataUrl = evt.target.result;
+    showToast('Image attached');
+  };
+  reader.onerror = () => showToast('Unable to read image', 'error');
+  reader.readAsDataURL(file);
+}
+
+async function renderClanInvitePanel({ clanId, isActiveMember, hasPermission, invite }) {
+  const panel = document.getElementById('clanInvitePanel');
+  if (!panel) return;
+  if (!isActiveMember) {
+    panel.innerHTML = '<div class="muted">Join this clan to create invite links.</div>';
+    return;
+  }
+  if (!hasPermission('manage_invites')) {
+    panel.innerHTML = '<div class="muted">Invite link creation is limited to members with invite permission.</div>';
+    return;
+  }
+  const inviteUrl = invite && invite.token ? `${location.origin}/clan.html?id=${encodeURIComponent(clanId)}&invite=${encodeURIComponent(invite.token)}` : '';
+  panel.innerHTML = `<div class="tool-group">
+      <label class="tool-label">Expiry (hours)</label>
+      <input id="clanInviteTtlHours" type="number" min="1" max="168" value="72" />
+    </div>
+    <div class="tool-group">
+      <label class="tool-label">Max Uses (0 = unlimited)</label>
+      <input id="clanInviteMaxUses" type="number" min="0" max="500" value="0" />
+    </div>
+    <div class="row" style="justify-content:flex-start">
+      <button id="createClanInviteBtn" class="btn tiny-btn" type="button">Generate Invite</button>
+    </div>
+    <div id="clanInviteUrlBox" class="muted">${inviteUrl ? `Current: <a target="_blank" rel="noopener noreferrer" href="${inviteUrl}">${inviteUrl}</a>` : 'No invite generated yet.'}</div>`;
+  const createBtn = document.getElementById('createClanInviteBtn');
+  if (!createBtn) return;
+  createBtn.addEventListener('click', async () => {
+    const ttl = Number(document.getElementById('clanInviteTtlHours').value) || 72;
+    const maxUses = Number(document.getElementById('clanInviteMaxUses').value) || 0;
+    const res = await api(`/api/groups/${encodeURIComponent(clanId)}/invite`, 'POST', { ttlHours: ttl, maxUses });
+    if (res && res.success) {
+      const box = document.getElementById('clanInviteUrlBox');
+      if (box) box.innerHTML = `Current: <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(res.inviteUrl)}">${escapeHtml(res.inviteUrl)}</a>`;
+      if (navigator.clipboard && res.inviteUrl) navigator.clipboard.writeText(res.inviteUrl).catch(() => null);
+      showToast('Invite link generated and copied');
+    } else {
+      showToast(res.error || 'Unable to generate invite link', 'error');
+    }
+  });
+}
+
+async function renderClanRolePanel({ clanId, isActiveMember, hasPermission }) {
+  const panel = document.getElementById('clanRolePanel');
+  if (!panel) return;
+  if (!isActiveMember || !hasPermission('manage_roles')) {
+    panel.innerHTML = '<div class="muted">Role management is available for authorized admins.</div>';
+    return;
+  }
+  const permissions = [
+    'manage_members',
+    'remove_members',
+    'manage_requests',
+    'manage_posts',
+    'manage_roles',
+    'manage_invites',
+    'post_messages',
+    'post_quiz',
+    'post_reminder',
+    'post_links',
+    'access_lounge'
+  ];
+  const rolesRes = await api(`/api/groups/${encodeURIComponent(clanId)}/roles`);
+  const roleOptions = (rolesRes.roles || []).map((r) => `<div class="muted">#${r.id} - ${escapeHtml(r.name)}: ${(r.permissions || []).join(', ')}</div>`).join('');
+  panel.innerHTML = `<div class="muted">Custom roles</div>${roleOptions || '<div class="muted">No custom roles yet.</div>'}
+    <div class="tool-group section-gap">
+      <label class="tool-label">New Custom Role Name</label>
+      <input id="newClanRoleName" type="text" maxlength="30" placeholder="Example: Senior Coordinator" />
+    </div>
+    <div class="tool-group">
+      <label class="tool-label">Permissions (comma separated)</label>
+      <input id="newClanRolePermissions" type="text" value="${permissions.join(',')}" />
+    </div>
+    <div class="row" style="justify-content:flex-start">
+      <button id="createClanRoleBtn" class="btn tiny-btn" type="button">Create Custom Role</button>
+    </div>`;
+  const createBtn = document.getElementById('createClanRoleBtn');
+  if (!createBtn) return;
+  createBtn.addEventListener('click', async () => {
+    const roleName = document.getElementById('newClanRoleName').value.trim();
+    const selectedPerms = document.getElementById('newClanRolePermissions').value
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+    const res = await api(`/api/groups/${encodeURIComponent(clanId)}/roles`, 'POST', { name: roleName, permissions: selectedPerms });
+    if (res && res.success) {
+      showToast('Custom role created');
+      loadClanManagementPage();
+    } else {
+      showToast(res.error || 'Unable to create custom role', 'error');
+    }
+  });
+}
+
+async function loadClanLounge(clanId) {
+  const box = document.getElementById('clanLoungeMessages');
+  if (!box) return;
+  const res = await api(`/api/groups/${encodeURIComponent(clanId)}/lounge`);
+  if (res.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(res.error)}</div>`;
+    return;
+  }
+  const messages = Array.isArray(res.messages) ? res.messages : [];
+  if (!messages.length) {
+    box.innerHTML = '<div class="muted">No lounge messages yet.</div>';
+    return;
+  }
+  box.innerHTML = messages.map((m) => `<div class="post">
+    <div class="meta">${escapeHtml(m.name || m.username)} - ${formatDateTime(m.created_at)}</div>
+    <div>${escapeWithMentionsAndLinks(m.content || '')}</div>
+  </div>`).join('');
+}
+
+async function handleClanLoungeSubmit(e) {
+  e.preventDefault();
+  const clanId = new URLSearchParams(window.location.search).get('id');
+  const input = document.getElementById('clanLoungeInput');
+  const content = input ? input.value.trim() : '';
+  if (!clanId || !content) return;
+  const res = await api(`/api/groups/${encodeURIComponent(clanId)}/lounge`, 'POST', { content });
+  if (res && res.success) {
+    if (input) input.value = '';
+    loadClanLounge(clanId);
+  } else {
+    showToast(res.error || 'Unable to send lounge message', 'error');
   }
 }
 
@@ -2463,6 +2799,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
   if (document.getElementById('clanPostForm')) document.getElementById('clanPostForm').addEventListener('submit', handleClanPostSubmit);
+  if (document.getElementById('clanLoungeForm')) document.getElementById('clanLoungeForm').addEventListener('submit', handleClanLoungeSubmit);
+  const clanTypeSelect = document.getElementById('clanPostType');
+  if (clanTypeSelect) {
+    clanTypeSelect.addEventListener('change', setClanPostTypeUi);
+    setClanPostTypeUi();
+  }
+  const clanPostImageInput = document.getElementById('clanPostImage');
+  if (clanPostImageInput) clanPostImageInput.addEventListener('change', handleClanPostImageSelection);
   if (document.getElementById('clanProfileCard')) loadClanManagementPage();
   if (document.getElementById('changePasswordForm')) document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
   const closePasswordModalBtn = document.getElementById('closePasswordModalBtn');
@@ -2553,3 +2897,4 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
   })();
 });
+

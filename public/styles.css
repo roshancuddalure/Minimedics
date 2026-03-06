@@ -56,6 +56,19 @@ a {
   color: inherit;
 }
 
+img,
+video {
+  max-width: 100%;
+}
+
+.post,
+.group-item,
+.request-item,
+.card,
+.leader-row {
+  overflow-wrap: anywhere;
+}
+
 .bg-orb {
   position: fixed;
   border-radius: 999px;
@@ -584,11 +597,31 @@ a {
 .request-item {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.45rem;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   padding: 0.45rem 0.52rem;
   margin-bottom: 0.45rem;
+}
+
+#clanInvitePanel .row,
+#clanRolePanel .row {
+  margin-top: 0.5rem;
+}
+
+#clanInviteUrlBox {
+  margin-top: 0.45rem;
+  word-break: break-all;
+}
+
+#clanQuizFields,
+#clanReminderFields,
+#clanLinkFields,
+#clanImageFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
 }
 
 .inline-check {
@@ -953,6 +986,13 @@ a {
     grid-template-columns: 1fr;
   }
 
+  #clanQuizFields,
+  #clanReminderFields,
+  #clanLinkFields,
+  #clanImageFields {
+    grid-template-columns: 1fr;
+  }
+
   #chatPanel,
   .chat-panel {
     right: 0.8rem;
@@ -998,6 +1038,16 @@ a {
   .btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .post-actions .btn,
+  .request-item .btn,
+  .row .btn {
+    width: auto;
+  }
+
+  .request-item {
+    align-items: flex-start;
   }
 
   .feature-grid {

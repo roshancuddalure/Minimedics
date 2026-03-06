@@ -238,6 +238,85 @@ async function getGroupRole(groupId, userId) {
 	return row || null;
 }
 
+const GROUP_PERMISSION_KEYS = [
+	'manage_members',
+	'remove_members',
+	'manage_requests',
+	'manage_posts',
+	'manage_roles',
+	'manage_invites',
+	'post_messages',
+	'post_quiz',
+	'post_reminder',
+	'post_links',
+	'access_lounge'
+];
+
+function parsePermissionList(raw) {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.map((p) => String(p || '').trim()).filter((p) => GROUP_PERMISSION_KEYS.includes(p));
+	} catch (e) {
+		return [];
+	}
+}
+
+function roleDefaults(roleName) {
+	const role = String(roleName || '').toLowerCase();
+	if (role === 'admin') return [...GROUP_PERMISSION_KEYS];
+	if (role === 'moderator') {
+		return ['manage_posts', 'manage_requests', 'post_messages', 'post_quiz', 'post_reminder', 'post_links', 'access_lounge'];
+	}
+	return ['post_messages', 'post_quiz', 'post_reminder', 'post_links', 'access_lounge'];
+}
+
+async function getGroupMembershipDetails(groupId, userId) {
+	const row = await getAsync(`SELECT gm.user_id, gm.group_id, gm.role, gm.status, gm.custom_role_id, gr.permissions AS custom_permissions
+		FROM group_memberships gm
+		LEFT JOIN group_roles gr ON gr.id = gm.custom_role_id
+		WHERE gm.group_id = ? AND gm.user_id = ?`, [groupId, userId]);
+	if (!row) return null;
+	const customPermissions = parsePermissionList(row.custom_permissions);
+	const permissions = customPermissions.length ? customPermissions : roleDefaults(row.role);
+	return { ...row, permissions };
+}
+
+function hasGroupPermission(membership, permission) {
+	if (!membership || String(membership.status || '') !== 'active') return false;
+	if (String(membership.role || '') === 'admin') return true;
+	const permissionSet = new Set(Array.isArray(membership.permissions) ? membership.permissions : []);
+	return permissionSet.has(permission);
+}
+
+async function getActiveClanMembership(userId, excludeGroupId = null) {
+	const params = [userId];
+	let sql = 'SELECT group_id, role, status FROM group_memberships WHERE user_id = ? AND status = ?';
+	params.push('active');
+	if (excludeGroupId) {
+		sql += ' AND group_id <> ?';
+		params.push(excludeGroupId);
+	}
+	sql += ' ORDER BY created_at DESC LIMIT 1';
+	return getAsync(sql, params);
+}
+
+async function getOccupiedClanMembership(userId, excludeGroupId = null) {
+	const params = [userId, 'active', 'pending'];
+	let sql = 'SELECT group_id, role, status FROM group_memberships WHERE user_id = ? AND status IN (?, ?)';
+	if (excludeGroupId) {
+		sql += ' AND group_id <> ?';
+		params.push(excludeGroupId);
+	}
+	sql += ' ORDER BY created_at DESC LIMIT 1';
+	return getAsync(sql, params);
+}
+
+function createInviteToken() {
+	return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
 async function initializeDatabase() {
 	await runAsync(`CREATE TABLE IF NOT EXISTS users (
 		id BIGSERIAL PRIMARY KEY,
@@ -440,11 +519,62 @@ async function initializeDatabase() {
 		group_id BIGINT NOT NULL,
 		user_id BIGINT NOT NULL,
 		role TEXT DEFAULT 'member',
+		custom_role_id BIGINT,
 		status TEXT DEFAULT 'pending',
 		created_at BIGINT,
 		UNIQUE(group_id, user_id)
 	)`);
+	await runAsync(`ALTER TABLE group_memberships ADD COLUMN IF NOT EXISTS custom_role_id BIGINT`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS group_roles (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL,
+		name TEXT NOT NULL,
+		permissions TEXT,
+		is_system INTEGER DEFAULT 0,
+		created_by BIGINT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(group_id, name)
+	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS group_posts (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		content TEXT NOT NULL,
+		post_type TEXT DEFAULT 'message',
+		image TEXT,
+		caption TEXT,
+		mentions TEXT,
+		quiz_question TEXT,
+		quiz_options TEXT,
+		quiz_correct_index INTEGER,
+		reminder_at BIGINT,
+		reminder_note TEXT,
+		link_url TEXT,
+		link_label TEXT,
+		created_at BIGINT
+	)`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS post_type TEXT DEFAULT 'message'`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS image TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS caption TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS mentions TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS quiz_question TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS quiz_options TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS quiz_correct_index INTEGER`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS reminder_at BIGINT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS reminder_note TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS link_url TEXT`);
+	await runAsync(`ALTER TABLE group_posts ADD COLUMN IF NOT EXISTS link_label TEXT`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS group_invites (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL,
+		token TEXT UNIQUE NOT NULL,
+		created_by BIGINT NOT NULL,
+		max_uses INTEGER DEFAULT 0,
+		used_count INTEGER DEFAULT 0,
+		expires_at BIGINT,
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS group_lounge_messages (
 		id BIGSERIAL PRIMARY KEY,
 		group_id BIGINT NOT NULL,
 		user_id BIGINT NOT NULL,
@@ -1816,9 +1946,13 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 	if (!name) return res.status(400).json({ error: 'Group name is required' });
 	if (name.length > 80) return res.status(400).json({ error: 'Group name is too long' });
 	try {
+		const activeClan = await getOccupiedClanMembership(req.session.userId);
+		if (activeClan) return res.status(409).json({ error: 'Leave or cancel your existing clan membership before creating another.' });
 		const ts = Date.now();
 		const created = await runAsync('INSERT INTO groups (name, description, is_private, clan_xp, clan_level, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [name, description, isPrivate, 0, 1, req.session.userId, ts]);
 		await runAsync('INSERT INTO group_memberships (group_id, user_id, role, status, created_at) VALUES (?, ?, ?, ?, ?)', [created.lastID, req.session.userId, 'admin', 'active', ts]);
+		await runAsync(`INSERT INTO group_roles (group_id, name, permissions, is_system, created_by, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)`, [created.lastID, 'Officer', JSON.stringify(['manage_posts', 'manage_requests', 'post_messages', 'post_quiz', 'post_reminder', 'post_links', 'access_lounge']), 0, req.session.userId, ts]);
 		await addXp(req.session.userId, 'GROUP_CREATE', 'group', created.lastID);
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
@@ -1866,13 +2000,14 @@ app.get('/api/groups/:id/detail', requireAuth, async (req, res) => {
 		const group = await getAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
 			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
 			(SELECT role FROM group_memberships gm2 WHERE gm2.group_id = g.id AND gm2.user_id = ?) as my_role,
-			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status
-			FROM groups g WHERE g.id = ?`, [req.session.userId, req.session.userId, groupId]);
+			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status,
+			(SELECT custom_role_id FROM group_memberships gm4 WHERE gm4.group_id = g.id AND gm4.user_id = ?) as my_custom_role_id
+			FROM groups g WHERE g.id = ?`, [req.session.userId, req.session.userId, req.session.userId, groupId]);
 		if (!group) return res.status(404).json({ error: 'Clan not found' });
-		const mine = await getGroupRole(groupId, req.session.userId);
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
 		const canViewContent = mine && mine.status === 'active';
 		const posts = canViewContent
-			? await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
+			? await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.post_type, gp.image, gp.caption, gp.mentions, gp.quiz_question, gp.quiz_options, gp.quiz_correct_index, gp.reminder_at, gp.reminder_note, gp.link_url, gp.link_label, gp.created_at, u.username, u.name, u.profile_picture
 				FROM group_posts gp
 				JOIN users u ON u.id = gp.user_id
 				WHERE gp.group_id = ? AND u.username <> ?
@@ -1880,13 +2015,18 @@ app.get('/api/groups/:id/detail', requireAuth, async (req, res) => {
 				LIMIT 100`, [groupId, SUPERADMIN_USERNAME])
 			: [];
 		const members = canViewContent
-			? await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, gm.created_at, u.username, u.name, u.profile_picture
+			? await allAsync(`SELECT gm.user_id as id, gm.role, gm.custom_role_id, gm.status, gm.created_at, u.username, u.name, u.profile_picture, gr.name AS custom_role_name, gr.permissions AS custom_role_permissions
 				FROM group_memberships gm
 				JOIN users u ON u.id = gm.user_id
+				LEFT JOIN group_roles gr ON gr.id = gm.custom_role_id
 				WHERE gm.group_id = ? AND gm.status = 'active' AND u.username <> ?
 				ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId, SUPERADMIN_USERNAME])
 			: [];
-		res.json({ group, posts, members, canViewContent: Boolean(canViewContent) });
+		const myInvite = canViewContent
+			? await getAsync(`SELECT token, max_uses, used_count, expires_at, created_at
+				FROM group_invites WHERE group_id = ? ORDER BY created_at DESC LIMIT 1`, [groupId])
+			: null;
+		res.json({ group, posts, members, canViewContent: Boolean(canViewContent), myPermissions: mine ? mine.permissions : [], invite: myInvite });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1939,12 +2079,17 @@ app.post('/api/groups/:id/join', requireAuth, async (req, res) => {
 	try {
 		const g = await getAsync('SELECT id, is_private FROM groups WHERE id = ?', [groupId]);
 		if (!g) return res.status(404).json({ error: 'Group not found' });
+		const existing = await getAsync('SELECT status FROM group_memberships WHERE group_id = ? AND user_id = ?', [groupId, req.session.userId]);
+		if (existing && existing.status === 'active') return res.json({ success: true, status: 'active' });
+		const activeClan = await getOccupiedClanMembership(req.session.userId, groupId);
+		if (activeClan) return res.status(409).json({ error: 'You can only be in one clan at a time. Leave your current clan first.' });
 		const status = Number(g.is_private) === 1 ? 'pending' : 'active';
 		await runAsync(`INSERT INTO group_memberships (group_id, user_id, role, status, created_at)
 			VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (group_id, user_id)
 			DO UPDATE SET
 				role = COALESCE(group_memberships.role, EXCLUDED.role),
+				custom_role_id = NULL,
 				status = EXCLUDED.status,
 				created_at = EXCLUDED.created_at`, [groupId, req.session.userId, 'member', status, Date.now()]);
 		res.json({ success: true, status });
@@ -1957,11 +2102,12 @@ app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
 	const groupId = Number(req.params.id);
 	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
-		const rows = await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, u.username, u.name, u.profile_picture
+		const rows = await allAsync(`SELECT gm.user_id as id, gm.role, gm.custom_role_id, gm.status, u.username, u.name, u.profile_picture, gr.name AS custom_role_name, gr.permissions AS custom_role_permissions
 			FROM group_memberships gm
 			JOIN users u ON u.id = gm.user_id
+			LEFT JOIN group_roles gr ON gr.id = gm.custom_role_id
 			WHERE gm.group_id = ? AND u.username <> ?
 			ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId, SUPERADMIN_USERNAME]);
 		res.json({ members: rows });
@@ -1974,8 +2120,8 @@ app.get('/api/groups/:id/requests', requireAuth, async (req, res) => {
 	const groupId = Number(req.params.id);
 	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
-		if (!mine || mine.status !== 'active' || !['admin', 'moderator'].includes(mine.role)) return res.status(403).json({ error: 'Moderator access required' });
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_requests')) return res.status(403).json({ error: 'Request moderation permission required' });
 		const rows = await allAsync(`SELECT gm.user_id as id, u.username, u.name, u.profile_picture, gm.created_at
 			FROM group_memberships gm
 			JOIN users u ON u.id = gm.user_id
@@ -1994,9 +2140,11 @@ app.post('/api/groups/:id/requests/:userId', requireAuth, async (req, res) => {
 	if (!groupId || !targetUserId) return res.status(400).json({ error: 'Invalid request' });
 	if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
-		if (!mine || mine.status !== 'active' || !['admin', 'moderator'].includes(mine.role)) return res.status(403).json({ error: 'Moderator access required' });
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_requests')) return res.status(403).json({ error: 'Request moderation permission required' });
 		if (action === 'approve') {
+			const activeClan = await getOccupiedClanMembership(targetUserId, groupId);
+			if (activeClan) return res.status(409).json({ error: 'User already has another clan membership.' });
 			await runAsync('UPDATE group_memberships SET status = ? WHERE group_id = ? AND user_id = ?', ['active', groupId, targetUserId]);
 		} else {
 			await runAsync('DELETE FROM group_memberships WHERE group_id = ? AND user_id = ? AND status = ?', [groupId, targetUserId, 'pending']);
@@ -2014,10 +2162,155 @@ app.post('/api/groups/:id/role', requireAuth, async (req, res) => {
 	if (!groupId || !targetUserId) return res.status(400).json({ error: 'Invalid request' });
 	if (!['admin', 'moderator', 'member'].includes(nextRole)) return res.status(400).json({ error: 'Invalid role' });
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
-		if (!mine || mine.status !== 'active' || mine.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-		await runAsync('UPDATE group_memberships SET role = ? WHERE group_id = ? AND user_id = ? AND status = ?', [nextRole, groupId, targetUserId, 'active']);
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_roles')) return res.status(403).json({ error: 'Role management permission required' });
+		await runAsync('UPDATE group_memberships SET role = ?, custom_role_id = NULL WHERE group_id = ? AND user_id = ? AND status = ?', [nextRole, groupId, targetUserId, 'active']);
 		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/member-role', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const targetUserId = Number(req.body.userId);
+	const nextRole = typeof req.body.role === 'string' ? req.body.role.trim() : '';
+	const customRoleId = Number(req.body.customRoleId) || null;
+	if (!groupId || !targetUserId) return res.status(400).json({ error: 'Invalid request' });
+	if (nextRole && !['admin', 'moderator', 'member'].includes(nextRole)) return res.status(400).json({ error: 'Invalid system role' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_roles')) return res.status(403).json({ error: 'Role management permission required' });
+		const target = await getAsync('SELECT user_id, role FROM group_memberships WHERE group_id = ? AND user_id = ? AND status = ?', [groupId, targetUserId, 'active']);
+		if (!target) return res.status(404).json({ error: 'Member not found' });
+		if (targetUserId === req.session.userId && nextRole && nextRole !== 'admin') return res.status(400).json({ error: 'Use transfer flow to remove your own admin role.' });
+		if (customRoleId) {
+			const customRole = await getAsync('SELECT id, name FROM group_roles WHERE id = ? AND group_id = ?', [customRoleId, groupId]);
+			if (!customRole) return res.status(404).json({ error: 'Custom role not found' });
+			await runAsync('UPDATE group_memberships SET role = ?, custom_role_id = ? WHERE group_id = ? AND user_id = ?', ['member', customRoleId, groupId, targetUserId]);
+			return res.json({ success: true });
+		}
+		const effectiveRole = nextRole || 'member';
+		await runAsync('UPDATE group_memberships SET role = ?, custom_role_id = NULL WHERE group_id = ? AND user_id = ?', [effectiveRole, groupId, targetUserId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/groups/:id/roles', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this clan first' });
+		const roles = await allAsync(`SELECT id, name, permissions, is_system, created_by, created_at
+			FROM group_roles WHERE group_id = ? ORDER BY is_system DESC, created_at ASC, id ASC`, [groupId]);
+		res.json({ roles: roles.map((r) => ({ ...r, permissions: parsePermissionList(r.permissions) })) });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/roles', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+	const permissions = Array.isArray(req.body.permissions) ? req.body.permissions.map((p) => String(p || '').trim()) : [];
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	if (!name) return res.status(400).json({ error: 'Role name is required' });
+	if (name.length > 30) return res.status(400).json({ error: 'Role name too long' });
+	const normalizedPermissions = permissions.filter((p) => GROUP_PERMISSION_KEYS.includes(p));
+	if (!normalizedPermissions.length) return res.status(400).json({ error: 'Select at least one permission' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_roles')) return res.status(403).json({ error: 'Role management permission required' });
+		const created = await runAsync(`INSERT INTO group_roles (group_id, name, permissions, is_system, created_by, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)`, [groupId, name, JSON.stringify(normalizedPermissions), 0, req.session.userId, Date.now()]);
+		res.json({ success: true, id: created.lastID });
+	} catch (e) {
+		if (String(e.message || '').toLowerCase().includes('unique')) return res.status(409).json({ error: 'Role name already exists' });
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/leave', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!mine || !['active', 'pending'].includes(mine.status)) return res.status(400).json({ error: 'You are not a member of this clan' });
+		if (mine.status === 'active' && mine.role === 'admin') {
+			const otherAdmins = await getAsync(`SELECT COUNT(*)::int AS cnt FROM group_memberships
+				WHERE group_id = ? AND status = 'active' AND role = 'admin' AND user_id <> ?`, [groupId, req.session.userId]);
+			if (!otherAdmins || Number(otherAdmins.cnt) < 1) {
+				return res.status(400).json({ error: 'Add another admin before leaving this clan.' });
+			}
+		}
+		await runAsync('DELETE FROM group_memberships WHERE group_id = ? AND user_id = ?', [groupId, req.session.userId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.delete('/api/groups/:id/member/:userId', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const targetUserId = Number(req.params.userId);
+	if (!groupId || !targetUserId) return res.status(400).json({ error: 'Invalid request' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'remove_members')) return res.status(403).json({ error: 'Member removal permission required' });
+		if (targetUserId === req.session.userId) return res.status(400).json({ error: 'Use Leave Clan for yourself.' });
+		const target = await getAsync('SELECT role, status FROM group_memberships WHERE group_id = ? AND user_id = ?', [groupId, targetUserId]);
+		if (!target || target.status !== 'active') return res.status(404).json({ error: 'Member not found' });
+		if (target.role === 'admin') return res.status(400).json({ error: 'Transfer admin rights first.' });
+		await runAsync('DELETE FROM group_memberships WHERE group_id = ? AND user_id = ?', [groupId, targetUserId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/invite', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const ttlHours = Math.max(1, Math.min(168, Number(req.body.ttlHours) || 72));
+	const maxUses = Math.max(0, Math.min(500, Number(req.body.maxUses) || 0));
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'manage_invites')) return res.status(403).json({ error: 'Invite permission required' });
+		const token = createInviteToken();
+		const now = Date.now();
+		const expiresAt = now + ttlHours * 60 * 60 * 1000;
+		await runAsync(`INSERT INTO group_invites (group_id, token, created_by, max_uses, used_count, expires_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, [groupId, token, req.session.userId, maxUses, 0, expiresAt, now]);
+		const inviteUrl = `${getPublicBaseUrl(req)}/clan.html?id=${groupId}&invite=${encodeURIComponent(token)}`;
+		res.json({ success: true, token, inviteUrl, expiresAt, maxUses });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/invite/:token/join', requireAuth, async (req, res) => {
+	const token = String(req.params.token || '').trim();
+	if (!token) return res.status(400).json({ error: 'Invalid invite token' });
+	try {
+		const invite = await getAsync(`SELECT gi.id, gi.group_id, gi.max_uses, gi.used_count, gi.expires_at, g.is_private
+			FROM group_invites gi JOIN groups g ON g.id = gi.group_id
+			WHERE gi.token = ?`, [token]);
+		if (!invite) return res.status(404).json({ error: 'Invite not found' });
+		const now = Date.now();
+		if (invite.expires_at && Number(invite.expires_at) < now) return res.status(410).json({ error: 'Invite has expired' });
+		if (Number(invite.max_uses) > 0 && Number(invite.used_count) >= Number(invite.max_uses)) return res.status(410).json({ error: 'Invite has reached max uses' });
+		const activeClan = await getOccupiedClanMembership(req.session.userId, invite.group_id);
+		if (activeClan) return res.status(409).json({ error: 'Leave your current clan before joining a new one.' });
+		const status = Number(invite.is_private) === 1 ? 'pending' : 'active';
+		await runAsync(`INSERT INTO group_memberships (group_id, user_id, role, custom_role_id, status, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT (group_id, user_id)
+			DO UPDATE SET status = EXCLUDED.status, custom_role_id = NULL, created_at = EXCLUDED.created_at`, [invite.group_id, req.session.userId, 'member', null, status, now]);
+		await runAsync('UPDATE group_invites SET used_count = COALESCE(used_count, 0) + 1 WHERE id = ?', [invite.id]);
+		res.json({ success: true, groupId: invite.group_id, status });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -2027,9 +2320,9 @@ app.get('/api/groups/:id/feed', requireAuth, async (req, res) => {
 	const groupId = Number(req.params.id);
 	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
-		const rows = await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
+		const rows = await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.post_type, gp.image, gp.caption, gp.mentions, gp.quiz_question, gp.quiz_options, gp.quiz_correct_index, gp.reminder_at, gp.reminder_note, gp.link_url, gp.link_label, gp.created_at, u.username, u.name, u.profile_picture
 			FROM group_posts gp
 			JOIN users u ON u.id = gp.user_id
 			WHERE gp.group_id = ? AND u.username <> ?
@@ -2044,13 +2337,65 @@ app.get('/api/groups/:id/feed', requireAuth, async (req, res) => {
 app.post('/api/groups/:id/post', requireAuth, async (req, res) => {
 	const groupId = Number(req.params.id);
 	const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+	const postType = typeof req.body.postType === 'string' ? req.body.postType.trim().toLowerCase() : 'message';
+	const image = typeof req.body.image === 'string' ? req.body.image : '';
+	const caption = typeof req.body.caption === 'string' ? req.body.caption.trim() : '';
+	const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.map((m) => String(m || '').trim()).filter(Boolean).slice(0, 15) : [];
+	const quizQuestion = typeof req.body.quizQuestion === 'string' ? req.body.quizQuestion.trim() : '';
+	const quizOptions = Array.isArray(req.body.quizOptions) ? req.body.quizOptions.map((o) => String(o || '').trim()).filter(Boolean).slice(0, 6) : [];
+	const quizCorrectIndex = Number(req.body.quizCorrectIndex);
+	const reminderAt = Number(req.body.reminderAt) || null;
+	const reminderNote = typeof req.body.reminderNote === 'string' ? req.body.reminderNote.trim() : '';
+	const linkUrl = typeof req.body.linkUrl === 'string' ? req.body.linkUrl.trim() : '';
+	const linkLabel = typeof req.body.linkLabel === 'string' ? req.body.linkLabel.trim() : '';
+	const allowedPostTypes = ['message', 'image', 'quiz', 'reminder', 'link'];
 	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
-	if (!content) return res.status(400).json({ error: 'Post content is required' });
+	if (!allowedPostTypes.includes(postType)) return res.status(400).json({ error: 'Invalid post type' });
+	if (!content && postType === 'message') return res.status(400).json({ error: 'Post content is required' });
 	if (content.length > 5000) return res.status(400).json({ error: 'Post too long' });
+	if (postType === 'image' && !image.startsWith('data:image')) return res.status(400).json({ error: 'Image post requires an image attachment' });
+	if (postType === 'quiz') {
+		if (!quizQuestion) return res.status(400).json({ error: 'Quiz question is required' });
+		if (quizOptions.length < 2) return res.status(400).json({ error: 'At least two quiz options are required' });
+		if (Number.isNaN(quizCorrectIndex) || quizCorrectIndex < 0 || quizCorrectIndex >= quizOptions.length) return res.status(400).json({ error: 'Select a valid correct option' });
+	}
+	if (postType === 'reminder' && !reminderAt) return res.status(400).json({ error: 'Reminder date/time is required' });
+	if (postType === 'link') {
+		if (!linkUrl) return res.status(400).json({ error: 'Link URL is required' });
+		if (!/^https?:\/\//i.test(linkUrl)) return res.status(400).json({ error: 'Link must start with http:// or https://' });
+	}
 	try {
-		const mine = await getGroupRole(groupId, req.session.userId);
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
-		const created = await runAsync('INSERT INTO group_posts (group_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [groupId, req.session.userId, content, Date.now()]);
+		const postPermissionMap = {
+			message: 'post_messages',
+			image: 'post_messages',
+			quiz: 'post_quiz',
+			reminder: 'post_reminder',
+			link: 'post_links'
+		};
+		const permissionKey = postPermissionMap[postType] || 'post_messages';
+		if (!hasGroupPermission(mine, permissionKey)) return res.status(403).json({ error: 'You do not have permission for this post type' });
+		const payloadContent = content || caption || linkLabel || reminderNote || quizQuestion;
+		const created = await runAsync(`INSERT INTO group_posts
+			(group_id, user_id, content, post_type, image, caption, mentions, quiz_question, quiz_options, quiz_correct_index, reminder_at, reminder_note, link_url, link_label, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+			groupId,
+			req.session.userId,
+			payloadContent,
+			postType,
+			image || null,
+			caption || null,
+			mentions.length ? JSON.stringify(mentions) : null,
+			quizQuestion || null,
+			quizOptions.length ? JSON.stringify(quizOptions) : null,
+			Number.isNaN(quizCorrectIndex) ? null : quizCorrectIndex,
+			reminderAt,
+			reminderNote || null,
+			linkUrl || null,
+			linkLabel || null,
+			Date.now()
+		]);
 		await runAsync('UPDATE groups SET clan_xp = COALESCE(clan_xp, 0) + 10, clan_level = (FLOOR((COALESCE(clan_xp, 0) + 10) / 5000) + 1) WHERE id = ?', [groupId]);
 		await addXp(req.session.userId, 'GROUP_POST', 'group', groupId);
 		res.json({ success: true, id: created.lastID });
@@ -2065,11 +2410,11 @@ app.delete('/api/groups/:groupId/post/:postId', requireAuth, async (req, res) =>
 	const userId = Number(req.session.userId);
 	if (!groupId || !postId) return res.status(400).json({ error: 'Invalid request' });
 	try {
-		const mine = await getGroupRole(groupId, userId);
+		const mine = await getGroupMembershipDetails(groupId, userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
 		const post = await getAsync('SELECT id, user_id FROM group_posts WHERE id = ? AND group_id = ?', [postId, groupId]);
 		if (!post) return res.status(404).json({ error: 'Group post not found' });
-		const canModerate = ['admin', 'moderator'].includes(mine.role);
+		const canModerate = hasGroupPermission(mine, 'manage_posts');
 		const isOwner = Number(post.user_id) === userId;
 		if (!isOwner && !canModerate) return res.status(403).json({ error: 'Not allowed to delete this group post' });
 		await runAsync('DELETE FROM group_posts WHERE id = ?', [postId]);
@@ -2077,6 +2422,41 @@ app.delete('/api/groups/:groupId/post/:postId', requireAuth, async (req, res) =>
 	} catch (e) {
 		console.error('Delete group post API error:', e);
 		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/groups/:id/lounge', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'access_lounge')) return res.status(403).json({ error: 'Lounge access permission required' });
+		const messages = await allAsync(`SELECT glm.id, glm.group_id, glm.user_id, glm.content, glm.created_at, u.username, u.name, u.profile_picture
+			FROM group_lounge_messages glm
+			JOIN users u ON u.id = glm.user_id
+			WHERE glm.group_id = ? AND u.username <> ?
+			ORDER BY glm.created_at DESC
+			LIMIT 80`, [groupId, SUPERADMIN_USERNAME]);
+		res.json({ messages: messages.reverse() });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/groups/:id/lounge', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.id);
+	const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+	if (!groupId) return res.status(400).json({ error: 'Invalid group id' });
+	if (!content) return res.status(400).json({ error: 'Message is required' });
+	if (content.length > 1200) return res.status(400).json({ error: 'Message too long' });
+	try {
+		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
+		if (!hasGroupPermission(mine, 'access_lounge')) return res.status(403).json({ error: 'Lounge access permission required' });
+		const now = Date.now();
+		await runAsync('INSERT INTO group_lounge_messages (group_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [groupId, req.session.userId, content, now]);
+		res.json({ success: true, createdAt: now });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
 	}
 });
 
