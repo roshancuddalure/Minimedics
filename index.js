@@ -12,8 +12,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 function getDatabaseUrl() {
-	const fromEnv = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
-	if (fromEnv) return fromEnv;
+	const candidateKeys = [
+		'DATABASE_URL',
+		'DATABASE_PRIVATE_URL',
+		'POSTGRES_URL',
+		'POSTGRESQL_URL',
+		'PGDATABASE_URL'
+	];
+	for (const key of candidateKeys) {
+		const value = typeof process.env[key] === 'string' ? process.env[key].trim() : '';
+		if (value) return value;
+	}
 	// Optional fallback (disabled by default): enable only when explicitly requested.
 	const allowFileFallback = String(process.env.USE_RAILWAY_FILE_DB_URL || '').toLowerCase() === 'true';
 	if (!allowFileFallback) return '';
@@ -36,8 +45,21 @@ const dbConfig = databaseUrl
 		database: process.env.PGDATABASE || 'project1codex'
 	};
 
-const shouldUseSsl = process.env.PGSSLMODE === 'require'
-	|| (process.env.NODE_ENV === 'production' && process.env.PGSSLMODE !== 'disable');
+function shouldEnableSsl(url) {
+	const mode = String(process.env.PGSSLMODE || '').toLowerCase();
+	if (mode === 'disable') return false;
+	if (mode === 'require') return true;
+	if (!url) return process.env.NODE_ENV === 'production';
+	try {
+		const host = new URL(url).hostname || '';
+		if (host.endsWith('.railway.internal')) return false;
+	} catch (e) {
+		// ignore parse issues and keep default behavior
+	}
+	return process.env.NODE_ENV === 'production';
+}
+
+const shouldUseSsl = shouldEnableSsl(databaseUrl);
 
 function getDbTargetLabel() {
 	if (databaseUrl) {
@@ -211,6 +233,13 @@ async function initializeDatabase() {
 		name TEXT,
 		email TEXT,
 		bio TEXT,
+		institute TEXT,
+		program_type TEXT,
+		degree TEXT,
+		academic_year TEXT,
+		speciality TEXT,
+		email_verified INTEGER DEFAULT 0,
+		email_verify_token TEXT,
 		last_login BIGINT,
 		profile_picture TEXT,
 		role TEXT DEFAULT 'user',
@@ -222,6 +251,13 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_type TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS academic_year TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Rookie Medic'`);
@@ -238,6 +274,7 @@ async function initializeDatabase() {
 		quiz_question TEXT,
 		quiz_options TEXT,
 		quiz_correct_index INTEGER,
+		visibility TEXT DEFAULT 'public',
 		reminder_at BIGINT,
 		reminder_note TEXT,
 		created_at BIGINT
@@ -246,6 +283,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_question TEXT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_options TEXT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_correct_index INTEGER`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'public'`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_at BIGINT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_note TEXT`);
 
@@ -310,9 +348,13 @@ async function initializeDatabase() {
 		name TEXT NOT NULL,
 		description TEXT,
 		is_private INTEGER DEFAULT 1,
+		clan_xp INTEGER DEFAULT 0,
+		clan_level INTEGER DEFAULT 1,
 		created_by BIGINT NOT NULL,
 		created_at BIGINT
 	)`);
+	await runAsync(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS clan_xp INTEGER DEFAULT 0`);
+	await runAsync(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS clan_level INTEGER DEFAULT 1`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS group_memberships (
 		id BIGSERIAL PRIMARY KEY,
 		group_id BIGINT NOT NULL,
@@ -336,6 +378,21 @@ async function initializeDatabase() {
 		image TEXT,
 		created_at BIGINT NOT NULL,
 		expires_at BIGINT NOT NULL
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS quiz_attempts (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		selected_index INTEGER NOT NULL,
+		is_correct INTEGER NOT NULL,
+		created_at BIGINT,
+		UNIQUE(post_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS speciality_suggestions (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		suggestion TEXT NOT NULL,
+		created_at BIGINT
 	)`);
 }
 
@@ -372,11 +429,21 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/register', async (req, res) => {
-	const { username, password, name, email } = req.body;
-	if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+	const { username, password, name, email, institute, programType, degree, academicYear, speciality } = req.body;
+	if (!username || !password || !name || !email || !institute) {
+		return res.status(400).json({ error: 'Username, password, full name, email, and institute are required' });
+	}
 	const safeEmail = typeof email === 'string' ? email.trim() : '';
+	const safeInstitute = typeof institute === 'string' ? institute.trim() : '';
+	const safeProgramType = typeof programType === 'string' ? programType.trim() : '';
+	const safeDegree = typeof degree === 'string' ? degree.trim() : '';
+	const safeAcademicYear = typeof academicYear === 'string' ? academicYear.trim() : '';
+	const safeSpeciality = typeof speciality === 'string' ? speciality.trim() : '';
 	if (safeEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
 		return res.status(400).json({ error: 'Please provide a valid email address' });
+	}
+	if (safeProgramType === 'student' && (!safeDegree || !safeAcademicYear)) {
+		return res.status(400).json({ error: 'Degree and academic year are required for students' });
 	}
 	
 	try {
@@ -386,24 +453,18 @@ app.post('/api/register', async (req, res) => {
 			
 			const hash = await bcrypt.hash(password, 10);
 			const role = isFirstUser ? 'admin' : 'user';
+			const verifyToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
 			
-			db.run('INSERT INTO users (username, password, name, email, role) VALUES (?, ?, ?, ?, ?)', 
-				[username, hash, name || '', safeEmail || null, role], 
+			db.run('INSERT INTO users (username, password, name, email, institute, program_type, degree, academic_year, speciality, role, email_verified, email_verify_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+				[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, safeSpeciality || null, role, 0, verifyToken], 
 				function (err) {
 					if (err) {
 						console.error('Register insert error:', err.message);
 						return res.status(400).json({ error: 'Username already exists or database error' });
 					}
 					const userId = this.lastID;
-					req.session.userId = userId;
-					req.session.save((err) => {
-						if (err) {
-							console.error('Session save error:', err);
-							return res.status(500).json({ error: 'Session error' });
-						}
-						console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
-						res.json({ success: true, id: userId, role: role });
-					});
+					console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
+					res.json({ success: true, id: userId, role: role, emailVerified: false, verifyUrl: `/verify-email.html?token=${verifyToken}` });
 				}
 			);
 		});
@@ -414,10 +475,10 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
-	const { username, password } = req.body;
+	const { username, password, rememberMe } = req.body;
 	if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
 	
-	db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
+	db.get('SELECT * FROM users WHERE username = ? OR email = ?', [username, username], async (err, user) => {
 		if (err) {
 			console.error('Login query error:', err);
 			return res.status(500).json({ error: 'Database error' });
@@ -430,6 +491,9 @@ app.post('/api/login', (req, res) => {
 			const ok = await bcrypt.compare(password, user.password);
 			if (!ok) {
 				return res.status(400).json({ error: 'Invalid username or password' });
+			}
+			if (!Number(user.email_verified)) {
+				return res.status(403).json({ error: 'Please verify your email before logging in' });
 			}
 			
 			// update last_login
@@ -447,6 +511,7 @@ app.post('/api/login', (req, res) => {
 			}
 			
 			req.session.userId = user.id;
+			req.session.cookie.maxAge = rememberMe ? (1000 * 60 * 60 * 24 * 7) : (1000 * 60 * 60 * 24);
 			req.session.save((err) => {
 				if (err) {
 					console.error('Login session save error:', err);
@@ -510,7 +575,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, email, bio, role, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, email, bio, institute, program_type, degree, academic_year, speciality, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -523,9 +588,21 @@ app.get('/api/me', (req, res) => {
 	});
 });
 
+app.get('/api/verify-email', async (req, res) => {
+	const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+	if (!token) return res.status(400).json({ error: 'Invalid token' });
+	try {
+		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE email_verify_token = ?', [token]);
+		if (!updated.changes) return res.status(400).json({ error: 'Invalid or expired verification token' });
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, email, bio, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, email, bio, institute, program_type, degree, academic_year, speciality, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		res.json({ user });
 	} catch (e) {
@@ -537,13 +614,18 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
 	const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
 	const bio = typeof req.body.bio === 'string' ? req.body.bio.trim() : '';
+	const institute = typeof req.body.institute === 'string' ? req.body.institute.trim() : '';
+	const programType = typeof req.body.programType === 'string' ? req.body.programType.trim() : '';
+	const degree = typeof req.body.degree === 'string' ? req.body.degree.trim() : '';
+	const academicYear = typeof req.body.academicYear === 'string' ? req.body.academicYear.trim() : '';
+	const speciality = typeof req.body.speciality === 'string' ? req.body.speciality.trim() : '';
 	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		return res.status(400).json({ error: 'Please provide a valid email address' });
 	}
 	if (name.length > 120) return res.status(400).json({ error: 'Name is too long' });
 	if (bio.length > 400) return res.status(400).json({ error: 'Bio is too long' });
 	try {
-		await runAsync('UPDATE users SET name = ?, email = ?, bio = ? WHERE id = ?', [name || null, email || null, bio || null, req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, email = ?, bio = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ? WHERE id = ?', [name || null, email || null, bio || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -558,6 +640,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 			u.name,
 			u.email,
 			u.role,
+			u.email_verified,
 			u.xp,
 			u.last_login,
 			(SELECT COUNT(*) FROM connections c WHERE (c.user_a = u.id OR c.user_b = u.id) AND c.status = 'accepted') AS total_connections
@@ -566,6 +649,19 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 		res.json({ totalUsers: rows.length, users: rows });
 	} catch (e) {
 		console.error('Admin users API error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
+	const userId = Number(req.params.id);
+	const role = typeof req.body.role === 'string' ? req.body.role.trim() : '';
+	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
+	if (!['user', 'moderator', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+	try {
+		await runAsync('UPDATE users SET role = ? WHERE id = ?', [role, userId]);
+		res.json({ success: true });
+	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -583,7 +679,7 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 // get public user info with connections count
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
-	db.get('SELECT id, username, name, profile_picture, level, title FROM users WHERE id = ?', [uid], (err, user) => {
+	db.get('SELECT id, username, name, bio, institute, program_type, degree, academic_year, speciality, profile_picture, level, title FROM users WHERE id = ?', [uid], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
 		db.get(q, [uid, uid], (err2, row) => {
@@ -596,14 +692,26 @@ app.get('/api/user/:id', (req, res) => {
 
 app.get('/api/feed', requireAuth, (req, res) => {
 	const uid = Number(req.session.userId || 0);
-	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
+	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
 		(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
 		(SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) as comment_count,
 		(SELECT COUNT(*) FROM saved_posts sp WHERE sp.post_id = p.id) as save_count,
 		(SELECT COUNT(*) FROM post_shares ps WHERE ps.post_id = p.id) as share_count,
 		(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id AND pl2.user_id = ${uid}) as my_liked,
-		(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ${uid}) as my_saved
+		(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ${uid}) as my_saved,
+		(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ${uid}) as my_quiz_attempted
 		FROM posts p JOIN users u ON p.user_id = u.id
+		WHERE (
+			p.visibility IS NULL OR p.visibility = 'public'
+			OR p.user_id = ${uid}
+			OR (
+				p.visibility = 'connections' AND EXISTS (
+					SELECT 1 FROM connections c
+					WHERE c.status = 'accepted'
+					AND ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_b = ${uid} AND c.user_a = p.user_id))
+				)
+			)
+		)
 		ORDER BY p.created_at DESC LIMIT 50`;
 	db.all(q, [], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
@@ -612,8 +720,9 @@ app.get('/api/feed', requireAuth, (req, res) => {
 });
 
 app.post('/api/post', requireAuth, (req, res) => {
-	const { content, image, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex } = req.body;
+	const { content, image, visibility, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex } = req.body;
 	const safeContent = typeof content === 'string' ? content.trim() : '';
+	const safeVisibility = ['public', 'connections', 'private'].includes(String(visibility || '').trim()) ? String(visibility).trim() : 'public';
 	const safeReminderNote = typeof reminderNote === 'string' ? reminderNote.trim() : '';
 	const hasImage = typeof image === 'string' && image.startsWith('data:image');
 	const safeQuizQuestion = typeof quizQuestion === 'string' ? quizQuestion.trim() : '';
@@ -646,8 +755,8 @@ app.post('/api/post', requireAuth, (req, res) => {
 	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Image is too large' });
 	if (safeReminderNote.length > 240) return res.status(400).json({ error: 'Reminder note is too long' });
 	const ts = Date.now();
-	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, reminder_at, reminder_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, reminderAtTs, safeReminderNote || null, ts], 
+	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, visibility, reminder_at, reminder_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, safeVisibility, reminderAtTs, safeReminderNote || null, ts], 
 		async function (err) {
 			if (err) {
 				console.error('Post insert error:', err);
@@ -685,14 +794,37 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 	if (!to) return res.status(400).json({ error: 'Missing target user' });
 	const a = Number(req.session.userId), b = Number(to);
 	const ts = Date.now();
-	// normalize ensure no duplicate
-	const stmt = db.prepare('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)');
-	stmt.run(a, b, 'pending', ts, function (err) {
+	db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], function (err) {
 		if (err) return res.status(400).json({ error: 'Unable to create request' });
     // emit socket event to target user's room
     io.to(`user:${b}`).emit('connectionRequest', { from: a, to: b });
 		res.json({ success: true });
 	});
+});
+
+app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
+	const profileUserId = Number(req.params.id);
+	const viewerId = Number(req.session.userId);
+	if (!profileUserId) return res.status(400).json({ error: 'Invalid user id' });
+	try {
+		const isSelf = profileUserId === viewerId;
+		const connected = await getAsync(`SELECT id FROM connections
+			WHERE status = 'accepted'
+			AND ((user_a = ? AND user_b = ?) OR (user_b = ? AND user_a = ?))`, [viewerId, profileUserId, viewerId, profileUserId]);
+		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at
+			FROM posts p
+			WHERE p.user_id = ?
+			AND (
+				p.visibility IS NULL OR p.visibility = 'public'
+				OR (? = 1)
+				OR (? = 1 AND p.visibility = 'connections')
+			)
+			ORDER BY p.created_at DESC
+			LIMIT 50`, [profileUserId, isSelf ? 1 : 0, connected ? 1 : 0]);
+		res.json({ posts: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
 });
 
 // accept request
@@ -790,6 +922,58 @@ app.post('/api/post/:id/comment', requireAuth, (req, res) => {
 		try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
 		res.json({ success: true, id: this.lastID });
 	});
+});
+
+app.post('/api/post/:id/quiz-attempt', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	const selectedIndex = Number(req.body.selectedIndex);
+	const userId = Number(req.session.userId);
+	if (!postId || Number.isNaN(selectedIndex)) return res.status(400).json({ error: 'Invalid quiz attempt' });
+	try {
+		const post = await getAsync('SELECT id, quiz_options, quiz_correct_index FROM posts WHERE id = ?', [postId]);
+		if (!post || post.quiz_correct_index === null || post.quiz_correct_index === undefined) return res.status(404).json({ error: 'Quiz not found' });
+		const options = (() => {
+			try { return JSON.parse(post.quiz_options || '[]'); } catch (e) { return []; }
+		})();
+		if (!Array.isArray(options) || selectedIndex < 0 || selectedIndex >= options.length) {
+			return res.status(400).json({ error: 'Invalid selected option' });
+		}
+		const existing = await getAsync('SELECT id FROM quiz_attempts WHERE post_id = ? AND user_id = ?', [postId, userId]);
+		if (existing) return res.status(400).json({ error: 'Quiz already attempted' });
+		const isCorrect = Number(selectedIndex) === Number(post.quiz_correct_index) ? 1 : 0;
+		await runAsync('INSERT INTO quiz_attempts (post_id, user_id, selected_index, is_correct, created_at) VALUES (?, ?, ?, ?, ?)', [postId, userId, selectedIndex, isCorrect, Date.now()]);
+		res.json({ success: true, isCorrect: Boolean(isCorrect), correctIndex: Number(post.quiz_correct_index), correctAnswer: options[Number(post.quiz_correct_index)] || '' });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/xp/levels', (req, res) => {
+	const levels = [
+		{ level: 1, minXp: 0, title: 'Rookie Medic' },
+		{ level: 10, minXp: 900, title: 'Clinical Explorer' },
+		{ level: 20, minXp: 1900, title: 'Ward Collaborator' },
+		{ level: 30, minXp: 2900, title: 'Care Coordinator' },
+		{ level: 40, minXp: 3900, title: 'Diagnostic Strategist' },
+		{ level: 50, minXp: 4900, title: 'Community Mentor' },
+		{ level: 60, minXp: 5900, title: 'Health Innovator' },
+		{ level: 70, minXp: 6900, title: 'Chief Healer' },
+		{ level: 80, minXp: 7900, title: 'Med Vanguard' },
+		{ level: 90, minXp: 8900, title: 'Legend of Care' }
+	];
+	res.json({ levels });
+});
+
+app.post('/api/speciality/suggest', requireAuth, async (req, res) => {
+	const suggestion = typeof req.body.suggestion === 'string' ? req.body.suggestion.trim() : '';
+	if (!suggestion) return res.status(400).json({ error: 'Suggestion is required' });
+	if (suggestion.length > 120) return res.status(400).json({ error: 'Suggestion too long' });
+	try {
+		await runAsync('INSERT INTO speciality_suggestions (user_id, suggestion, created_at) VALUES (?, ?, ?)', [req.session.userId, suggestion, Date.now()]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
 });
 
 app.delete('/api/post/:postId/comment/:commentId', requireAuth, async (req, res) => {
@@ -962,7 +1146,7 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 	if (name.length > 80) return res.status(400).json({ error: 'Group name is too long' });
 	try {
 		const ts = Date.now();
-		const created = await runAsync('INSERT INTO groups (name, description, is_private, created_by, created_at) VALUES (?, ?, ?, ?, ?)', [name, description, isPrivate, req.session.userId, ts]);
+		const created = await runAsync('INSERT INTO groups (name, description, is_private, clan_xp, clan_level, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [name, description, isPrivate, 0, 1, req.session.userId, ts]);
 		await runAsync('INSERT INTO group_memberships (group_id, user_id, role, status, created_at) VALUES (?, ?, ?, ?, ?)', [created.lastID, req.session.userId, 'admin', 'active', ts]);
 		await addXp(req.session.userId, 'GROUP_CREATE', 'group', created.lastID);
 		res.json({ success: true, id: created.lastID });
@@ -974,7 +1158,7 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 
 app.get('/api/groups', requireAuth, async (req, res) => {
 	try {
-		const rows = await allAsync(`SELECT g.id, g.name, g.description, g.is_private, g.created_by, g.created_at,
+		const rows = await allAsync(`SELECT g.id, g.name, g.description, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
 			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
 			(SELECT role FROM group_memberships gm2 WHERE gm2.group_id = g.id AND gm2.user_id = ?) as my_role,
 			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status
@@ -1104,6 +1288,7 @@ app.post('/api/groups/:id/post', requireAuth, async (req, res) => {
 		const mine = await getGroupRole(groupId, req.session.userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
 		const created = await runAsync('INSERT INTO group_posts (group_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [groupId, req.session.userId, content, Date.now()]);
+		await runAsync('UPDATE groups SET clan_xp = COALESCE(clan_xp, 0) + 10, clan_level = (FLOOR((COALESCE(clan_xp, 0) + 10) / 200) + 1) WHERE id = ?', [groupId]);
 		await addXp(req.session.userId, 'GROUP_POST', 'group', groupId);
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
@@ -1175,6 +1360,14 @@ app.get('/admin', requireAdmin, (req, res) => {
 
 app.get('/profile', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+app.get('/verify-email.html', (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'verify-email.html'));
+});
+
+app.get('/user-profile.html', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'user-profile.html'));
 });
 
 const http = require('http');

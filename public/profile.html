@@ -29,7 +29,20 @@
         <form id="profileEditForm" class="form">
           <input id="profileEditName" type="text" maxlength="120" placeholder="Full name" />
           <input id="profileEditEmail" type="email" placeholder="Email" />
+          <input id="profileEditInstitute" type="text" maxlength="180" placeholder="College / Institute / Workplace" />
+          <select id="profileEditProgramType">
+            <option value="">Program type</option>
+            <option value="student">Student</option>
+            <option value="professional">Working Professional</option>
+          </select>
+          <input id="profileEditDegree" type="text" maxlength="80" placeholder="Degree (MBBS/MD/MS/DM/MCh...)" />
+          <input id="profileEditAcademicYear" type="text" maxlength="40" placeholder="Academic year" />
+          <input id="profileEditSpeciality" type="text" maxlength="80" placeholder="Speciality" />
           <textarea id="profileEditBio" maxlength="400" placeholder="Bio (max 400 chars)"></textarea>
+          <div class="row" style="justify-content:flex-start">
+            <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Speciality not listed? Suggest one" />
+            <button id="specialitySuggestBtn" class="btn secondary" type="button">Suggest</button>
+          </div>
           <div class="row">
             <button class="btn primary" type="submit">Save Changes</button>
           </div>

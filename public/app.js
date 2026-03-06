@@ -83,8 +83,7 @@ async function handleSearch(query) {
       
       el.addEventListener('click', () => {
         if (r.type === 'user') {
-          // Go to user profile or open user card
-          showToast('Opening profile for ' + (r.name || r.username));
+          location.href = `/user-profile.html?id=${encodeURIComponent(r.id)}`;
         } else {
           // Show post in feed
           showToast('Showing post by ' + (r.name || r.username));
@@ -109,7 +108,7 @@ let cachedMe = null;
 let postMode = null;
 
 async function api(path, method='GET', data) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: {}, cache: 'no-store' };
   if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
   try {
     const res = await fetch(path, opts);
@@ -186,6 +185,7 @@ function renderQuizBlock(post) {
   const correctIndex = Number(post.quiz_correct_index);
   const hasCorrectAnswer = !Number.isNaN(correctIndex) && correctIndex >= 0 && correctIndex < quizOptions.length;
   if (!hasCorrectAnswer) return null;
+  if (Number(post.my_quiz_attempted) > 0) return null;
 
   const quizWrap = document.createElement('div');
   quizWrap.className = 'quiz-box';
@@ -213,19 +213,24 @@ function renderQuizBlock(post) {
     text.textContent = opt;
     row.appendChild(input);
     row.appendChild(text);
-    row.addEventListener('click', () => {
+    row.addEventListener('click', async () => {
       const alreadyAnswered = quizWrap.dataset.answered === '1';
       if (alreadyAnswered) return;
       input.checked = true;
-      const isCorrect = idx === correctIndex;
-      feedback.textContent = isCorrect ? 'Correct answer.' : `Incorrect. Correct answer: ${quizOptions[correctIndex]}`;
+      const response = await api(`/api/post/${post.id}/quiz-attempt`, 'POST', { selectedIndex: idx });
+      if (response.error) {
+        showToast(response.error, 'error');
+        return;
+      }
+      const isCorrect = Boolean(response.isCorrect);
+      feedback.textContent = isCorrect ? 'Correct answer.' : `Incorrect. Correct answer: ${response.correctAnswer || quizOptions[correctIndex]}`;
       feedback.classList.remove('quiz-correct', 'quiz-incorrect');
       feedback.classList.add(isCorrect ? 'quiz-correct' : 'quiz-incorrect');
       quizWrap.dataset.answered = '1';
       optionsWrap.querySelectorAll('input').forEach((optionInput) => {
         optionInput.disabled = true;
       });
-      showQuizResultPopup(isCorrect, quizOptions[correctIndex]);
+      showQuizResultPopup(isCorrect, response.correctAnswer || quizOptions[correctIndex]);
     });
     optionsWrap.appendChild(row);
   });
@@ -590,9 +595,17 @@ async function loadAdminUsers() {
     const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : 'Never';
     const xp = Number(u.xp) || 0;
     const totalConnections = Number(u.total_connections) || 0;
-    return `<tr>
+    return `<tr data-user-id="${u.id}">
       <td>${name}</td>
       <td>${escapeHtml(email)}</td>
+      <td>${Number(u.email_verified) ? 'Verified' : 'Not Verified'}</td>
+      <td>
+        <select class="admin-role-select">
+          <option value="user" ${u.role === 'user' ? 'selected' : ''}>user</option>
+          <option value="moderator" ${u.role === 'moderator' ? 'selected' : ''}>moderator</option>
+          <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+        </select>
+      </td>
       <td>${xp}</td>
       <td>${escapeHtml(lastLogin)}</td>
       <td>${totalConnections}</td>
@@ -604,6 +617,8 @@ async function loadAdminUsers() {
         <tr>
           <th>User</th>
           <th>Email</th>
+          <th>Verification</th>
+          <th>Role</th>
           <th>XP</th>
           <th>Last Login</th>
           <th>Total Connections</th>
@@ -612,6 +627,17 @@ async function loadAdminUsers() {
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+  box.querySelectorAll('tr[data-user-id]').forEach((row) => {
+    const select = row.querySelector('.admin-role-select');
+    if (!select) return;
+    select.addEventListener('change', async () => {
+      const userId = Number(row.getAttribute('data-user-id'));
+      const role = select.value;
+      const res = await api(`/api/admin/users/${userId}/role`, 'POST', { role });
+      if (res && res.success) showToast('Role updated');
+      else showToast(res.error || 'Unable to update role', 'error');
+    });
+  });
 }
 
 async function handleStoryImageSelection(e) {
@@ -722,9 +748,19 @@ async function loadProfileEditor() {
   }
   const nameEl = document.getElementById('profileEditName');
   const emailEl = document.getElementById('profileEditEmail');
+  const instituteEl = document.getElementById('profileEditInstitute');
+  const programTypeEl = document.getElementById('profileEditProgramType');
+  const degreeEl = document.getElementById('profileEditDegree');
+  const yearEl = document.getElementById('profileEditAcademicYear');
+  const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   if (nameEl) nameEl.value = res.user.name || '';
   if (emailEl) emailEl.value = res.user.email || '';
+  if (instituteEl) instituteEl.value = res.user.institute || '';
+  if (programTypeEl) programTypeEl.value = res.user.program_type || '';
+  if (degreeEl) degreeEl.value = res.user.degree || '';
+  if (yearEl) yearEl.value = res.user.academic_year || '';
+  if (specialityEl) specialityEl.value = res.user.speciality || '';
   if (bioEl) bioEl.value = res.user.bio || '';
 }
 
@@ -733,14 +769,24 @@ async function handleProfileEditSubmit(e) {
   const form = e.target;
   const nameEl = document.getElementById('profileEditName');
   const emailEl = document.getElementById('profileEditEmail');
+  const instituteEl = document.getElementById('profileEditInstitute');
+  const programTypeEl = document.getElementById('profileEditProgramType');
+  const degreeEl = document.getElementById('profileEditDegree');
+  const yearEl = document.getElementById('profileEditAcademicYear');
+  const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   const name = nameEl ? nameEl.value.trim() : '';
   const email = emailEl ? emailEl.value.trim() : '';
+  const institute = instituteEl ? instituteEl.value.trim() : '';
+  const programType = programTypeEl ? programTypeEl.value.trim() : '';
+  const degree = degreeEl ? degreeEl.value.trim() : '';
+  const academicYear = yearEl ? yearEl.value.trim() : '';
+  const speciality = specialityEl ? specialityEl.value.trim() : '';
   const bio = bioEl ? bioEl.value.trim() : '';
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, email, bio });
+  const res = await api('/api/profile', 'POST', { name, email, bio, institute, programType, degree, academicYear, speciality });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -748,6 +794,85 @@ async function handleProfileEditSubmit(e) {
   } else {
     showToast(res.error || 'Unable to update profile', 'error');
   }
+}
+
+async function suggestSpeciality() {
+  const input = document.getElementById('specialitySuggestionInput');
+  const suggestion = input ? input.value.trim() : '';
+  if (!suggestion) {
+    showToast('Enter a speciality suggestion first', 'error');
+    return;
+  }
+  const res = await api('/api/speciality/suggest', 'POST', { suggestion });
+  if (res && res.success) {
+    if (input) input.value = '';
+    showToast('Speciality suggestion submitted');
+  } else {
+    showToast(res.error || 'Unable to submit suggestion', 'error');
+  }
+}
+
+async function handleVerifyEmailPage() {
+  const statusEl = document.getElementById('verifyEmailStatus');
+  if (!statusEl) return;
+  const token = new URLSearchParams(window.location.search).get('token');
+  if (!token) {
+    statusEl.textContent = 'Verification token is missing.';
+    return;
+  }
+  const res = await api(`/api/verify-email?token=${encodeURIComponent(token)}`);
+  if (res && res.success) {
+    statusEl.textContent = 'Email verified successfully. You can now log in.';
+  } else {
+    statusEl.textContent = res.error || 'Unable to verify email.';
+  }
+}
+
+async function loadPublicProfilePage() {
+  const profileBox = document.getElementById('publicProfileBox');
+  const feedBox = document.getElementById('publicProfileFeed');
+  if (!profileBox || !feedBox) return;
+  const userId = new URLSearchParams(window.location.search).get('id');
+  if (!userId) {
+    profileBox.innerHTML = '<div class="muted">Invalid user profile.</div>';
+    return;
+  }
+  const userRes = await api(`/api/user/${encodeURIComponent(userId)}`);
+  if (userRes.error || !userRes.user) {
+    profileBox.innerHTML = `<div class="muted">${escapeHtml(userRes.error || 'User not found')}</div>`;
+    return;
+  }
+  const u = userRes.user;
+  profileBox.innerHTML = `<img src="${u.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
+    <h3>${escapeHtml(u.name || u.username)}</h3>
+    <p class="muted">@${escapeHtml(u.username || '')}</p>
+    <p class="muted">${escapeHtml(u.speciality || '')}</p>
+    <p class="muted">${escapeHtml(u.institute || '')}</p>
+    <p class="muted">Connections: ${u.connections_count || 0}</p>`;
+  feedBox.innerHTML = '<div class="muted">Loading posts...</div>';
+  const postsRes = await api(`/api/user/${encodeURIComponent(userId)}/posts`);
+  if (postsRes.error) {
+    feedBox.innerHTML = `<div class="muted">${escapeHtml(postsRes.error)}</div>`;
+    return;
+  }
+  if (!postsRes.posts || !postsRes.posts.length) {
+    feedBox.innerHTML = '<div class="muted">No visible posts for this profile.</div>';
+    return;
+  }
+  feedBox.innerHTML = '';
+  postsRes.posts.forEach((p) => {
+    const el = document.createElement('div');
+    el.className = 'post';
+    el.innerHTML = `<div class="meta">${new Date(p.created_at).toLocaleString()} - ${escapeHtml(p.visibility || 'public')}</div><div>${escapeHtml(p.content || '')}</div>`;
+    if (p.image) {
+      const img = document.createElement('img');
+      img.className = 'post-image';
+      img.src = p.image;
+      img.alt = 'Post image';
+      el.appendChild(img);
+    }
+    feedBox.appendChild(el);
+  });
 }
 
 // Load incoming requests
@@ -871,7 +996,8 @@ async function loadGroups() {
     const myState = g.my_status === 'active' ? 'Joined' : (g.my_status === 'pending' ? 'Requested' : 'Not joined');
     card.innerHTML = `<div class="group-top"><strong>${escapeHtml(g.name)}</strong><span class="muted">${privacy}</span></div>
       <div class="muted">${escapeHtml(g.description || '')}</div>
-      <div class="muted">Members: ${g.member_count || 0} | ${myState}${g.my_role ? ` | ${g.my_role}` : ''}</div>`;
+      <div class="muted">Members: ${g.member_count || 0} | Clan Level: ${g.clan_level || 1} | Clan XP: ${g.clan_xp || 0}</div>
+      <div class="muted">${myState}${g.my_role ? ` | ${g.my_role}` : ''}</div>`;
     const actions = document.createElement('div');
     actions.className = 'post-actions';
     const openBtn = createActionButton('Open', async () => {
@@ -1065,6 +1191,23 @@ async function handleChangePassword(e) {
   }
 }
 
+async function loadLevelDetails() {
+  const box = document.getElementById('levelDetails');
+  if (!box) return;
+  const res = await api('/api/xp/levels');
+  if (res.error || !res.levels) {
+    box.innerHTML = '<div class="muted">Unable to load level details</div>';
+    return;
+  }
+  box.innerHTML = '';
+  res.levels.forEach((l) => {
+    const row = document.createElement('div');
+    row.className = 'leader-row';
+    row.innerHTML = `<span>L${l.level}</span><span>${escapeHtml(l.title)}</span><span>Min XP</span><span>${l.minXp}</span>`;
+    box.appendChild(row);
+  });
+}
+
 function openPasswordModal() {
   const modal = document.getElementById('passwordModal');
   if (!modal) return;
@@ -1182,6 +1325,8 @@ async function submitPost(e) {
   const quizOptionEls = Array.from(document.querySelectorAll('.quiz-option'));
   const content = ta.value.trim();
   const reminderNote = reminderNoteInput ? reminderNoteInput.value.trim() : '';
+  const visibilityInput = document.getElementById('postVisibility');
+  const visibility = visibilityInput ? visibilityInput.value : 'public';
   const quizQuestion = quizQuestionInput ? quizQuestionInput.value.trim() : '';
   const quizOptions = quizOptionEls.map((el) => el.value.trim()).filter(Boolean);
   const quizCorrectIndexRaw = quizCorrectIndexInput ? quizCorrectIndexInput.value : '';
@@ -1238,6 +1383,7 @@ async function submitPost(e) {
   const res = await api('/api/post','POST',{
     content,
     image: selectedPostImageDataUrl,
+    visibility,
     reminderAt: isReminderMode ? reminderAt : null,
     reminderNote: isReminderMode ? reminderNote : '',
     quizQuestion: isQuizMode ? quizQuestion : null,
@@ -1274,9 +1420,23 @@ async function handleRegister(e) {
   const n=document.getElementById('regName').value.trim();
   const emailEl = document.getElementById('regEmail');
   const email = emailEl ? emailEl.value.trim() : '';
+  const instituteEl = document.getElementById('regInstitute');
+  const programTypeEl = document.getElementById('regProgramType');
+  const degreeEl = document.getElementById('regDegree');
+  const yearEl = document.getElementById('regAcademicYear');
+  const specialityEl = document.getElementById('regSpeciality');
+  const institute = instituteEl ? instituteEl.value.trim() : '';
+  const programType = programTypeEl ? programTypeEl.value.trim() : '';
+  const degree = degreeEl ? degreeEl.value.trim() : '';
+  const academicYear = yearEl ? yearEl.value.trim() : '';
+  const speciality = specialityEl ? specialityEl.value.trim() : '';
   
-  if (!u || !p) { 
-    showToast('Username and password required', 'error'); 
+  if (!u || !p || !n || !email || !institute) {
+    showToast('Please fill required registration fields', 'error');
+    return;
+  }
+  if (programType === 'student' && (!degree || !academicYear)) {
+    showToast('Degree and academic year are required for students', 'error');
     return; 
   }
   
@@ -1288,14 +1448,18 @@ async function handleRegister(e) {
   setLoading(form, true);
   submitBtn.textContent = 'Creating...';
   
-  const res = await api('/api/register','POST',{username:u,password:p,name:n,email});
+  const res = await api('/api/register','POST',{username:u,password:p,name:n,email,institute,programType,degree,academicYear,speciality});
   
   setLoading(form, false);
   submitBtn.textContent = 'Register';
   
   if (res && res.success) { 
-    showToast('Account created. Redirecting...');
-    setTimeout(() => { location.href='/dashboard'; }, 1000);
+    showToast('Account created. Verify your email to login.');
+    if (res.verifyUrl) {
+      setTimeout(() => { location.href = res.verifyUrl; }, 900);
+    } else {
+      setTimeout(() => { location.href='/login.html'; }, 900);
+    }
   } else { 
     showToast(res.error||'Registration failed', 'error');
   }
@@ -1307,6 +1471,8 @@ async function handleLogin(e){
   const submitBtn = form.querySelector('button[type="submit"]');
   const u=document.getElementById('loginUser').value.trim();
   const p=document.getElementById('loginPass').value.trim();
+  const rememberMeEl = document.getElementById('rememberMe');
+  const rememberMe = rememberMeEl ? rememberMeEl.checked : false;
   
   if (!u || !p) { 
     showToast('Username and password required', 'error'); 
@@ -1316,7 +1482,7 @@ async function handleLogin(e){
   setLoading(form, true);
   submitBtn.textContent = 'Logging in...';
   
-  const res = await api('/api/login','POST',{username:u,password:p});
+  const res = await api('/api/login','POST',{username:u,password:p,rememberMe});
   
   setLoading(form, false);
   submitBtn.textContent = 'Log in';
@@ -1523,6 +1689,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('connections')) setInterval(loadConnections, 15000);
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
+  if (document.getElementById('levelDetails')) loadLevelDetails();
   if (document.getElementById('groupFeed')) loadGroupFeed();
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
@@ -1536,6 +1703,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
     passwordModal.addEventListener('click', (evt) => {
       if (evt.target === passwordModal) closePasswordModal();
     });
+  }
+
+  // Make brand title clickable to homepage
+  const brandTitle = document.querySelector('.brand h1');
+  if (brandTitle) {
+    brandTitle.style.cursor = 'pointer';
+    brandTitle.addEventListener('click', () => { location.href = '/'; });
   }
   
   // Post composer
@@ -1577,7 +1751,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
     loadProfileEditor();
+    const suggestBtn = document.getElementById('specialitySuggestBtn');
+    if (suggestBtn) suggestBtn.addEventListener('click', suggestSpeciality);
   }
+  if (document.getElementById('verifyEmailStatus')) handleVerifyEmailPage();
+  if (document.getElementById('publicProfileBox')) loadPublicProfilePage();
   
   // Profile display
   loadProfile();

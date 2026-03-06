@@ -22,9 +22,18 @@
     <section class="card auth-card">
       <h2>Create account</h2>
       <form id="regForm" class="form">
-        <input id="regName" placeholder="Full name (optional)" />
-        <input id="regEmail" type="email" placeholder="Email (optional)" />
+        <input id="regName" placeholder="Full name" required />
+        <input id="regEmail" type="email" placeholder="Email" required />
         <input id="regUser" placeholder="Username" required />
+        <input id="regInstitute" placeholder="College / Institute / Workplace" required />
+        <select id="regProgramType" required>
+          <option value="">Select status</option>
+          <option value="student">Student</option>
+          <option value="professional">Working Professional</option>
+        </select>
+        <input id="regDegree" placeholder="Degree (MBBS/MD/MS/DM/MCh...)" />
+        <input id="regAcademicYear" placeholder="Year (1st/2nd/3rd...)" />
+        <input id="regSpeciality" placeholder="Speciality (optional)" />
         <input id="regPass" type="password" placeholder="Password" required />
         <div class="row">
           <button class="btn primary" type="submit">Register</button>
