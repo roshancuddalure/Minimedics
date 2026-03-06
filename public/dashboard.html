@@ -37,9 +37,9 @@
           <h3>Connections</h3>
           <div class="row" style="justify-content:flex-start;gap:0.35rem;margin-top:0.5rem">
             <button class="btn tiny-btn conn-tab-btn active" data-tab="accepted" type="button" title="Connections">All</button>
-            <button class="btn tiny-btn conn-tab-btn" data-tab="received" type="button" title="Received">In</button>
-            <button class="btn tiny-btn conn-tab-btn" data-tab="sent" type="button" title="Sent">Out</button>
-            <button class="btn tiny-btn conn-tab-btn" data-tab="ignored" type="button" title="Ignored">Ignore</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="received" type="button" title="Received">Received</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="sent" type="button" title="Sent">Sent</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="ignored" type="button" title="Declined">Declined</button>
             <button class="btn tiny-btn conn-tab-btn" data-tab="suggestions" type="button" title="Suggestions">Suggest</button>
           </div>
           <div id="connectionsPanelAccepted" class="section-gap conn-tab-panel"><div id="connections"></div></div>
@@ -65,11 +65,6 @@
         <section class="card">
           <h3>Top Medics</h3>
           <div id="leaderboard" class="section-gap"></div>
-        </section>
-
-        <section class="card">
-          <h3>XP Level Details</h3>
-          <div id="levelDetails" class="section-gap"></div>
         </section>
 
       </aside>

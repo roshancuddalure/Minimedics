@@ -259,6 +259,10 @@ async function initializeDatabase() {
 		email_verify_token TEXT,
 		last_login BIGINT,
 		profile_picture TEXT,
+		privacy_show_online TEXT DEFAULT 'connections',
+		privacy_discoverability TEXT DEFAULT 'everyone',
+		privacy_in_suggestions TEXT DEFAULT 'everyone',
+		privacy_request_policy TEXT DEFAULT 'everyone',
 		role TEXT DEFAULT 'user',
 		xp INTEGER DEFAULT 0,
 		level INTEGER DEFAULT 1,
@@ -281,6 +285,10 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_show_online TEXT DEFAULT 'connections'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_discoverability TEXT DEFAULT 'everyone'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_in_suggestions TEXT DEFAULT 'everyone'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_request_policy TEXT DEFAULT 'everyone'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Rookie Medic'`);
@@ -644,7 +652,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -714,7 +722,7 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		res.json({ user });
 	} catch (e) {
@@ -732,6 +740,10 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	const statusDescription = typeof req.body.statusDescription === 'string' ? req.body.statusDescription.trim() : '';
 	const achievements = typeof req.body.achievements === 'string' ? req.body.achievements.trim() : '';
 	const placeFrom = typeof req.body.placeFrom === 'string' ? req.body.placeFrom.trim() : '';
+	const privacyShowOnline = typeof req.body.privacyShowOnline === 'string' ? req.body.privacyShowOnline.trim() : '';
+	const privacyDiscoverability = typeof req.body.privacyDiscoverability === 'string' ? req.body.privacyDiscoverability.trim() : '';
+	const privacyInSuggestions = typeof req.body.privacyInSuggestions === 'string' ? req.body.privacyInSuggestions.trim() : '';
+	const privacyRequestPolicy = typeof req.body.privacyRequestPolicy === 'string' ? req.body.privacyRequestPolicy.trim() : '';
 	const institute = typeof req.body.institute === 'string' ? req.body.institute.trim() : '';
 	const programType = typeof req.body.programType === 'string' ? req.body.programType.trim() : '';
 	const degree = typeof req.body.degree === 'string' ? req.body.degree.trim() : '';
@@ -746,6 +758,10 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
 		return res.status(400).json({ error: 'Date of birth must be YYYY-MM-DD' });
 	}
+	if (privacyShowOnline && !['everyone', 'connections', 'nobody'].includes(privacyShowOnline)) return res.status(400).json({ error: 'Invalid online visibility option' });
+	if (privacyDiscoverability && !['everyone', 'nobody'].includes(privacyDiscoverability)) return res.status(400).json({ error: 'Invalid discoverability option' });
+	if (privacyInSuggestions && !['everyone', 'nobody'].includes(privacyInSuggestions)) return res.status(400).json({ error: 'Invalid suggestion visibility option' });
+	if (privacyRequestPolicy && !['everyone', 'link_only', 'nobody'].includes(privacyRequestPolicy)) return res.status(400).json({ error: 'Invalid request policy option' });
 	if (name.length > 120) return res.status(400).json({ error: 'Name is too long' });
 	if (nickname.length > 60) return res.status(400).json({ error: 'Nickname is too long' });
 	if (bio.length > 400) return res.status(400).json({ error: 'Bio is too long' });
@@ -753,7 +769,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	if (achievements.length > 300) return res.status(400).json({ error: 'Achievements are too long' });
 	if (placeFrom.length > 120) return res.status(400).json({ error: 'Place is too long' });
 	try {
-		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -844,12 +860,17 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, level, title FROM users WHERE id = ?', [uid], (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ?', [uid], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
+		if (user.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
+			return res.status(404).json({ error: 'User not found' });
+		}
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
 		db.get(q, [uid, uid], async (err2, row) => {
 			if (err2) user.connections_count = 0;
 			else user.connections_count = row.cnt || 0;
+			user.online = false;
+			user.online_visible = false;
 			if (!viewerId || Number(uid) === viewerId) return res.json({ user });
 			try {
 				const [connection, follow, blockedByMe, blockedMe] = await Promise.all([
@@ -868,6 +889,9 @@ app.get('/api/user/:id', (req, res) => {
 					blockedByMe: Boolean(blockedByMe),
 					blockedMe: Boolean(blockedMe)
 				};
+				const canSeeOnline = user.privacy_show_online === 'everyone' || (user.privacy_show_online === 'connections' && connection && connection.status === 'accepted');
+				user.online_visible = Boolean(canSeeOnline);
+				user.online = canSeeOnline ? isUserOnline(uid) : false;
 			} catch (relErr) {
 				user.relationship = {
 					connectionStatus: 'unknown',
@@ -876,6 +900,8 @@ app.get('/api/user/:id', (req, res) => {
 					blockedByMe: false,
 					blockedMe: false
 				};
+				user.online_visible = false;
+				user.online = false;
 			}
 			return res.json({ user });
 		});
@@ -983,10 +1009,17 @@ app.delete('/api/post/:id', requireAuth, async (req, res) => {
 // Connections: send request
 app.post('/api/connect/request', requireAuth, (req, res) => {
 	const { to } = req.body;
+	const viaProfileLink = Boolean(req.body && req.body.viaProfileLink);
 	if (!to) return res.status(400).json({ error: 'Missing target user' });
 	const a = Number(req.session.userId), b = Number(to);
 	if (!a || !b || a === b) return res.status(400).json({ error: 'Invalid target user' });
 	const ts = Date.now();
+	db.get('SELECT id, privacy_request_policy FROM users WHERE id = ?', [b], (targetErr, targetUser) => {
+		if (targetErr) return res.status(500).json({ error: 'Server error' });
+		if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+		const policy = String(targetUser.privacy_request_policy || 'everyone');
+		if (policy === 'nobody') return res.status(403).json({ error: 'This user is not accepting requests' });
+		if (policy === 'link_only' && !viaProfileLink) return res.status(403).json({ error: 'This user accepts requests only from profile link' });
 	db.get('SELECT id FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [a, b, b, a], (blockErr, blockRow) => {
 		if (blockErr) return res.status(500).json({ error: 'Server error' });
 		if (blockRow) return res.status(403).json({ error: 'Unable to connect with this user' });
@@ -1002,6 +1035,7 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 				res.json({ success: true });
 			});
 		});
+	});
 	});
 });
 
@@ -1144,10 +1178,15 @@ app.post('/api/connect/unignore', requireAuth, (req, res) => {
 // list accepted connections for current user
 app.get('/api/connections', requireAuth, (req, res) => {
 	const uid = req.session.userId;
-	const q = `SELECT u.id, u.username, u.name, u.profile_picture FROM users u JOIN connections c ON ( (c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id) ) WHERE c.status = 'accepted'`;
+	const q = `SELECT u.id, u.username, u.name, u.profile_picture, u.privacy_show_online
+		FROM users u JOIN connections c ON ( (c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id) )
+		WHERE c.status = 'accepted'`;
 	db.all(q, [uid, uid], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
-		const withPresence = (rows || []).map((r) => ({ ...r, online: isUserOnline(r.id) }));
+		const withPresence = (rows || []).map((r) => {
+			const canSee = r.privacy_show_online === 'everyone' || r.privacy_show_online === 'connections';
+			return { ...r, online_visible: canSee, online: canSee ? isUserOnline(r.id) : false };
+		});
 		res.json({ connections: withPresence });
 	});
 });
@@ -1164,7 +1203,7 @@ app.get('/api/requests', requireAuth, (req, res) => {
 app.get('/api/connections/overview', requireAuth, async (req, res) => {
 	const uid = Number(req.session.userId);
 	try {
-		const acceptedRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
+		const acceptedRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture, u.privacy_show_online
 			FROM users u
 			JOIN connections c ON ((c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id))
 			WHERE c.status = 'accepted'`, [uid, uid]);
@@ -1186,6 +1225,8 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 		const suggestionRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
 			FROM users u
 			WHERE u.id <> ?
+			AND COALESCE(u.privacy_in_suggestions, 'everyone') <> 'nobody'
+			AND COALESCE(u.privacy_discoverability, 'everyone') <> 'nobody'
 			AND NOT EXISTS (
 				SELECT 1 FROM connections c
 				WHERE ((c.user_a = ? AND c.user_b = u.id) OR (c.user_a = u.id AND c.user_b = ?))
@@ -1197,7 +1238,10 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 			)
 			ORDER BY u.username ASC
 			LIMIT 40`, [uid, uid, uid, uid, uid]);
-		const accepted = acceptedRows.map((r) => ({ ...r, online: isUserOnline(r.id) }));
+		const accepted = acceptedRows.map((r) => {
+			const canSee = r.privacy_show_online === 'everyone' || r.privacy_show_online === 'connections';
+			return { ...r, online_visible: canSee, online: canSee ? isUserOnline(r.id) : false };
+		});
 		res.json({
 			accepted,
 			sent: sentRows,
@@ -1550,6 +1594,12 @@ app.get('/api/leaderboard', async (req, res) => {
 	try {
 		const rows = await allAsync(`SELECT
 			u.id, u.username, u.name, u.profile_picture, u.xp, u.level, u.title,
+			(SELECT g.id
+			 FROM group_memberships gm
+			 JOIN groups g ON g.id = gm.group_id
+			 WHERE gm.user_id = u.id AND gm.status = 'active'
+			 ORDER BY gm.created_at DESC
+			 LIMIT 1) AS clan_id,
 			(SELECT g.name
 			 FROM group_memberships gm
 			 JOIN groups g ON g.id = gm.group_id
@@ -1626,21 +1676,23 @@ app.get('/api/groups/:id/detail', requireAuth, async (req, res) => {
 			FROM groups g WHERE g.id = ?`, [req.session.userId, req.session.userId, groupId]);
 		if (!group) return res.status(404).json({ error: 'Clan not found' });
 		const mine = await getGroupRole(groupId, req.session.userId);
-		if (Number(group.is_private) === 1 && (!mine || mine.status !== 'active')) {
-			return res.status(403).json({ error: 'Join this private clan to view details' });
-		}
-		const posts = await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
-			FROM group_posts gp
-			JOIN users u ON u.id = gp.user_id
-			WHERE gp.group_id = ?
-			ORDER BY gp.created_at DESC
-			LIMIT 100`, [groupId]);
-		const members = await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, gm.created_at, u.username, u.name, u.profile_picture
-			FROM group_memberships gm
-			JOIN users u ON u.id = gm.user_id
-			WHERE gm.group_id = ? AND gm.status = 'active'
-			ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId]);
-		res.json({ group, posts, members });
+		const canViewContent = mine && mine.status === 'active';
+		const posts = canViewContent
+			? await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
+				FROM group_posts gp
+				JOIN users u ON u.id = gp.user_id
+				WHERE gp.group_id = ?
+				ORDER BY gp.created_at DESC
+				LIMIT 100`, [groupId])
+			: [];
+		const members = canViewContent
+			? await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, gm.created_at, u.username, u.name, u.profile_picture
+				FROM group_memberships gm
+				JOIN users u ON u.id = gm.user_id
+				WHERE gm.group_id = ? AND gm.status = 'active'
+				ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId])
+			: [];
+		res.json({ group, posts, members, canViewContent: Boolean(canViewContent) });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1805,7 +1857,7 @@ app.post('/api/groups/:id/post', requireAuth, async (req, res) => {
 		const mine = await getGroupRole(groupId, req.session.userId);
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
 		const created = await runAsync('INSERT INTO group_posts (group_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [groupId, req.session.userId, content, Date.now()]);
-		await runAsync('UPDATE groups SET clan_xp = COALESCE(clan_xp, 0) + 10, clan_level = (FLOOR((COALESCE(clan_xp, 0) + 10) / 200) + 1) WHERE id = ?', [groupId]);
+		await runAsync('UPDATE groups SET clan_xp = COALESCE(clan_xp, 0) + 10, clan_level = (FLOOR((COALESCE(clan_xp, 0) + 10) / 5000) + 1) WHERE id = ?', [groupId]);
 		await addXp(req.session.userId, 'GROUP_POST', 'group', groupId);
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
@@ -1842,7 +1894,11 @@ app.get('/api/search', (req, res) => {
 	const searchTerm = `%${q}%`;
 	
 	// Search users
-	const userQuery = `SELECT id, username, name, profile_picture, 'user' as type FROM users WHERE username LIKE ? OR name LIKE ? LIMIT 8`;
+	const userQuery = `SELECT id, username, name, profile_picture, 'user' as type
+		FROM users
+		WHERE (username LIKE ? OR name LIKE ?)
+		AND COALESCE(privacy_discoverability, 'everyone') <> 'nobody'
+		LIMIT 8`;
 	
 	// Search posts
 	const postQuery = `SELECT p.id, p.content, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture, 'post' as type FROM posts p JOIN users u ON p.user_id = u.id WHERE p.content LIKE ? ORDER BY p.created_at DESC LIMIT 8`;

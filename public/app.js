@@ -155,6 +155,13 @@ function formatDateTime(value, fallback = 'Invalid date') {
   return Number.isNaN(d.getTime()) ? fallback : d.toLocaleString();
 }
 
+function formatGenderLabel(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'prefer_not_to_say') return 'Prefer not to say';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 function formatReminder(reminderAt) {
   if (!reminderAt) return '';
   const reminderDate = new Date(Number(reminderAt));
@@ -866,6 +873,10 @@ async function loadProfileEditor() {
   const placeFromEl = document.getElementById('profileEditPlaceFrom');
   const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
   const achievementsEl = document.getElementById('profileEditAchievements');
+  const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
+  const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
+  const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
+  const privacyRequestPolicyEl = document.getElementById('privacyRequestPolicy');
   const instituteEl = document.getElementById('profileEditInstitute');
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
@@ -880,6 +891,10 @@ async function loadProfileEditor() {
   if (placeFromEl) placeFromEl.value = res.user.place_from || '';
   if (statusDescriptionEl) statusDescriptionEl.value = res.user.status_description || '';
   if (achievementsEl) achievementsEl.value = res.user.achievements || '';
+  if (privacyShowOnlineEl) privacyShowOnlineEl.value = res.user.privacy_show_online || 'connections';
+  if (privacyDiscoverabilityEl) privacyDiscoverabilityEl.value = res.user.privacy_discoverability || 'everyone';
+  if (privacyInSuggestionsEl) privacyInSuggestionsEl.value = res.user.privacy_in_suggestions || 'everyone';
+  if (privacyRequestPolicyEl) privacyRequestPolicyEl.value = res.user.privacy_request_policy || 'everyone';
   if (instituteEl) instituteEl.value = res.user.institute || '';
   if (programTypeEl) programTypeEl.value = res.user.program_type || '';
   if (degreeEl) degreeEl.value = res.user.degree || '';
@@ -899,6 +914,10 @@ async function handleProfileEditSubmit(e) {
   const placeFromEl = document.getElementById('profileEditPlaceFrom');
   const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
   const achievementsEl = document.getElementById('profileEditAchievements');
+  const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
+  const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
+  const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
+  const privacyRequestPolicyEl = document.getElementById('privacyRequestPolicy');
   const instituteEl = document.getElementById('profileEditInstitute');
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
@@ -913,6 +932,10 @@ async function handleProfileEditSubmit(e) {
   const placeFrom = placeFromEl ? placeFromEl.value.trim() : '';
   const statusDescription = statusDescriptionEl ? statusDescriptionEl.value.trim() : '';
   const achievements = achievementsEl ? achievementsEl.value.trim() : '';
+  const privacyShowOnline = privacyShowOnlineEl ? privacyShowOnlineEl.value.trim() : 'connections';
+  const privacyDiscoverability = privacyDiscoverabilityEl ? privacyDiscoverabilityEl.value.trim() : 'everyone';
+  const privacyInSuggestions = privacyInSuggestionsEl ? privacyInSuggestionsEl.value.trim() : 'everyone';
+  const privacyRequestPolicy = privacyRequestPolicyEl ? privacyRequestPolicyEl.value.trim() : 'everyone';
   const institute = instituteEl ? instituteEl.value.trim() : '';
   const programType = programTypeEl ? programTypeEl.value.trim() : '';
   const degree = degreeEl ? degreeEl.value.trim() : '';
@@ -922,7 +945,7 @@ async function handleProfileEditSubmit(e) {
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, statusDescription, achievements, placeFrom, bio, institute, programType, degree, academicYear, speciality });
+  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, statusDescription, achievements, placeFrom, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -1051,6 +1074,7 @@ async function loadClanManagementPage() {
   }
   const g = detailRes.group;
   const canManage = ['admin', 'moderator'].includes(String(g.my_role || ''));
+  const isActiveMember = g.my_status === 'active';
   const header = document.getElementById('clanHeaderMeta');
   if (header) header.textContent = `${g.name} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}`;
   profileCard.innerHTML = `<img src="${g.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
@@ -1058,7 +1082,21 @@ async function loadClanManagementPage() {
     <p class="muted">${escapeHtml(g.description || '')}</p>
     <p class="muted">Members: ${g.member_count || 0} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}</p>
     <p class="muted">Role: ${escapeHtml(g.my_role || 'none')} | Status: ${escapeHtml(g.my_status || 'none')}</p>
+    ${!isActiveMember ? '<button id="joinClanBtn" class="btn tiny-btn" type="button">Request to Join Clan</button>' : ''}
     ${canManage ? '<input id="clanPictureInput" type="file" accept="image/*" /><button id="updateClanPicBtn" class="btn secondary tiny-btn" type="button">Update Clan Picture</button>' : ''}`;
+  const joinBtn = document.getElementById('joinClanBtn');
+  if (joinBtn) {
+    joinBtn.addEventListener('click', async () => {
+      const joinRes = await api(`/api/groups/${encodeURIComponent(clanId)}/join`, 'POST', {});
+      if (joinRes && joinRes.success) {
+        showToast(joinRes.status === 'active' ? 'Joined clan' : 'Join request sent');
+        loadClanManagementPage();
+        loadGroups();
+      } else {
+        showToast(joinRes.error || 'Unable to join clan', 'error');
+      }
+    });
+  }
   if (canManage) {
     const updateBtn = document.getElementById('updateClanPicBtn');
     if (updateBtn) {
@@ -1087,15 +1125,19 @@ async function loadClanManagementPage() {
 
   const postsBox = document.getElementById('clanPosts');
   if (postsBox) {
+    const clanPostForm = document.getElementById('clanPostForm');
+    if (clanPostForm) clanPostForm.classList.toggle('hidden', !isActiveMember);
     const posts = Array.isArray(detailRes.posts) ? detailRes.posts : [];
-    if (!posts.length) postsBox.innerHTML = '<div class="muted">No clan posts yet.</div>';
+    if (!isActiveMember) postsBox.innerHTML = '<div class="muted">Join this clan to view posts.</div>';
+    else if (!posts.length) postsBox.innerHTML = '<div class="muted">No clan posts yet.</div>';
     else postsBox.innerHTML = posts.map((p) => `<div class="post"><div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div>${escapeHtml(p.content || '')}</div></div>`).join('');
   }
 
   const membersBox = document.getElementById('clanMembers');
   if (membersBox) {
     const members = Array.isArray(detailRes.members) ? detailRes.members : [];
-    if (!members.length) membersBox.innerHTML = '<div class="muted">No members found.</div>';
+    if (!isActiveMember) membersBox.innerHTML = '<div class="muted">Join this clan to view members.</div>';
+    else if (!members.length) membersBox.innerHTML = '<div class="muted">No members found.</div>';
     else membersBox.innerHTML = members.map((m) => `<div class="request-item"><img src="${getProfilePictureUrl(m)}" style="width:30px;height:30px;border-radius:50%" /><strong>${escapeHtml(m.name || m.username)}</strong><span class="muted">${escapeHtml(m.role || 'member')}</span></div>`).join('');
   }
 
@@ -1211,7 +1253,8 @@ async function loadPublicProfilePage() {
   profileBox.innerHTML = `<img src="${getProfilePictureUrl(u)}" class="profile-picture" />
     <h3>${escapeHtml(u.name || u.username)}${u.nickname ? ` <span class="muted">(${escapeHtml(u.nickname)})</span>` : ''}</h3>
     <p class="muted">@${escapeHtml(u.username || '')}</p>
-    <p class="muted">${escapeHtml(u.gender || '')}${u.date_of_birth ? ` | DOB: ${escapeHtml(u.date_of_birth)}` : ''}</p>
+    <p class="muted">${escapeHtml(formatGenderLabel(u.gender))}${u.date_of_birth ? ` | DOB: ${escapeHtml(u.date_of_birth)}` : ''}</p>
+    <p class="muted">Status: ${u.online_visible ? (u.online ? 'Online' : 'Offline') : 'Hidden'}</p>
     <p class="muted">${escapeHtml(u.place_from || '')}</p>
     <p class="muted">${escapeHtml(u.status_description || '')}</p>
     <p class="muted">${escapeHtml(u.achievements || '')}</p>
@@ -1233,7 +1276,7 @@ async function loadPublicProfilePage() {
         let actionRes;
         if (relation.connectionStatus === 'accepted') actionRes = await api('/api/connect/disconnect', 'POST', { userId: u.id });
         else if (relation.connectionStatus === 'pending' && relation.connectionRequestedByMe && relation.connectionId) actionRes = await api('/api/connect/cancel', 'POST', { id: relation.connectionId });
-        else actionRes = await api('/api/connect/request', 'POST', { to: u.id });
+        else actionRes = await api('/api/connect/request', 'POST', { to: u.id, viaProfileLink: true });
         setLoading(connectBtn, false);
         if (actionRes && actionRes.success) loadPublicProfilePage();
         else showToast(actionRes.error || 'Unable to update connection', 'error');
@@ -1402,8 +1445,8 @@ async function loadConnectionPanels() {
   const suggestions = Array.isArray(res.suggestions) ? res.suggestions : [];
 
   acceptedBox.innerHTML = accepted.length ? accepted.map((c) => {
-    const statusText = c.online ? 'Online' : 'Offline';
-    const statusClass = c.online ? 'status-online' : 'status-offline';
+    const statusText = c.online_visible ? (c.online ? 'Online' : 'Offline') : 'Hidden';
+    const statusClass = c.online_visible ? (c.online ? 'status-online' : 'status-offline') : 'status-offline';
     const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
     return renderPersonCard(c, `<div style="display:flex;gap:8px;align-items:center">
       <div class="connection-status ${statusClass}">${statusText}</div>
@@ -1426,7 +1469,7 @@ async function loadConnectionPanels() {
     ignoredBox.innerHTML = ignored.length ? ignored.map((r) => renderPersonCard(r, `<div style="display:flex;gap:8px">
       <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="unignoreRequest(${r.id})">Remove</button>
       <button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(r.user_id)}}).then(()=>loadConnectionPanels())">Connect Again</button>
-    </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No ignored requests.</div>';
+    </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No declined requests.</div>';
   }
 
   if (suggestionsBox) {
@@ -1459,11 +1502,12 @@ async function loadLeaderboard() {
   res.users.slice(0, 8).forEach((u, idx) => {
     const row = document.createElement('div');
     row.className = 'leader-row';
+    const clanCell = u.clan_id ? `<a href="/clan.html?id=${encodeURIComponent(u.clan_id)}">${escapeHtml(u.clan_name || 'Clan')}</a>` : `<span class="muted">${escapeHtml(u.clan_name || 'No clan')}</span>`;
     row.innerHTML = `<span>#${idx + 1}</span>
       <span><a href="/user-profile.html?id=${encodeURIComponent(u.id)}">${escapeHtml(u.name || u.username)}</a></span>
       <span>L${u.level || 1}</span>
       <span>${u.xp || 0} XP</span>
-      <span class="muted">${escapeHtml(u.clan_name || 'No clan')}</span>`;
+      <span>${clanCell}</span>`;
     box.appendChild(row);
   });
 }
@@ -1796,7 +1840,7 @@ function initProfileSettingsModal() {
     };
   }
   const privacyBtn = document.getElementById('settingsPrivacyBtn');
-  if (privacyBtn) privacyBtn.onclick = () => showToast('Privacy options will be added here');
+  if (privacyBtn) privacyBtn.onclick = () => { location.href = '/profile#privacy'; };
   const changePassBtn = document.getElementById('settingsChangePassBtn');
   if (changePassBtn) {
     changePassBtn.onclick = () => {
@@ -2149,7 +2193,7 @@ async function loadProfile() {
     <img id="profilePic" src="${picUrl}" class="profile-picture" />
     <h3>${escapeHtml(res.user.name || res.user.username)}${res.user.nickname ? ` <span class="muted">(${escapeHtml(res.user.nickname)})</span>` : ''}</h3>
     <p class="muted">Title: ${escapeHtml(res.user.title || 'Rookie Medic')}</p>
-    <p class="muted">${escapeHtml(res.user.gender || '')}${res.user.date_of_birth ? ` | DOB: ${escapeHtml(res.user.date_of_birth)}` : ''}</p>
+    <p class="muted">${escapeHtml(formatGenderLabel(res.user.gender))}${res.user.date_of_birth ? ` | DOB: ${escapeHtml(res.user.date_of_birth)}` : ''}</p>
     <p class="muted">${escapeHtml(res.user.place_from || '')}</p>
     <p class="muted">${escapeHtml(res.user.status_description || '')}</p>
     <p class="muted">${escapeHtml(res.user.achievements || '')}</p>
@@ -2162,10 +2206,7 @@ async function loadProfile() {
       <button id="openSettingsBtn" class="btn secondary tiny-btn" type="button" title="Settings">Settings</button>
     </div>
     ${adminActions}
-    <div class="pic-upload">
-      <input id="picInput" type="file" accept="image/*" />
-      <button class="pic-upload-btn" onclick="document.getElementById('picInput').click()">Upload Photo</button>
-    </div>
+    <input id="picInput" type="file" accept="image/*" style="display:none" />
   </div>`;
   document.getElementById('picInput').addEventListener('change', uploadProfilePicture);
   initProfileSettingsModal();
@@ -2282,7 +2323,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initConnectionTabs();
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
-  if (document.getElementById('levelDetails')) loadLevelDetails();
   if (document.getElementById('groupFeed')) loadGroupFeed();
   if (document.getElementById('groupCreateForm')) document.getElementById('groupCreateForm').addEventListener('submit', handleGroupCreate);
   if (document.getElementById('groupPostForm')) document.getElementById('groupPostForm').addEventListener('submit', handleGroupPost);
