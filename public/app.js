@@ -103,6 +103,7 @@ async function handleSearch(query) {
 const debouncedSearch = debounce(handleSearch, 300);
 let selectedPostImageDataUrl = null;
 let selectedGroupId = null;
+let selectedGroupRole = null;
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {} };
@@ -179,7 +180,35 @@ async function sharePost(postId, btn) {
   }
 }
 
-async function loadComments(postId, mountEl) {
+async function deletePost(postId, postEl, btn) {
+  const ok = window.confirm('Delete this post and all related activity?');
+  if (!ok) return;
+  setLoading(btn, true);
+  const res = await api(`/api/post/${postId}`, 'DELETE');
+  setLoading(btn, false);
+  if (res && res.success) {
+    if (postEl) postEl.remove();
+    showToast('Post deleted');
+  } else {
+    showToast(res.error || 'Unable to delete post', 'error');
+  }
+}
+
+async function deleteComment(postId, commentId, mountEl, meId, postOwnerId, btn) {
+  const ok = window.confirm('Delete this comment?');
+  if (!ok) return;
+  setLoading(btn, true);
+  const res = await api(`/api/post/${postId}/comment/${commentId}`, 'DELETE');
+  setLoading(btn, false);
+  if (res && res.success) {
+    await loadComments(postId, mountEl, meId, postOwnerId);
+    showToast('Comment deleted');
+  } else {
+    showToast(res.error || 'Unable to delete comment', 'error');
+  }
+}
+
+async function loadComments(postId, mountEl, meId = null, postOwnerId = null) {
   mountEl.innerHTML = '<div class="muted">Loading comments...</div>';
   const res = await api(`/api/post/${postId}/comments`);
   if (res.error) {
@@ -195,17 +224,23 @@ async function loadComments(postId, mountEl) {
     const row = document.createElement('div');
     row.className = 'comment-item';
     row.innerHTML = `<div class="meta">${escapeHtml(c.name || c.username)} - ${new Date(c.created_at).toLocaleString()}</div><div>${escapeHtml(c.content)}</div>`;
+    const canDelete = meId && (Number(c.user_id) === Number(meId) || Number(postOwnerId) === Number(meId));
+    if (canDelete) {
+      const delBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+      delBtn.addEventListener('click', () => deleteComment(postId, c.id, mountEl, meId, postOwnerId, delBtn));
+      row.appendChild(delBtn);
+    }
     mountEl.appendChild(row);
   });
 }
 
-async function postComment(postId, inputEl, commentsMount) {
+async function postComment(postId, inputEl, commentsMount, meId = null, postOwnerId = null) {
   const content = inputEl.value.trim();
   if (!content) return;
   const res = await api(`/api/post/${postId}/comment`, 'POST', { content });
   if (res && res.success) {
     inputEl.value = '';
-    loadComments(postId, commentsMount);
+    loadComments(postId, commentsMount, meId, postOwnerId);
     showToast('Comment added');
   } else {
     showToast(res.error || 'Unable to add comment', 'error');
@@ -280,12 +315,17 @@ async function loadFeed() {
       shareBtn.addEventListener('click', () => sharePost(p.id, shareBtn));
       const commentsToggleBtn = createActionButton(`Comments (${p.comment_count || 0})`, async () => {
         commentsWrap.classList.toggle('hidden');
-        if (!commentsWrap.classList.contains('hidden')) await loadComments(p.id, commentsList);
+        if (!commentsWrap.classList.contains('hidden')) await loadComments(p.id, commentsList, meId, p.user_id);
       });
       actionsRow.appendChild(likeBtn);
       actionsRow.appendChild(commentsToggleBtn);
       actionsRow.appendChild(saveBtn);
       actionsRow.appendChild(shareBtn);
+      if (Number(p.user_id) === Number(meId)) {
+        const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+        deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
+        actionsRow.appendChild(deleteBtn);
+      }
     }
 
     // show connect button if not self
@@ -320,11 +360,11 @@ async function loadFeed() {
       input.maxLength = 700;
       input.placeholder = 'Write a comment...';
       const sendBtn = createActionButton('Add', () => {}, 'btn primary tiny-btn');
-      sendBtn.addEventListener('click', () => postComment(p.id, input, commentsList));
+      sendBtn.addEventListener('click', () => postComment(p.id, input, commentsList, meId, p.user_id));
       input.addEventListener('keydown', (evt) => {
         if (evt.key === 'Enter') {
           evt.preventDefault();
-          postComment(p.id, input, commentsList);
+          postComment(p.id, input, commentsList, meId, p.user_id);
         }
       });
       composer.appendChild(input);
@@ -459,6 +499,7 @@ async function loadGroups() {
     actions.className = 'post-actions';
     const openBtn = createActionButton('Open', async () => {
       selectedGroupId = g.id;
+      selectedGroupRole = g.my_role || null;
       const title = document.getElementById('groupFeedTitle');
       if (title) title.textContent = `Group Space - ${g.name}`;
       await loadGroupFeed();
@@ -500,10 +541,32 @@ async function loadGroupFeed() {
     return;
   }
   box.innerHTML = '';
+  const meId = window.__me ? window.__me.id : null;
   res.posts.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'post';
     el.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${new Date(p.created_at).toLocaleString()}</div><div>${escapeHtml(p.content)}</div>`;
+    const canDelete = meId && (Number(p.user_id) === Number(meId) || ['admin', 'moderator'].includes(selectedGroupRole));
+    if (canDelete) {
+      const actions = document.createElement('div');
+      actions.className = 'post-actions';
+      const delBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+      delBtn.addEventListener('click', async () => {
+        const ok = window.confirm('Delete this group post?');
+        if (!ok) return;
+        setLoading(delBtn, true);
+        const deleteRes = await api(`/api/groups/${p.group_id}/post/${p.id}`, 'DELETE');
+        setLoading(delBtn, false);
+        if (deleteRes && deleteRes.success) {
+          el.remove();
+          showToast('Group post deleted');
+        } else {
+          showToast(deleteRes.error || 'Unable to delete group post', 'error');
+        }
+      });
+      actions.appendChild(delBtn);
+      el.appendChild(actions);
+    }
     box.appendChild(el);
   });
 }
@@ -590,6 +653,7 @@ async function handleGroupPost(e) {
 // open chat with userId
 let socket = null;
 let currentChatUser = null;
+let chatMinimized = false;
 function ensureSocket(userId) {
   if (socket) return socket;
   socket = io();
@@ -612,6 +676,34 @@ function ensureSocket(userId) {
   return socket;
 }
 
+function setChatMinimized(minimized) {
+  const panel = document.getElementById('chatPanel');
+  const minBtn = document.getElementById('chatMinimizeBtn');
+  if (!panel || !minBtn) return;
+  chatMinimized = Boolean(minimized);
+  panel.classList.toggle('minimized', chatMinimized);
+  minBtn.textContent = chatMinimized ? 'Expand' : 'Minimize';
+}
+
+function initChatControls() {
+  const panel = document.getElementById('chatPanel');
+  const minBtn = document.getElementById('chatMinimizeBtn');
+  const closeBtn = document.getElementById('chatCloseBtn');
+  if (!panel || !minBtn || !closeBtn) return;
+  if (!minBtn.dataset.bound) {
+    minBtn.dataset.bound = '1';
+    minBtn.addEventListener('click', () => setChatMinimized(!chatMinimized));
+  }
+  if (!closeBtn.dataset.bound) {
+    closeBtn.dataset.bound = '1';
+    closeBtn.addEventListener('click', () => {
+      panel.style.display = 'none';
+      currentChatUser = null;
+      setChatMinimized(false);
+    });
+  }
+}
+
 async function openChat(otherId, otherName) {
   const meRes = await api('/api/me');
   if (!meRes.user) return alert('Please log in');
@@ -620,7 +712,9 @@ async function openChat(otherId, otherName) {
   const a = Number(me.id), b = Number(otherId);
   const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
   currentChatUser = otherId;
-  document.getElementById('chatPanel').style.display='block';
+  const chatPanel = document.getElementById('chatPanel');
+  chatPanel.style.display='block';
+  setChatMinimized(false);
   document.getElementById('chatTitle').textContent = `Chat with ${otherName}`;
   document.getElementById('messages').innerHTML = '<div class="muted">Loading...</div>';
   ensureSocket(me.id).emit('joinRoom', room);
@@ -900,6 +994,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   
   // Initialize socket immediately
   ensureSocket();
+  initChatControls();
   
   // Dashboard-specific
   if (document.getElementById('connections')) { loadConnections(); loadRequests(); }
@@ -923,6 +1018,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
       e.preventDefault();
       const input = document.getElementById('chatInput');
       const content = input.value.trim(); if (!content) return;
+      if (!currentChatUser) {
+        showToast('Open a chat first', 'error');
+        return;
+      }
       const socketInst = ensureSocket();
       socketInst.emit('chatMessage',{ to: Number(currentChatUser), content });
       input.value='';

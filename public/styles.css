@@ -532,8 +532,30 @@ a {
 
 #chatTitle {
   margin: 0;
+  padding: 0;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--line);
+}
+
+.chat-header-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.chat-panel.minimized {
+  height: auto;
+}
+
+.chat-panel.minimized #messages,
+.chat-panel.minimized #chatForm {
+  display: none;
 }
 
 #messages {

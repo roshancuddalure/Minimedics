@@ -419,6 +419,26 @@ app.post('/api/post', requireAuth, (req, res) => {
 		});
 });
 
+app.delete('/api/post/:id', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	try {
+		const post = await getAsync('SELECT id, user_id FROM posts WHERE id = ?', [postId]);
+		if (!post) return res.status(404).json({ error: 'Post not found' });
+		if (Number(post.user_id) !== userId) return res.status(403).json({ error: 'You can delete only your own posts' });
+		await runAsync('DELETE FROM post_comments WHERE post_id = ?', [postId]);
+		await runAsync('DELETE FROM post_likes WHERE post_id = ?', [postId]);
+		await runAsync('DELETE FROM saved_posts WHERE post_id = ?', [postId]);
+		await runAsync('DELETE FROM post_shares WHERE post_id = ?', [postId]);
+		await runAsync('DELETE FROM posts WHERE id = ?', [postId]);
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Delete post API error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
 // Connections: send request
 app.post('/api/connect/request', requireAuth, (req, res) => {
 	const { to } = req.body;
@@ -512,6 +532,28 @@ app.post('/api/post/:id/comment', requireAuth, (req, res) => {
 		try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
 		res.json({ success: true, id: this.lastID });
 	});
+});
+
+app.delete('/api/post/:postId/comment/:commentId', requireAuth, async (req, res) => {
+	const postId = Number(req.params.postId);
+	const commentId = Number(req.params.commentId);
+	const userId = Number(req.session.userId);
+	if (!postId || !commentId) return res.status(400).json({ error: 'Invalid request' });
+	try {
+		const row = await getAsync(`SELECT c.id, c.user_id, c.post_id, p.user_id as post_owner_id
+			FROM post_comments c
+			JOIN posts p ON p.id = c.post_id
+			WHERE c.id = ? AND c.post_id = ?`, [commentId, postId]);
+		if (!row) return res.status(404).json({ error: 'Comment not found' });
+		const isCommentOwner = Number(row.user_id) === userId;
+		const isPostOwner = Number(row.post_owner_id) === userId;
+		if (!isCommentOwner && !isPostOwner) return res.status(403).json({ error: 'Not allowed to delete this comment' });
+		await runAsync('DELETE FROM post_comments WHERE id = ?', [commentId]);
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Delete comment API error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
 });
 
 app.post('/api/post/:id/like', requireAuth, async (req, res) => {
@@ -765,6 +807,27 @@ app.post('/api/groups/:id/post', requireAuth, async (req, res) => {
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.delete('/api/groups/:groupId/post/:postId', requireAuth, async (req, res) => {
+	const groupId = Number(req.params.groupId);
+	const postId = Number(req.params.postId);
+	const userId = Number(req.session.userId);
+	if (!groupId || !postId) return res.status(400).json({ error: 'Invalid request' });
+	try {
+		const mine = await getGroupRole(groupId, userId);
+		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Join this group first' });
+		const post = await getAsync('SELECT id, user_id FROM group_posts WHERE id = ? AND group_id = ?', [postId, groupId]);
+		if (!post) return res.status(404).json({ error: 'Group post not found' });
+		const canModerate = ['admin', 'moderator'].includes(mine.role);
+		const isOwner = Number(post.user_id) === userId;
+		if (!isOwner && !canModerate) return res.status(403).json({ error: 'Not allowed to delete this group post' });
+		await runAsync('DELETE FROM group_posts WHERE id = ?', [postId]);
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Delete group post API error:', e);
+		return res.status(500).json({ error: 'Server error' });
 	}
 });
 

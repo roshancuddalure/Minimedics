@@ -106,7 +106,13 @@
         </section>
 
         <section id="chatPanel" class="card chat-panel" style="display:none">
-          <h3 id="chatTitle">Chat</h3>
+          <div class="chat-header">
+            <h3 id="chatTitle">Chat</h3>
+            <div class="chat-header-actions">
+              <button id="chatMinimizeBtn" class="btn secondary tiny-btn" type="button">Minimize</button>
+              <button id="chatCloseBtn" class="btn secondary tiny-btn" type="button">Close</button>
+            </div>
+          </div>
           <div id="messages"></div>
           <form id="chatForm">
             <input id="chatInput" placeholder="Type a message" />
