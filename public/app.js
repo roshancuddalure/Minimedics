@@ -1964,7 +1964,8 @@ function upsertSavedListsTopButton(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('savedListsMenuBtn');
-  if (!user) {
+  const isAuthenticated = Boolean(user && user.id);
+  if (!isAuthenticated) {
     if (existing) existing.remove();
     return;
   }
@@ -2424,6 +2425,7 @@ async function handlePostImageSelection(e) {
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
+  upsertSavedListsTopButton(null);
   // Initialize theme toggle
   initThemeToggle();
   
