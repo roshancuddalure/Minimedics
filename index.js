@@ -10,6 +10,7 @@ const PgSession = require('connect-pg-simple')(session);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
 
 function getDatabaseUrl() {
 	const candidateKeys = [
@@ -71,6 +72,16 @@ function getDbTargetLabel() {
 		}
 	}
 	return `${dbConfig.host}:${dbConfig.port}`;
+}
+
+function getPublicBaseUrl(req) {
+	const explicit = typeof process.env.PUBLIC_BASE_URL === 'string' ? process.env.PUBLIC_BASE_URL.trim() : '';
+	if (explicit) return explicit.replace(/\/+$/, '');
+	if (req && req.headers && req.headers.host) {
+		const proto = req.protocol || 'http';
+		return `${proto}://${req.headers.host}`;
+	}
+	return `http://localhost:${PORT}`;
 }
 
 const pool = new Pool({
@@ -463,8 +474,18 @@ app.post('/api/register', async (req, res) => {
 						return res.status(400).json({ error: 'Username already exists or database error' });
 					}
 					const userId = this.lastID;
+					const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
+					const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
 					console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
-					res.json({ success: true, id: userId, role: role, emailVerified: false, verifyUrl: `/verify-email.html?token=${verifyToken}` });
+					console.log(`Email verification link for ${username}: ${verifyUrl}`);
+					res.json({
+						success: true,
+						id: userId,
+						role: role,
+						emailVerified: false,
+						verifyUrl,
+						...(isProduction ? {} : { verifyToken })
+					});
 				}
 			);
 		});
@@ -597,6 +618,49 @@ app.get('/api/verify-email', async (req, res) => {
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/dev/verify-link', async (req, res) => {
+	if (isProduction) return res.status(403).json({ error: 'Not available in production' });
+	const identifier = typeof req.query.identifier === 'string' ? req.query.identifier.trim() : '';
+	if (!identifier) return res.status(400).json({ error: 'identifier is required (username or email)' });
+	try {
+		const user = await getAsync('SELECT id, username, email_verified, email_verify_token FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
+		if (!user) return res.status(404).json({ error: 'User not found' });
+		let token = user.email_verify_token;
+		if (!Number(user.email_verified) && !token) {
+			token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+			await runAsync('UPDATE users SET email_verify_token = ? WHERE id = ?', [token, user.id]);
+		}
+		if (Number(user.email_verified)) {
+			return res.json({ success: true, username: user.username, alreadyVerified: true, loginUrl: `${getPublicBaseUrl(req)}/login.html` });
+		}
+		if (!token) return res.status(404).json({ error: 'No pending verification token found' });
+		const verifyPath = `/verify-email.html?token=${encodeURIComponent(token)}`;
+		const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
+		return res.json({ success: true, username: user.username, verifyUrl, token });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/dev/verify-user/:username', async (req, res) => {
+	if (isProduction) return res.status(403).send('Not available in production');
+	const username = typeof req.params.username === 'string' ? req.params.username.trim() : '';
+	if (!username) return res.status(400).send('Username is required');
+	try {
+		const user = await getAsync('SELECT id, email_verified, email_verify_token FROM users WHERE username = ?', [username]);
+		if (!user) return res.status(404).send('User not found');
+		if (Number(user.email_verified)) return res.redirect('/login.html?verified=1');
+		let token = user.email_verify_token;
+		if (!token) {
+			token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+			await runAsync('UPDATE users SET email_verify_token = ? WHERE id = ?', [token, user.id]);
+		}
+		return res.redirect(`/verify-email.html?token=${encodeURIComponent(token)}`);
+	} catch (e) {
+		return res.status(500).send('Server error');
 	}
 });
 

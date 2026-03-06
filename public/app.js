@@ -121,6 +121,39 @@ async function api(path, method='GET', data) {
   }
 }
 
+function toTimestamp(value) {
+  const normalizeEpoch = (n) => {
+    if (!Number.isFinite(n)) return null;
+    // Treat 10-digit unix time as seconds.
+    if (n > 0 && n < 1e12) return n * 1000;
+    return n;
+  };
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return normalizeEpoch(value);
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      return normalizeEpoch(n);
+    }
+    const parsed = Date.parse(s);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  if (value instanceof Date) {
+    const n = value.getTime();
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function formatDateTime(value, fallback = 'Invalid date') {
+  const ts = toTimestamp(value);
+  if (ts === null) return fallback;
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? fallback : d.toLocaleString();
+}
+
 function formatReminder(reminderAt) {
   if (!reminderAt) return '';
   const reminderDate = new Date(Number(reminderAt));
@@ -371,7 +404,7 @@ async function loadComments(postId, mountEl, meId = null, postOwnerId = null) {
       row.className = 'comment-item';
       row.style.marginLeft = `${Math.min(depth, 3) * 18}px`;
       const mentionPrefix = c.mention_username ? `<span class="mention-tag">@${escapeHtml(c.mention_username)}</span> ` : '';
-      row.innerHTML = `<div class="meta">${escapeHtml(c.name || c.username)} - ${new Date(c.created_at).toLocaleString()}</div><div>${mentionPrefix}${escapeHtml(c.content)}</div>`;
+      row.innerHTML = `<div class="meta">${escapeHtml(c.name || c.username)} - ${formatDateTime(c.created_at)}</div><div>${mentionPrefix}${escapeHtml(c.content)}</div>`;
 
       const actions = document.createElement('div');
       actions.className = 'post-actions';
@@ -470,7 +503,7 @@ async function loadFeed() {
     pic.loading='lazy';
     pic.onerror=()=>{pic.style.display='none'};
     const meta = document.createElement('div'); meta.className='meta';
-    const date = new Date(p.created_at).toLocaleString();
+    const date = formatDateTime(p.created_at);
     meta.textContent = `${p.name || p.username} - ${date}`;
     head.appendChild(pic);
     head.appendChild(meta);
@@ -592,7 +625,7 @@ async function loadAdminUsers() {
   const rows = users.map((u) => {
     const email = u.email || (String(u.username || '').includes('@') ? u.username : 'Not provided');
     const name = escapeHtml(u.name || u.username || 'Unknown');
-    const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : 'Never';
+    const lastLogin = u.last_login ? formatDateTime(u.last_login, 'Never') : 'Never';
     const xp = Number(u.xp) || 0;
     const totalConnections = Number(u.total_connections) || 0;
     return `<tr data-user-id="${u.id}">
@@ -689,7 +722,7 @@ async function loadStories() {
       <img src="${s.profile_picture || 'data:image/svg+xml,<svg></svg>'}" loading="lazy" />
       <div>
         <div class="story-user">${escapeHtml(s.name || s.username)}</div>
-        <div class="meta">${new Date(s.created_at).toLocaleString()}</div>
+        <div class="meta">${formatDateTime(s.created_at)}</div>
       </div>
     </div>`;
     if (s.image) {
@@ -863,7 +896,7 @@ async function loadPublicProfilePage() {
   postsRes.posts.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'post';
-    el.innerHTML = `<div class="meta">${new Date(p.created_at).toLocaleString()} - ${escapeHtml(p.visibility || 'public')}</div><div>${escapeHtml(p.content || '')}</div>`;
+    el.innerHTML = `<div class="meta">${formatDateTime(p.created_at)} - ${escapeHtml(p.visibility || 'public')}</div><div>${escapeHtml(p.content || '')}</div>`;
     if (p.image) {
       const img = document.createElement('img');
       img.className = 'post-image';
@@ -1048,7 +1081,7 @@ async function loadGroupFeed() {
   res.posts.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'post';
-    el.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${new Date(p.created_at).toLocaleString()}</div><div>${escapeHtml(p.content)}</div>`;
+    el.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div>${escapeHtml(p.content)}</div>`;
     const canDelete = meId && (Number(p.user_id) === Number(meId) || ['admin', 'moderator'].includes(selectedGroupRole));
     if (canDelete) {
       const actions = document.createElement('div');
@@ -1306,7 +1339,7 @@ function appendMessage(m){
   const meta = document.createElement('div'); meta.className='meta';
   const meId = window.__me ? window.__me.id : null;
   const who = m.from === meId || m.from_user === meId ? 'You' : (m.from_username || m.from || 'Unknown');
-  meta.textContent = `${who} - ${new Date(m.created_at).toLocaleString()}`;
+  meta.textContent = `${who} - ${formatDateTime(m.created_at)}`;
   const content = document.createElement('div'); content.textContent = m.content;
   msgContent.appendChild(meta); msgContent.appendChild(content);
   msgWrapper.appendChild(pic); msgWrapper.appendChild(msgContent);
@@ -1558,7 +1591,7 @@ async function loadProfile() {
     </div>`;
     return;
   }
-  const last = res.user.last_login ? new Date(res.user.last_login).toLocaleString() : 'Never';
+  const last = res.user.last_login ? formatDateTime(res.user.last_login, 'Never') : 'Never';
   const picUrl = res.user.profile_picture ? res.user.profile_picture : 'data:image/svg+xml,<svg></svg>';
   const adminActions = res.user.role === 'admin' ? '<div class="row" style="justify-content:flex-start;margin-top:0.6rem"><a class="btn tiny-btn" href="/admin">Open Admin Management</a></div>' : '';
   holder.innerHTML = `<div class="profile card">
