@@ -178,6 +178,12 @@ function isPublicHomePage() {
   return window.location.pathname === '/' || window.location.pathname.endsWith('/index.html');
 }
 
+async function resolveHomePath() {
+  if (cachedMe && cachedMe.id) return '/dashboard';
+  const meRes = await api('/api/me');
+  return meRes && meRes.user ? '/dashboard' : '/';
+}
+
 function escapeHtml(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')
@@ -185,6 +191,18 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function getDefaultAvatarDataUri(gender) {
+  const g = String(gender || '').toLowerCase();
+  const bg = g === 'female' ? '%23f472b6' : (g === 'male' ? '%233b82f6' : '%2306b6d4');
+  const label = g === 'female' ? 'F' : (g === 'male' ? 'M' : 'U');
+  return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='100%25' height='100%25' fill='${bg}'/><text x='50%25' y='54%25' font-size='56' text-anchor='middle' fill='white' font-family='Arial' dominant-baseline='middle'>${label}</text></svg>`;
+}
+
+function getProfilePictureUrl(userLike) {
+  if (userLike && userLike.profile_picture) return userLike.profile_picture;
+  return getDefaultAvatarDataUri(userLike ? userLike.gender : '');
 }
 
 function createActionButton(label, onClick, className = 'btn secondary tiny-btn') {
@@ -673,6 +691,63 @@ async function loadAdminUsers() {
   });
 }
 
+async function loadAdminReports() {
+  const box = document.getElementById('adminReports');
+  if (!box) return;
+  const res = await api('/api/admin/reports');
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load reports.</div>';
+    return;
+  }
+  const reports = Array.isArray(res.reports) ? res.reports : [];
+  if (!reports.length) {
+    box.innerHTML = '<div class="muted">No reports found.</div>';
+    return;
+  }
+  const rows = reports.map((r) => `<tr data-report-id="${r.id}">
+      <td>${r.id}</td>
+      <td>${escapeHtml(r.reporter_username || String(r.reporter_id || ''))}</td>
+      <td>${escapeHtml(r.target_username || String(r.target_user_id || ''))}</td>
+      <td>${escapeHtml(r.category || '')}</td>
+      <td>${escapeHtml(r.details || '')}</td>
+      <td>${formatDateTime(r.created_at)}</td>
+      <td>
+        <select class="admin-report-status">
+          <option value="open" ${r.status === 'open' ? 'selected' : ''}>open</option>
+          <option value="reviewed" ${r.status === 'reviewed' ? 'selected' : ''}>reviewed</option>
+          <option value="closed" ${r.status === 'closed' ? 'selected' : ''}>closed</option>
+        </select>
+      </td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Reporter</th>
+          <th>Target</th>
+          <th>Category</th>
+          <th>Details</th>
+          <th>Created</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  box.querySelectorAll('tr[data-report-id]').forEach((row) => {
+    const select = row.querySelector('.admin-report-status');
+    if (!select) return;
+    select.addEventListener('change', async () => {
+      const reportId = Number(row.getAttribute('data-report-id'));
+      const status = select.value;
+      const update = await api(`/api/admin/reports/${reportId}/status`, 'POST', { status });
+      if (update && update.success) showToast('Report status updated');
+      else showToast(update.error || 'Unable to update report status', 'error');
+    });
+  });
+}
+
 async function handleStoryImageSelection(e) {
   const file = e.target.files[0];
   if (!file) {
@@ -780,7 +855,13 @@ async function loadProfileEditor() {
     return;
   }
   const nameEl = document.getElementById('profileEditName');
+  const nicknameEl = document.getElementById('profileEditNickname');
   const emailEl = document.getElementById('profileEditEmail');
+  const genderEl = document.getElementById('profileEditGender');
+  const dobEl = document.getElementById('profileEditDob');
+  const placeFromEl = document.getElementById('profileEditPlaceFrom');
+  const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
+  const achievementsEl = document.getElementById('profileEditAchievements');
   const instituteEl = document.getElementById('profileEditInstitute');
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
@@ -788,7 +869,13 @@ async function loadProfileEditor() {
   const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   if (nameEl) nameEl.value = res.user.name || '';
+  if (nicknameEl) nicknameEl.value = res.user.nickname || '';
   if (emailEl) emailEl.value = res.user.email || '';
+  if (genderEl) genderEl.value = res.user.gender || '';
+  if (dobEl) dobEl.value = res.user.date_of_birth || '';
+  if (placeFromEl) placeFromEl.value = res.user.place_from || '';
+  if (statusDescriptionEl) statusDescriptionEl.value = res.user.status_description || '';
+  if (achievementsEl) achievementsEl.value = res.user.achievements || '';
   if (instituteEl) instituteEl.value = res.user.institute || '';
   if (programTypeEl) programTypeEl.value = res.user.program_type || '';
   if (degreeEl) degreeEl.value = res.user.degree || '';
@@ -801,7 +888,13 @@ async function handleProfileEditSubmit(e) {
   e.preventDefault();
   const form = e.target;
   const nameEl = document.getElementById('profileEditName');
+  const nicknameEl = document.getElementById('profileEditNickname');
   const emailEl = document.getElementById('profileEditEmail');
+  const genderEl = document.getElementById('profileEditGender');
+  const dobEl = document.getElementById('profileEditDob');
+  const placeFromEl = document.getElementById('profileEditPlaceFrom');
+  const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
+  const achievementsEl = document.getElementById('profileEditAchievements');
   const instituteEl = document.getElementById('profileEditInstitute');
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
@@ -809,7 +902,13 @@ async function handleProfileEditSubmit(e) {
   const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   const name = nameEl ? nameEl.value.trim() : '';
+  const nickname = nicknameEl ? nicknameEl.value.trim() : '';
   const email = emailEl ? emailEl.value.trim() : '';
+  const gender = genderEl ? genderEl.value.trim() : '';
+  const dateOfBirth = dobEl ? dobEl.value.trim() : '';
+  const placeFrom = placeFromEl ? placeFromEl.value.trim() : '';
+  const statusDescription = statusDescriptionEl ? statusDescriptionEl.value.trim() : '';
+  const achievements = achievementsEl ? achievementsEl.value.trim() : '';
   const institute = instituteEl ? instituteEl.value.trim() : '';
   const programType = programTypeEl ? programTypeEl.value.trim() : '';
   const degree = degreeEl ? degreeEl.value.trim() : '';
@@ -819,7 +918,7 @@ async function handleProfileEditSubmit(e) {
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, email, bio, institute, programType, degree, academicYear, speciality });
+  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, statusDescription, achievements, placeFrom, bio, institute, programType, degree, academicYear, speciality });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -864,24 +963,108 @@ async function handleVerifyEmailPage() {
 async function loadPublicProfilePage() {
   const profileBox = document.getElementById('publicProfileBox');
   const feedBox = document.getElementById('publicProfileFeed');
+  const actionsBox = document.getElementById('publicProfileActions');
+  const reportWrap = document.getElementById('reportUserFormWrap');
   if (!profileBox || !feedBox) return;
   const userId = new URLSearchParams(window.location.search).get('id');
   if (!userId) {
     profileBox.innerHTML = '<div class="muted">Invalid user profile.</div>';
     return;
   }
+  const meRes = await api('/api/me');
+  const me = meRes.user || null;
   const userRes = await api(`/api/user/${encodeURIComponent(userId)}`);
   if (userRes.error || !userRes.user) {
     profileBox.innerHTML = `<div class="muted">${escapeHtml(userRes.error || 'User not found')}</div>`;
     return;
   }
   const u = userRes.user;
-  profileBox.innerHTML = `<img src="${u.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
-    <h3>${escapeHtml(u.name || u.username)}</h3>
+  const relation = u.relationship || {};
+  profileBox.innerHTML = `<img src="${getProfilePictureUrl(u)}" class="profile-picture" />
+    <h3>${escapeHtml(u.name || u.username)}${u.nickname ? ` <span class="muted">(${escapeHtml(u.nickname)})</span>` : ''}</h3>
     <p class="muted">@${escapeHtml(u.username || '')}</p>
+    <p class="muted">${escapeHtml(u.gender || '')}${u.date_of_birth ? ` | DOB: ${escapeHtml(u.date_of_birth)}` : ''}</p>
+    <p class="muted">${escapeHtml(u.place_from || '')}</p>
+    <p class="muted">${escapeHtml(u.status_description || '')}</p>
+    <p class="muted">${escapeHtml(u.achievements || '')}</p>
+    <p class="muted">${escapeHtml(u.bio || '')}</p>
     <p class="muted">${escapeHtml(u.speciality || '')}</p>
     <p class="muted">${escapeHtml(u.institute || '')}</p>
     <p class="muted">Connections: ${u.connections_count || 0}</p>`;
+  if (actionsBox) {
+    actionsBox.innerHTML = '';
+    const isSelf = me && Number(me.id) === Number(u.id);
+    if (!isSelf) {
+      const connectLabel = relation.connectionStatus === 'accepted' ? 'Disconnect' : (relation.connectionStatus === 'pending' ? 'Pending' : 'Connect');
+      const connectBtn = createActionButton(connectLabel, async () => {
+        setLoading(connectBtn, true);
+        let actionRes;
+        if (relation.connectionStatus === 'accepted') actionRes = await api('/api/connect/disconnect', 'POST', { userId: u.id });
+        else actionRes = await api('/api/connect/request', 'POST', { to: u.id });
+        setLoading(connectBtn, false);
+        if (actionRes && actionRes.success) loadPublicProfilePage();
+        else showToast(actionRes.error || 'Unable to update connection', 'error');
+      }, 'btn tiny-btn');
+      if (relation.connectionStatus === 'pending') connectBtn.disabled = true;
+
+      const followBtn = createActionButton(relation.following ? 'Unfollow' : 'Follow', async () => {
+        const r = await api('/api/follow/toggle', 'POST', { userId: u.id });
+        if (r && r.success) loadPublicProfilePage();
+        else showToast(r.error || 'Unable to update follow', 'error');
+      }, 'btn tiny-btn');
+
+      const shareBtn = createActionButton('Share', async () => {
+        const profileUrl = `${location.origin}/user-profile.html?id=${encodeURIComponent(u.id)}`;
+        try {
+          await navigator.clipboard.writeText(profileUrl);
+          showToast('Profile link copied');
+        } catch (e) {
+          showToast(profileUrl);
+        }
+      }, 'btn tiny-btn');
+
+      const blockBtn = createActionButton(relation.blockedByMe ? 'Unblock' : 'Block', async () => {
+        const r = await api('/api/block/toggle', 'POST', { userId: u.id, reason: relation.blockedByMe ? '' : 'user action' });
+        if (r && r.success) loadPublicProfilePage();
+        else showToast(r.error || 'Unable to update block', 'error');
+      }, 'btn secondary tiny-btn');
+
+      actionsBox.appendChild(connectBtn);
+      actionsBox.appendChild(followBtn);
+      actionsBox.appendChild(shareBtn);
+      actionsBox.appendChild(blockBtn);
+
+      if (reportWrap) {
+        reportWrap.innerHTML = `<select id="reportCategory">
+            <option value="">Report category</option>
+            <option value="spam">Spam</option>
+            <option value="harassment">Harassment</option>
+            <option value="impersonation">Impersonation</option>
+            <option value="other">Other</option>
+          </select>
+          <textarea id="reportDetails" maxlength="400" placeholder="Describe the issue"></textarea>
+          <button id="reportUserBtn" class="btn secondary tiny-btn" type="button">Report User</button>`;
+        const reportBtn = document.getElementById('reportUserBtn');
+        if (reportBtn) {
+          reportBtn.addEventListener('click', async () => {
+            const categoryEl = document.getElementById('reportCategory');
+            const detailsEl = document.getElementById('reportDetails');
+            const category = categoryEl ? categoryEl.value.trim() : '';
+            const details = detailsEl ? detailsEl.value.trim() : '';
+            if (!category) {
+              showToast('Select report category', 'error');
+              return;
+            }
+            const r = await api('/api/report/user', 'POST', { userId: u.id, category, details });
+            if (r && r.success) showToast('Report submitted');
+            else showToast(r.error || 'Unable to report user', 'error');
+          });
+        }
+      }
+    } else if (reportWrap) {
+      reportWrap.innerHTML = '';
+    }
+  }
   feedBox.innerHTML = '<div class="muted">Loading posts...</div>';
   const postsRes = await api(`/api/user/${encodeURIComponent(userId)}/posts`);
   if (postsRes.error) {
@@ -1592,12 +1775,16 @@ async function loadProfile() {
     return;
   }
   const last = res.user.last_login ? formatDateTime(res.user.last_login, 'Never') : 'Never';
-  const picUrl = res.user.profile_picture ? res.user.profile_picture : 'data:image/svg+xml,<svg></svg>';
+  const picUrl = getProfilePictureUrl(res.user);
   const adminActions = res.user.role === 'admin' ? '<div class="row" style="justify-content:flex-start;margin-top:0.6rem"><a class="btn tiny-btn" href="/admin">Open Admin Management</a></div>' : '';
   holder.innerHTML = `<div class="profile card">
     <img id="profilePic" src="${picUrl}" class="profile-picture" />
-    <h3>${res.user.name || res.user.username}</h3>
+    <h3>${escapeHtml(res.user.name || res.user.username)}${res.user.nickname ? ` <span class="muted">(${escapeHtml(res.user.nickname)})</span>` : ''}</h3>
     <p class="muted">Title: ${escapeHtml(res.user.title || 'Rookie Medic')}</p>
+    <p class="muted">${escapeHtml(res.user.gender || '')}${res.user.date_of_birth ? ` | DOB: ${escapeHtml(res.user.date_of_birth)}` : ''}</p>
+    <p class="muted">${escapeHtml(res.user.place_from || '')}</p>
+    <p class="muted">${escapeHtml(res.user.status_description || '')}</p>
+    <p class="muted">${escapeHtml(res.user.achievements || '')}</p>
     <p class="muted">${escapeHtml(res.user.bio || '')}</p>
     <p class="muted">Level ${res.user.level || 1} | XP ${res.user.xp || 0}</p>
     <p class="muted">Connections: ${res.user.connections_count || 0}</p>
@@ -1742,7 +1929,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const brandTitle = document.querySelector('.brand h1');
   if (brandTitle) {
     brandTitle.style.cursor = 'pointer';
-    brandTitle.addEventListener('click', () => { location.href = '/'; });
+    brandTitle.addEventListener('click', async () => {
+      const targetPath = await resolveHomePath();
+      location.href = targetPath;
+    });
   }
   
   // Post composer
@@ -1797,5 +1987,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     cachedMe = meRes.user || null;
     window.__me = cachedMe;
     if (document.getElementById('adminUsers')) loadAdminUsers();
+    if (document.getElementById('adminReports')) loadAdminReports();
   })();
 });

@@ -28,7 +28,19 @@
         <h3>Edit Profile</h3>
         <form id="profileEditForm" class="form">
           <input id="profileEditName" type="text" maxlength="120" placeholder="Full name" />
+          <input id="profileEditNickname" type="text" maxlength="60" placeholder="Nickname" />
           <input id="profileEditEmail" type="email" placeholder="Email" />
+          <select id="profileEditGender">
+            <option value="">Gender</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+            <option value="prefer_not_to_say">Prefer not to say</option>
+          </select>
+          <input id="profileEditDob" type="date" />
+          <input id="profileEditPlaceFrom" type="text" maxlength="120" placeholder="Place from" />
+          <input id="profileEditStatusDescription" type="text" maxlength="180" placeholder="Status description" />
+          <textarea id="profileEditAchievements" maxlength="300" placeholder="Achievements (max 300 chars)"></textarea>
           <input id="profileEditInstitute" type="text" maxlength="180" placeholder="College / Institute / Workplace" />
           <select id="profileEditProgramType">
             <option value="">Program type</option>

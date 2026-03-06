@@ -16,13 +16,18 @@
       </div>
       <div class="actions">
         <button id="themeToggle" class="btn secondary">Dark</button>
-        <a class="btn" href="/">Home</a>
+        <a class="btn" href="/dashboard">Home</a>
         <a class="btn" href="/dashboard">Dashboard</a>
       </div>
     </header>
     <main class="layout" style="margin-top:1rem">
       <aside class="stack">
         <section id="publicProfileBox" class="card"></section>
+        <section class="card">
+          <h3>Actions</h3>
+          <div id="publicProfileActions" class="row" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem"></div>
+          <div id="reportUserFormWrap" class="stack" style="margin-top:0.8rem"></div>
+        </section>
       </aside>
       <section class="stack">
         <section class="card">

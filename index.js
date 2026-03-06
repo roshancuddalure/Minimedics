@@ -242,8 +242,14 @@ async function initializeDatabase() {
 		username TEXT UNIQUE NOT NULL,
 		password TEXT NOT NULL,
 		name TEXT,
+		nickname TEXT,
 		email TEXT,
+		gender TEXT,
+		date_of_birth TEXT,
 		bio TEXT,
+		status_description TEXT,
+		achievements TEXT,
+		place_from TEXT,
 		institute TEXT,
 		program_type TEXT,
 		degree TEXT,
@@ -261,7 +267,13 @@ async function initializeDatabase() {
 	)`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_description TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS achievements TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS place_from TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_type TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
@@ -303,6 +315,30 @@ async function initializeDatabase() {
 		user_a BIGINT,
 		user_b BIGINT,
 		status TEXT,
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS follows (
+		id BIGSERIAL PRIMARY KEY,
+		follower_id BIGINT NOT NULL,
+		followee_id BIGINT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(follower_id, followee_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS user_blocks (
+		id BIGSERIAL PRIMARY KEY,
+		blocker_id BIGINT NOT NULL,
+		blocked_id BIGINT NOT NULL,
+		reason TEXT,
+		created_at BIGINT,
+		UNIQUE(blocker_id, blocked_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS user_reports (
+		id BIGSERIAL PRIMARY KEY,
+		reporter_id BIGINT NOT NULL,
+		target_user_id BIGINT NOT NULL,
+		category TEXT,
+		details TEXT,
+		status TEXT DEFAULT 'open',
 		created_at BIGINT
 	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS messages (
@@ -596,7 +632,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, email, bio, institute, program_type, degree, academic_year, speciality, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -666,7 +702,7 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, email, bio, institute, program_type, degree, academic_year, speciality, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		res.json({ user });
 	} catch (e) {
@@ -676,8 +712,14 @@ app.get('/api/profile', requireAuth, async (req, res) => {
 
 app.post('/api/profile', requireAuth, async (req, res) => {
 	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+	const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';
 	const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+	const gender = typeof req.body.gender === 'string' ? req.body.gender.trim().toLowerCase() : '';
+	const dateOfBirth = typeof req.body.dateOfBirth === 'string' ? req.body.dateOfBirth.trim() : '';
 	const bio = typeof req.body.bio === 'string' ? req.body.bio.trim() : '';
+	const statusDescription = typeof req.body.statusDescription === 'string' ? req.body.statusDescription.trim() : '';
+	const achievements = typeof req.body.achievements === 'string' ? req.body.achievements.trim() : '';
+	const placeFrom = typeof req.body.placeFrom === 'string' ? req.body.placeFrom.trim() : '';
 	const institute = typeof req.body.institute === 'string' ? req.body.institute.trim() : '';
 	const programType = typeof req.body.programType === 'string' ? req.body.programType.trim() : '';
 	const degree = typeof req.body.degree === 'string' ? req.body.degree.trim() : '';
@@ -686,10 +728,20 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		return res.status(400).json({ error: 'Please provide a valid email address' });
 	}
+	if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
+		return res.status(400).json({ error: 'Invalid gender value' });
+	}
+	if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+		return res.status(400).json({ error: 'Date of birth must be YYYY-MM-DD' });
+	}
 	if (name.length > 120) return res.status(400).json({ error: 'Name is too long' });
+	if (nickname.length > 60) return res.status(400).json({ error: 'Nickname is too long' });
 	if (bio.length > 400) return res.status(400).json({ error: 'Bio is too long' });
+	if (statusDescription.length > 180) return res.status(400).json({ error: 'Status description is too long' });
+	if (achievements.length > 300) return res.status(400).json({ error: 'Achievements are too long' });
+	if (placeFrom.length > 120) return res.status(400).json({ error: 'Place is too long' });
 	try {
-		await runAsync('UPDATE users SET name = ?, email = ?, bio = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ? WHERE id = ?', [name || null, email || null, bio || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -730,6 +782,42 @@ app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
 	}
 });
 
+app.get('/api/admin/reports', requireAdmin, async (req, res) => {
+	try {
+		const rows = await allAsync(`SELECT
+			r.id,
+			r.reporter_id,
+			r.target_user_id,
+			r.category,
+			r.details,
+			r.status,
+			r.created_at,
+			reporter.username AS reporter_username,
+			target.username AS target_username
+			FROM user_reports r
+			LEFT JOIN users reporter ON reporter.id = r.reporter_id
+			LEFT JOIN users target ON target.id = r.target_user_id
+			ORDER BY r.created_at DESC
+			LIMIT 200`);
+		res.json({ reports: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/reports/:id/status', requireAdmin, async (req, res) => {
+	const id = Number(req.params.id);
+	const status = typeof req.body.status === 'string' ? req.body.status.trim() : '';
+	if (!id) return res.status(400).json({ error: 'Invalid report id' });
+	if (!['open', 'reviewed', 'closed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+	try {
+		await runAsync('UPDATE user_reports SET status = ? WHERE id = ?', [status, id]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 // upload profile picture
 app.post('/api/upload-picture', requireAuth, (req, res) => {
 	const { image } = req.body; // base64 image
@@ -743,13 +831,40 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 // get public user info with connections count
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
-	db.get('SELECT id, username, name, bio, institute, program_type, degree, academic_year, speciality, profile_picture, level, title FROM users WHERE id = ?', [uid], (err, user) => {
+	const viewerId = Number(req.session.userId || 0);
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, level, title FROM users WHERE id = ?', [uid], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
-		db.get(q, [uid, uid], (err2, row) => {
+		db.get(q, [uid, uid], async (err2, row) => {
 			if (err2) user.connections_count = 0;
 			else user.connections_count = row.cnt || 0;
-			res.json({ user });
+			if (!viewerId || Number(uid) === viewerId) return res.json({ user });
+			try {
+				const [connection, follow, blockedByMe, blockedMe] = await Promise.all([
+					getAsync(`SELECT id, status FROM connections
+						WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)
+						ORDER BY created_at DESC LIMIT 1`, [viewerId, uid, uid, viewerId]),
+					getAsync('SELECT id FROM follows WHERE follower_id = ? AND followee_id = ?', [viewerId, uid]),
+					getAsync('SELECT id FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [viewerId, uid]),
+					getAsync('SELECT id FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [uid, viewerId])
+				]);
+				user.relationship = {
+					connectionStatus: connection ? connection.status : 'none',
+					connectionId: connection ? connection.id : null,
+					following: Boolean(follow),
+					blockedByMe: Boolean(blockedByMe),
+					blockedMe: Boolean(blockedMe)
+				};
+			} catch (relErr) {
+				user.relationship = {
+					connectionStatus: 'unknown',
+					connectionId: null,
+					following: false,
+					blockedByMe: false,
+					blockedMe: false
+				};
+			}
+			return res.json({ user });
 		});
 	});
 });
@@ -857,13 +972,91 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 	const { to } = req.body;
 	if (!to) return res.status(400).json({ error: 'Missing target user' });
 	const a = Number(req.session.userId), b = Number(to);
+	if (!a || !b || a === b) return res.status(400).json({ error: 'Invalid target user' });
 	const ts = Date.now();
-	db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], function (err) {
-		if (err) return res.status(400).json({ error: 'Unable to create request' });
-    // emit socket event to target user's room
-    io.to(`user:${b}`).emit('connectionRequest', { from: a, to: b });
-		res.json({ success: true });
+	db.get('SELECT id FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [a, b, b, a], (blockErr, blockRow) => {
+		if (blockErr) return res.status(500).json({ error: 'Server error' });
+		if (blockRow) return res.status(403).json({ error: 'Unable to connect with this user' });
+		db.get(`SELECT id, status FROM connections
+			WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)
+			ORDER BY created_at DESC LIMIT 1`, [a, b, b, a], (existingErr, existing) => {
+			if (existingErr) return res.status(500).json({ error: 'Server error' });
+			if (existing && existing.status === 'accepted') return res.status(400).json({ error: 'Already connected' });
+			if (existing && existing.status === 'pending') return res.status(400).json({ error: 'Connection request already pending' });
+			db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], function (err) {
+				if (err) return res.status(400).json({ error: 'Unable to create request' });
+				io.to(`user:${b}`).emit('connectionRequest', { from: a, to: b });
+				res.json({ success: true });
+			});
+		});
 	});
+});
+
+app.post('/api/connect/disconnect', requireAuth, async (req, res) => {
+	const otherId = Number(req.body.userId);
+	const me = Number(req.session.userId);
+	if (!otherId || !me) return res.status(400).json({ error: 'Invalid user id' });
+	try {
+		await runAsync('DELETE FROM connections WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)', [me, otherId, otherId, me]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/follow/toggle', requireAuth, async (req, res) => {
+	const targetId = Number(req.body.userId);
+	const me = Number(req.session.userId);
+	if (!targetId || !me || targetId === me) return res.status(400).json({ error: 'Invalid user id' });
+	try {
+		const blocked = await getAsync('SELECT id FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [me, targetId, targetId, me]);
+		if (blocked) return res.status(403).json({ error: 'Unable to follow this user' });
+		const existing = await getAsync('SELECT id FROM follows WHERE follower_id = ? AND followee_id = ?', [me, targetId]);
+		if (existing) {
+			await runAsync('DELETE FROM follows WHERE id = ?', [existing.id]);
+			return res.json({ success: true, following: false });
+		}
+		await runAsync('INSERT INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)', [me, targetId, Date.now()]);
+		return res.json({ success: true, following: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/block/toggle', requireAuth, async (req, res) => {
+	const targetId = Number(req.body.userId);
+	const me = Number(req.session.userId);
+	const reason = typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+	if (!targetId || !me || targetId === me) return res.status(400).json({ error: 'Invalid user id' });
+	try {
+		const existing = await getAsync('SELECT id FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [me, targetId]);
+		if (existing) {
+			await runAsync('DELETE FROM user_blocks WHERE id = ?', [existing.id]);
+			return res.json({ success: true, blocked: false });
+		}
+		await runAsync('INSERT INTO user_blocks (blocker_id, blocked_id, reason, created_at) VALUES (?, ?, ?, ?)', [me, targetId, reason || null, Date.now()]);
+		await runAsync('DELETE FROM connections WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)', [me, targetId, targetId, me]);
+		await runAsync('DELETE FROM follows WHERE (follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)', [me, targetId, targetId, me]);
+		return res.json({ success: true, blocked: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/report/user', requireAuth, async (req, res) => {
+	const targetId = Number(req.body.userId);
+	const category = typeof req.body.category === 'string' ? req.body.category.trim() : '';
+	const details = typeof req.body.details === 'string' ? req.body.details.trim() : '';
+	const me = Number(req.session.userId);
+	if (!targetId || !me || targetId === me) return res.status(400).json({ error: 'Invalid user id' });
+	if (!category) return res.status(400).json({ error: 'Report category is required' });
+	if (details.length > 400) return res.status(400).json({ error: 'Report details are too long' });
+	try {
+		await runAsync('INSERT INTO user_reports (reporter_id, target_user_id, category, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [me, targetId, category, details || null, 'open', Date.now()]);
+		return res.json({ success: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
 });
 
 app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
@@ -871,6 +1064,8 @@ app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
 	const viewerId = Number(req.session.userId);
 	if (!profileUserId) return res.status(400).json({ error: 'Invalid user id' });
 	try {
+		const blocked = await getAsync('SELECT id FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [viewerId, profileUserId, profileUserId, viewerId]);
+		if (blocked) return res.status(403).json({ error: 'Profile is not available' });
 		const isSelf = profileUserId === viewerId;
 		const connected = await getAsync(`SELECT id FROM connections
 			WHERE status = 'accepted'
