@@ -75,9 +75,8 @@
           <form id="postForm">
             <textarea id="postContent" placeholder="What's on your mind?"></textarea>
             <div class="post-mode-bar">
-              <button id="postModeStandard" class="btn tiny-btn post-mode-btn active" type="button">Normal Post</button>
-              <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Post</button>
-              <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Post</button>
+              <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Mode</button>
+              <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Mode</button>
             </div>
             <div class="composer-tools">
               <div class="tool-group">
@@ -123,6 +122,18 @@
               <button class="btn primary" type="submit">Post</button>
             </div>
           </form>
+        </section>
+
+        <section class="card">
+          <h3>Stories</h3>
+          <form id="storyForm" class="form">
+            <input id="storyContent" type="text" maxlength="300" placeholder="Share a quick story update..." />
+            <input id="storyImage" type="file" accept="image/*" />
+            <div class="row">
+              <button class="btn primary" type="submit">Post Story (24h)</button>
+            </div>
+          </form>
+          <div id="storiesList" class="section-gap"></div>
         </section>
 
         <section class="card">

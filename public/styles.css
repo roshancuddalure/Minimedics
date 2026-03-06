@@ -419,6 +419,11 @@ a {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.mention-tag {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .comment-composer {
   margin-top: 0.55rem;
   display: flex;
@@ -482,6 +487,42 @@ a {
 }
 
 .quiz-answer.quiz-incorrect {
+  color: #f87171;
+}
+
+.quiz-popup {
+  position: fixed;
+  left: 50%;
+  top: 18px;
+  transform: translateX(-50%) translateY(-12px);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 150;
+  min-width: 260px;
+  max-width: min(90vw, 420px);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card-strong);
+  padding: 0.75rem 0.9rem;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.quiz-popup.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.quiz-popup-title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.quiz-popup-correct .quiz-popup-title {
+  color: #22c55e;
+}
+
+.quiz-popup-wrong .quiz-popup-title {
   color: #f87171;
 }
 
@@ -593,12 +634,16 @@ a {
 
 .admin-users-table-wrap {
   overflow-x: auto;
+  max-height: 70vh;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
 }
 
 .admin-users-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
+  min-width: 920px;
 }
 
 .admin-users-table th,
@@ -612,6 +657,69 @@ a {
 .admin-users-table th {
   color: var(--text-dim);
   font-weight: 700;
+  position: sticky;
+  top: 0;
+  background: var(--card-strong);
+  z-index: 1;
+}
+
+.admin-page-main {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stories-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.story-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--card-strong);
+  padding: 0.65rem;
+}
+
+.story-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.story-head img {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 2px solid var(--accent);
+}
+
+.story-user {
+  font-weight: 600;
+  font-size: 0.86rem;
+}
+
+.story-image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-top: 0.55rem;
+}
+
+.story-content {
+  margin-top: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.auth-theme-btn {
+  position: fixed;
+  right: 1rem;
+  top: 1rem;
+  z-index: 50;
 }
 
 .modal-backdrop {

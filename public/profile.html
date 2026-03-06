@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Admin - MiniMedics</title>
+  <title>Edit Profile - MiniMedics</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,9 +13,9 @@
   <div class="container">
     <header class="hero">
       <div class="brand">
-        <span class="eyebrow">Admin Area</span>
+        <span class="eyebrow">Profile Settings</span>
         <h1>MiniMedics</h1>
-        <p class="muted">User management is restricted to administrator accounts.</p>
+        <p class="muted">Update your profile details and identity information.</p>
       </div>
       <div class="actions">
         <button id="themeToggle" class="btn secondary">Dark</button>
@@ -23,16 +23,17 @@
       </div>
     </header>
 
-    <main class="admin-page-main">
+    <main class="stack" style="margin-top:1rem">
       <section class="card">
-        <h3>User Management</h3>
-        <p class="muted">All registered users with email, XP, last login and connection counts.</p>
-      </section>
-      <section class="stack">
-        <section class="card">
-          <h3 id="adminUsersTitle">Registered Users</h3>
-          <div id="adminUsers" class="section-gap"></div>
-        </section>
+        <h3>Edit Profile</h3>
+        <form id="profileEditForm" class="form">
+          <input id="profileEditName" type="text" maxlength="120" placeholder="Full name" />
+          <input id="profileEditEmail" type="email" placeholder="Email" />
+          <textarea id="profileEditBio" maxlength="400" placeholder="Bio (max 400 chars)"></textarea>
+          <div class="row">
+            <button class="btn primary" type="submit">Save Changes</button>
+          </div>
+        </form>
       </section>
     </main>
   </div>

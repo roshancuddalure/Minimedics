@@ -139,6 +139,7 @@ db.serialize(() => {
 		// It's OK if column already exists
 	});
 	db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
+	db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN xp INTEGER DEFAULT 0`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1`, () => {});
 	db.run(`ALTER TABLE users ADD COLUMN title TEXT DEFAULT 'Rookie Medic'`, () => {});
@@ -190,9 +191,13 @@ db.serialize(() => {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		post_id INTEGER NOT NULL,
 		user_id INTEGER NOT NULL,
+		parent_comment_id INTEGER,
+		mention_user_id INTEGER,
 		content TEXT NOT NULL,
 		created_at INTEGER
 	)`);
+	db.run(`ALTER TABLE post_comments ADD COLUMN parent_comment_id INTEGER`, () => {});
+	db.run(`ALTER TABLE post_comments ADD COLUMN mention_user_id INTEGER`, () => {});
 	db.run(`CREATE TABLE IF NOT EXISTS saved_posts (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		post_id INTEGER NOT NULL,
@@ -240,6 +245,14 @@ db.serialize(() => {
 		user_id INTEGER NOT NULL,
 		content TEXT NOT NULL,
 		created_at INTEGER
+	)`);
+	db.run(`CREATE TABLE IF NOT EXISTS stories (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		content TEXT,
+		image TEXT,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
 	)`);
 });
 
@@ -410,7 +423,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, email, role, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, email, bio, role, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -421,6 +434,33 @@ app.get('/api/me', (req, res) => {
 			res.json({ user });
 		});
 	});
+});
+
+app.get('/api/profile', requireAuth, async (req, res) => {
+	try {
+		const user = await getAsync('SELECT id, username, name, email, bio, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		if (!user) return res.status(404).json({ error: 'User not found' });
+		res.json({ user });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/profile', requireAuth, async (req, res) => {
+	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+	const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+	const bio = typeof req.body.bio === 'string' ? req.body.bio.trim() : '';
+	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+		return res.status(400).json({ error: 'Please provide a valid email address' });
+	}
+	if (name.length > 120) return res.status(400).json({ error: 'Name is too long' });
+	if (bio.length > 400) return res.status(400).json({ error: 'Bio is too long' });
+	try {
+		await runAsync('UPDATE users SET name = ?, email = ?, bio = ? WHERE id = ?', [name || null, email || null, bio || null, req.session.userId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
 });
 
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
@@ -622,11 +662,12 @@ app.get('/api/messages/:otherId', requireAuth, (req, res) => {
 app.get('/api/post/:id/comments', (req, res) => {
 	const postId = Number(req.params.id);
 	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
-	const q = `SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.name, u.profile_picture
+	const q = `SELECT c.id, c.post_id, c.user_id, c.parent_comment_id, c.mention_user_id, c.content, c.created_at, u.username, u.name, u.profile_picture, mu.username as mention_username
 		FROM post_comments c
 		JOIN users u ON u.id = c.user_id
+		LEFT JOIN users mu ON mu.id = c.mention_user_id
 		WHERE c.post_id = ?
-		ORDER BY c.created_at DESC
+		ORDER BY c.created_at ASC
 		LIMIT 50`;
 	db.all(q, [postId], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
@@ -637,11 +678,27 @@ app.get('/api/post/:id/comments', (req, res) => {
 app.post('/api/post/:id/comment', requireAuth, (req, res) => {
 	const postId = Number(req.params.id);
 	const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+	const parentCommentId = req.body.parentCommentId ? Number(req.body.parentCommentId) : null;
+	const mentionUserId = req.body.mentionUserId ? Number(req.body.mentionUserId) : null;
 	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
 	if (!content) return res.status(400).json({ error: 'Comment cannot be empty' });
 	if (content.length > 700) return res.status(400).json({ error: 'Comment too long' });
+	if (parentCommentId && Number.isNaN(parentCommentId)) return res.status(400).json({ error: 'Invalid parent comment' });
+	if (mentionUserId && Number.isNaN(mentionUserId)) return res.status(400).json({ error: 'Invalid mention user' });
 	const ts = Date.now();
-	db.run('INSERT INTO post_comments (post_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [postId, req.session.userId, content, ts], async function onComment(err) {
+	if (parentCommentId) {
+		db.get('SELECT id FROM post_comments WHERE id = ? AND post_id = ?', [parentCommentId, postId], (parentErr, parent) => {
+			if (parentErr) return res.status(500).json({ error: 'Server error' });
+			if (!parent) return res.status(400).json({ error: 'Parent comment not found' });
+			db.run('INSERT INTO post_comments (post_id, user_id, parent_comment_id, mention_user_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)', [postId, req.session.userId, parentCommentId, mentionUserId || null, content, ts], async function onReply(err) {
+				if (err) return res.status(500).json({ error: 'Server error' });
+				try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
+				res.json({ success: true, id: this.lastID });
+			});
+		});
+		return;
+	}
+	db.run('INSERT INTO post_comments (post_id, user_id, parent_comment_id, mention_user_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)', [postId, req.session.userId, null, null, content, ts], async function onComment(err) {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
 		res.json({ success: true, id: this.lastID });
@@ -662,11 +719,48 @@ app.delete('/api/post/:postId/comment/:commentId', requireAuth, async (req, res)
 		const isCommentOwner = Number(row.user_id) === userId;
 		const isPostOwner = Number(row.post_owner_id) === userId;
 		if (!isCommentOwner && !isPostOwner) return res.status(403).json({ error: 'Not allowed to delete this comment' });
-		await runAsync('DELETE FROM post_comments WHERE id = ?', [commentId]);
+		await runAsync('DELETE FROM post_comments WHERE id = ? OR parent_comment_id = ?', [commentId, commentId]);
 		return res.json({ success: true });
 	} catch (e) {
 		console.error('Delete comment API error:', e);
 		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/stories', requireAuth, async (req, res) => {
+	try {
+		const userId = Number(req.session.userId);
+		const connectionIds = await getAcceptedConnectionIds(userId);
+		const ids = [userId, ...connectionIds];
+		if (!ids.length) return res.json({ stories: [] });
+		const placeholders = ids.map(() => '?').join(',');
+		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture
+			FROM stories s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.expires_at > ? AND s.user_id IN (${placeholders})
+			ORDER BY s.created_at DESC`, [Date.now(), ...ids]);
+		res.json({ stories: rows });
+	} catch (e) {
+		console.error('Stories fetch error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories', requireAuth, async (req, res) => {
+	const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+	const image = typeof req.body.image === 'string' ? req.body.image : '';
+	const hasImage = Boolean(image && image.startsWith('data:image'));
+	if (!content && !hasImage) return res.status(400).json({ error: 'Add text or image for the story' });
+	if (content.length > 300) return res.status(400).json({ error: 'Story content is too long' });
+	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Story image is too large' });
+	try {
+		const now = Date.now();
+		const expiresAt = now + (24 * 60 * 60 * 1000);
+		const created = await runAsync('INSERT INTO stories (user_id, content, image, created_at, expires_at) VALUES (?, ?, ?, ?, ?)', [req.session.userId, content || null, hasImage ? image : null, now, expiresAt]);
+		res.json({ success: true, id: created.lastID });
+	} catch (e) {
+		console.error('Story create error:', e);
+		res.status(500).json({ error: 'Server error' });
 	}
 });
 
@@ -984,6 +1078,10 @@ app.get('/dashboard', (req, res) => {
 
 app.get('/admin', requireAdmin, (req, res) => {
 	res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
+app.get('/profile', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'profile.html'));
 });
 
 const http = require('http');
