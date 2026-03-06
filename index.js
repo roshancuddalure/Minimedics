@@ -1585,13 +1585,31 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 
 app.get('/api/groups', requireAuth, async (req, res) => {
 	try {
-		const rows = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
+		const myGroups = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
 			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
 			(SELECT role FROM group_memberships gm2 WHERE gm2.group_id = g.id AND gm2.user_id = ?) as my_role,
 			(SELECT status FROM group_memberships gm3 WHERE gm3.group_id = g.id AND gm3.user_id = ?) as my_status
 			FROM groups g
-			ORDER BY g.created_at DESC`, [req.session.userId, req.session.userId]);
-		res.json({ groups: rows });
+			WHERE EXISTS (
+				SELECT 1 FROM group_memberships mine
+				WHERE mine.group_id = g.id AND mine.user_id = ? AND mine.status IN ('active', 'pending')
+			)
+			ORDER BY g.created_at DESC`, [req.session.userId, req.session.userId, req.session.userId]);
+		const suggestions = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
+			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
+			NULL as my_role,
+			NULL as my_status
+			FROM groups g
+			WHERE g.is_private = 0
+			AND NOT EXISTS (
+				SELECT 1 FROM group_memberships mine
+				WHERE mine.group_id = g.id AND mine.user_id = ?
+			)
+			ORDER BY g.created_at DESC
+			LIMIT 8`, [req.session.userId]);
+		const my = myGroups.map((g) => ({ ...g, is_suggested: 0 }));
+		const suggested = suggestions.map((g) => ({ ...g, is_suggested: 1 }));
+		res.json({ groups: [...my, ...suggested], myGroups: my, suggestions: suggested });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1661,7 +1679,7 @@ app.post('/api/groups/:id/picture', requireAuth, async (req, res) => {
 	if (!image || !image.startsWith('data:image')) return res.status(400).json({ error: 'Invalid image' });
 	try {
 		const mine = await getGroupRole(groupId, req.session.userId);
-		if (!mine || mine.status !== 'active' || mine.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+		if (!mine || mine.status !== 'active' || !['admin', 'moderator'].includes(mine.role)) return res.status(403).json({ error: 'Admin/moderator access required' });
 		await runAsync('UPDATE groups SET profile_picture = ? WHERE id = ?', [image, groupId]);
 		res.json({ success: true });
 	} catch (e) {

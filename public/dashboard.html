@@ -34,34 +34,19 @@
         <section id="profileBox" class="card profile"></section>
 
         <section class="card">
-          <h3>Account Security</h3>
-          <p class="muted">Password change is available on demand.</p>
-          <button id="openPasswordModalBtn" class="btn primary" type="button">Change Password</button>
-        </section>
-
-        <section class="card">
-          <h3>Received Requests</h3>
-          <div id="receivedRequests" class="section-gap"></div>
-        </section>
-
-        <section class="card">
-          <h3>Sent Requests</h3>
-          <div id="sentRequests" class="section-gap"></div>
-        </section>
-
-        <section class="card">
-          <h3>Ignored Requests</h3>
-          <div id="ignoredRequests" class="section-gap"></div>
-        </section>
-
-        <section class="card">
-          <h3>Suggestions</h3>
-          <div id="connectionSuggestions" class="section-gap"></div>
-        </section>
-
-        <section class="card">
           <h3>Connections</h3>
-          <div id="connections" class="section-gap"></div>
+          <div class="row" style="justify-content:flex-start;gap:0.35rem;margin-top:0.5rem">
+            <button class="btn tiny-btn conn-tab-btn active" data-tab="accepted" type="button" title="Connections">All</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="received" type="button" title="Received">In</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="sent" type="button" title="Sent">Out</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="ignored" type="button" title="Ignored">Ignore</button>
+            <button class="btn tiny-btn conn-tab-btn" data-tab="suggestions" type="button" title="Suggestions">Suggest</button>
+          </div>
+          <div id="connectionsPanelAccepted" class="section-gap conn-tab-panel"><div id="connections"></div></div>
+          <div id="connectionsPanelReceived" class="section-gap conn-tab-panel hidden"><div id="receivedRequests"></div></div>
+          <div id="connectionsPanelSent" class="section-gap conn-tab-panel hidden"><div id="sentRequests"></div></div>
+          <div id="connectionsPanelIgnored" class="section-gap conn-tab-panel hidden"><div id="ignoredRequests"></div></div>
+          <div id="connectionsPanelSuggestions" class="section-gap conn-tab-panel hidden"><div id="connectionSuggestions"></div></div>
         </section>
 
         <section class="card">
@@ -202,10 +187,15 @@
   <div id="passwordModal" class="modal-backdrop hidden" aria-hidden="true">
     <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
       <div class="modal-head">
-        <h3 id="passwordModalTitle">Change Password</h3>
+        <h3 id="passwordModalTitle">Profile Settings</h3>
         <button id="closePasswordModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
       </div>
-      <form id="changePasswordForm" class="form">
+      <div id="settingsMenu" class="row" style="justify-content:flex-start;flex-wrap:wrap;margin-bottom:0.5rem">
+        <button id="settingsChangePicBtn" class="btn tiny-btn" type="button">Change Profile Pic</button>
+        <button id="settingsPrivacyBtn" class="btn tiny-btn" type="button">Privacy</button>
+        <button id="settingsChangePassBtn" class="btn tiny-btn" type="button">Change Password</button>
+      </div>
+      <form id="changePasswordForm" class="form hidden">
         <input id="currentPassword" type="password" placeholder="Current password" required />
         <input id="newPassword" type="password" placeholder="New password (min 6 chars)" required />
         <input id="confirmNewPassword" type="password" placeholder="Confirm new password" required />

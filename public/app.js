@@ -1050,7 +1050,7 @@ async function loadClanManagementPage() {
     return;
   }
   const g = detailRes.group;
-  const canManage = g.my_role === 'admin';
+  const canManage = ['admin', 'moderator'].includes(String(g.my_role || ''));
   const header = document.getElementById('clanHeaderMeta');
   if (header) header.textContent = `${g.name} | Level ${g.clan_level || 1} | XP ${g.clan_xp || 0}`;
   profileCard.innerHTML = `<img src="${g.profile_picture || 'data:image/svg+xml,<svg></svg>'}" class="profile-picture" />
@@ -1480,8 +1480,17 @@ async function loadGroups() {
     box.innerHTML = '<div class="muted">No clans yet. Create one.</div>';
     return;
   }
+  const myGroups = Array.isArray(res.myGroups) ? res.myGroups : [];
+  const suggested = Array.isArray(res.suggestions) ? res.suggestions : [];
   box.innerHTML = '';
-  res.groups.forEach((g) => {
+  if (myGroups.length) {
+    const title = document.createElement('div');
+    title.className = 'muted';
+    title.style.marginBottom = '0.4rem';
+    title.textContent = 'Your Clans';
+    box.appendChild(title);
+  }
+  const renderClanCard = (g) => {
     const card = document.createElement('div');
     card.className = 'group-item';
     const privacy = Number(g.is_private) === 1 ? 'Private' : 'Public';
@@ -1503,7 +1512,13 @@ async function loadGroups() {
       pic.style.border = '1px solid var(--line)';
       card.prepend(pic);
     }
+    const isActiveMember = g.my_status === 'active';
+    const canManage = isActiveMember && ['admin', 'moderator'].includes(String(g.my_role || ''));
     const openBtn = createActionButton('Open', async () => {
+      if (!isActiveMember) {
+        location.href = `/clan.html?id=${encodeURIComponent(g.id)}`;
+        return;
+      }
       selectedGroupId = g.id;
       selectedGroupRole = g.my_role || null;
       const title = document.getElementById('groupFeedTitle');
@@ -1511,11 +1526,13 @@ async function loadGroups() {
       await loadGroupFeed();
       await loadGroupRequests();
     });
-    const manageBtn = createActionButton('Manage Clan', () => {
-      location.href = `/clan.html?id=${encodeURIComponent(g.id)}`;
-    }, 'btn tiny-btn');
     actions.appendChild(openBtn);
-    actions.appendChild(manageBtn);
+    if (canManage) {
+      const manageBtn = createActionButton('Manage Clan', () => {
+        location.href = `/clan.html?id=${encodeURIComponent(g.id)}`;
+      }, 'btn tiny-btn');
+      actions.appendChild(manageBtn);
+    }
     if (!g.my_status) {
       const joinBtn = createActionButton('Join', async () => {
         const joinRes = await api(`/api/groups/${g.id}/join`, 'POST', {});
@@ -1530,7 +1547,16 @@ async function loadGroups() {
     }
     card.appendChild(actions);
     box.appendChild(card);
-  });
+  };
+  myGroups.forEach(renderClanCard);
+  if (suggested.length) {
+    const title = document.createElement('div');
+    title.className = 'muted';
+    title.style.margin = '0.5rem 0 0.4rem';
+    title.textContent = 'Suggested Clans';
+    box.appendChild(title);
+    suggested.forEach(renderClanCard);
+  }
 }
 
 async function loadGroupFeed() {
@@ -1718,6 +1744,8 @@ async function loadLevelDetails() {
 function openPasswordModal() {
   const modal = document.getElementById('passwordModal');
   if (!modal) return;
+  const form = document.getElementById('changePasswordForm');
+  if (form) form.classList.add('hidden');
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
 }
@@ -1725,8 +1753,57 @@ function openPasswordModal() {
 function closePasswordModal() {
   const modal = document.getElementById('passwordModal');
   if (!modal) return;
+  const form = document.getElementById('changePasswordForm');
+  if (form) form.classList.add('hidden');
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
+}
+
+function initConnectionTabs() {
+  const tabBtns = Array.from(document.querySelectorAll('.conn-tab-btn'));
+  if (!tabBtns.length) return;
+  const map = {
+    accepted: 'connectionsPanelAccepted',
+    received: 'connectionsPanelReceived',
+    sent: 'connectionsPanelSent',
+    ignored: 'connectionsPanelIgnored',
+    suggestions: 'connectionsPanelSuggestions'
+  };
+  const activate = (tab) => {
+    tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab));
+    Object.keys(map).forEach((key) => {
+      const panel = document.getElementById(map[key]);
+      if (!panel) return;
+      panel.classList.toggle('hidden', key !== tab);
+    });
+  };
+  tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'accepted')));
+  activate('accepted');
+}
+
+function initProfileSettingsModal() {
+  const settingsBtn = document.getElementById('openSettingsBtn');
+  if (settingsBtn) settingsBtn.onclick = openPasswordModal;
+  const changePicBtn = document.getElementById('settingsChangePicBtn');
+  if (changePicBtn) {
+    changePicBtn.onclick = () => {
+      const picInput = document.getElementById('picInput');
+      if (!picInput) {
+        showToast('Profile panel not ready', 'error');
+        return;
+      }
+      picInput.click();
+    };
+  }
+  const privacyBtn = document.getElementById('settingsPrivacyBtn');
+  if (privacyBtn) privacyBtn.onclick = () => showToast('Privacy options will be added here');
+  const changePassBtn = document.getElementById('settingsChangePassBtn');
+  if (changePassBtn) {
+    changePassBtn.onclick = () => {
+      const form = document.getElementById('changePasswordForm');
+      if (form) form.classList.toggle('hidden');
+    };
+  }
 }
 
 // open chat with userId
@@ -2080,7 +2157,10 @@ async function loadProfile() {
     <p class="muted">Level ${res.user.level || 1} | XP ${res.user.xp || 0}</p>
     <p class="muted">Connections: ${res.user.connections_count || 0}</p>
     <p class="muted">Last login: ${last}</p>
-    <div class="row" style="justify-content:flex-start;margin-top:0.4rem"><a class="btn tiny-btn" href="/profile">Edit Profile Details</a></div>
+    <div class="row" style="justify-content:flex-start;margin-top:0.4rem">
+      <a class="btn tiny-btn" href="/profile">Edit Profile Details</a>
+      <button id="openSettingsBtn" class="btn secondary tiny-btn" type="button" title="Settings">Settings</button>
+    </div>
     ${adminActions}
     <div class="pic-upload">
       <input id="picInput" type="file" accept="image/*" />
@@ -2088,6 +2168,7 @@ async function loadProfile() {
     </div>
   </div>`;
   document.getElementById('picInput').addEventListener('change', uploadProfilePicture);
+  initProfileSettingsModal();
 }
 
 // upload profile picture
@@ -2198,6 +2279,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Dashboard-specific
   if (document.getElementById('connections')) loadConnectionPanels();
   if (document.getElementById('connections')) setInterval(loadConnectionPanels, 15000);
+  initConnectionTabs();
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
   if (document.getElementById('levelDetails')) loadLevelDetails();
@@ -2207,10 +2289,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('clanPostForm')) document.getElementById('clanPostForm').addEventListener('submit', handleClanPostSubmit);
   if (document.getElementById('clanProfileCard')) loadClanManagementPage();
   if (document.getElementById('changePasswordForm')) document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
-  const openPasswordModalBtn = document.getElementById('openPasswordModalBtn');
   const closePasswordModalBtn = document.getElementById('closePasswordModalBtn');
   const passwordModal = document.getElementById('passwordModal');
-  if (openPasswordModalBtn) openPasswordModalBtn.addEventListener('click', openPasswordModal);
   if (closePasswordModalBtn) closePasswordModalBtn.addEventListener('click', closePasswordModal);
   if (passwordModal) {
     passwordModal.addEventListener('click', (evt) => {
