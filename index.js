@@ -826,8 +826,9 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 			u.last_login,
 			(SELECT COUNT(*) FROM connections c WHERE (c.user_a = u.id OR c.user_b = u.id) AND c.status = 'accepted') AS total_connections
 			FROM users u
-			WHERE (? = '' OR LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.email, '')) LIKE LOWER(?))
-			ORDER BY u.id DESC`, [q, `%${q}%`, `%${q}%`, `%${q}%`]);
+			WHERE u.username <> ?
+			AND (? = '' OR LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.email, '')) LIKE LOWER(?))
+			ORDER BY u.id DESC`, [SUPERADMIN_USERNAME, q, `%${q}%`, `%${q}%`, `%${q}%`]);
 		res.json({ totalUsers: rows.length, users: rows });
 	} catch (e) {
 		console.error('Admin users API error:', e);
@@ -841,6 +842,9 @@ app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
 	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
 	if (!['user', 'moderator', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
 	try {
+		const target = await getAsync('SELECT username FROM users WHERE id = ?', [userId]);
+		if (!target) return res.status(404).json({ error: 'User not found' });
+		if (target.username === SUPERADMIN_USERNAME) return res.status(403).json({ error: 'Operation not allowed for this account' });
 		await runAsync('UPDATE users SET role = ? WHERE id = ?', [role, userId]);
 		res.json({ success: true });
 	} catch (e) {
@@ -852,6 +856,9 @@ app.post('/api/admin/users/:id/verify-email', requireAdmin, async (req, res) => 
 	const userId = Number(req.params.id);
 	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
 	try {
+		const target = await getAsync('SELECT username FROM users WHERE id = ?', [userId]);
+		if (!target) return res.status(404).json({ error: 'User not found' });
+		if (target.username === SUPERADMIN_USERNAME) return res.status(403).json({ error: 'Operation not allowed for this account' });
 		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE id = ?', [userId]);
 		if (!updated.changes) return res.status(404).json({ error: 'User not found' });
 		return res.json({ success: true });
@@ -866,6 +873,9 @@ app.post('/api/admin/users/:id/block', requireAdmin, async (req, res) => {
 	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
 	if (Number(req.session.userId) === userId) return res.status(400).json({ error: 'Cannot block yourself' });
 	try {
+		const target = await getAsync('SELECT username FROM users WHERE id = ?', [userId]);
+		if (!target) return res.status(404).json({ error: 'User not found' });
+		if (target.username === SUPERADMIN_USERNAME) return res.status(403).json({ error: 'Operation not allowed for this account' });
 		const updated = await runAsync('UPDATE users SET account_blocked = ? WHERE id = ?', [blocked, userId]);
 		if (!updated.changes) return res.status(404).json({ error: 'User not found' });
 		res.json({ success: true, blocked: Boolean(blocked) });
@@ -892,11 +902,13 @@ app.get('/api/admin/reports', requireAdmin, async (req, res) => {
 			FROM user_reports r
 			LEFT JOIN users reporter ON reporter.id = r.reporter_id
 			LEFT JOIN users target ON target.id = r.target_user_id
-			WHERE (? = '' OR r.status = ?)
+			WHERE COALESCE(reporter.username, '') <> ?
+			AND COALESCE(target.username, '') <> ?
+			AND (? = '' OR r.status = ?)
 			AND (? = 0 OR r.created_at >= ?)
 			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(target.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
 			ORDER BY r.created_at DESC
-			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+			LIMIT 500`, [SUPERADMIN_USERNAME, SUPERADMIN_USERNAME, status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
 		res.json({ reports: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -923,11 +935,13 @@ app.get('/api/admin/reports/all', requireAdmin, async (req, res) => {
 			FROM user_reports r
 			LEFT JOIN users reporter ON reporter.id = r.reporter_id
 			LEFT JOIN users target ON target.id = r.target_user_id
-			WHERE (? = '' OR r.status = ?)
+			WHERE COALESCE(reporter.username, '') <> ?
+			AND COALESCE(target.username, '') <> ?
+			AND (? = '' OR r.status = ?)
 			AND (? = 0 OR r.created_at >= ?)
 			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(target.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
 			ORDER BY r.created_at DESC
-			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+			LIMIT 500`, [SUPERADMIN_USERNAME, SUPERADMIN_USERNAME, status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
 		const clanRows = await allAsync(`SELECT
 			'clan' AS report_type,
 			r.id,
@@ -943,11 +957,12 @@ app.get('/api/admin/reports/all', requireAdmin, async (req, res) => {
 			FROM clan_reports r
 			LEFT JOIN users reporter ON reporter.id = r.reporter_id
 			LEFT JOIN groups g ON g.id = r.clan_id
-			WHERE (? = '' OR r.status = ?)
+			WHERE COALESCE(reporter.username, '') <> ?
+			AND (? = '' OR r.status = ?)
 			AND (? = 0 OR r.created_at >= ?)
 			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(g.name, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
 			ORDER BY r.created_at DESC
-			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+			LIMIT 500`, [SUPERADMIN_USERNAME, status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
 		const reports = [...userRows, ...clanRows].sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0)).slice(0, 800);
 		res.json({ reports });
 	} catch (e) {
@@ -1013,7 +1028,7 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ?', [uid], (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		if (user.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
 			return res.status(404).json({ error: 'User not found' });
@@ -1082,7 +1097,7 @@ app.get('/api/feed', requireAuth, (req, res) => {
 					AND ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_b = ${uid} AND c.user_a = p.user_id))
 				)
 			)
-		)
+		) AND u.username <> '${SUPERADMIN_USERNAME}'
 		ORDER BY p.created_at DESC LIMIT 50`;
 	db.all(q, [], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
@@ -1167,9 +1182,10 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 	const a = Number(req.session.userId), b = Number(to);
 	if (!a || !b || a === b) return res.status(400).json({ error: 'Invalid target user' });
 	const ts = Date.now();
-	db.get('SELECT id, privacy_request_policy FROM users WHERE id = ?', [b], (targetErr, targetUser) => {
+	db.get('SELECT id, username, privacy_request_policy FROM users WHERE id = ?', [b], (targetErr, targetUser) => {
 		if (targetErr) return res.status(500).json({ error: 'Server error' });
 		if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+		if (targetUser.username === SUPERADMIN_USERNAME) return res.status(404).json({ error: 'Target user not found' });
 		const policy = String(targetUser.privacy_request_policy || 'everyone');
 		if (policy === 'nobody') return res.status(403).json({ error: 'This user is not accepting requests' });
 		if (policy === 'link_only' && !viaProfileLink) return res.status(403).json({ error: 'This user accepts requests only from profile link' });
@@ -1282,6 +1298,8 @@ app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
 	const viewerId = Number(req.session.userId);
 	if (!profileUserId) return res.status(400).json({ error: 'Invalid user id' });
 	try {
+		const profileUser = await getAsync('SELECT id, username FROM users WHERE id = ?', [profileUserId]);
+		if (!profileUser || profileUser.username === SUPERADMIN_USERNAME) return res.status(404).json({ error: 'User not found' });
 		const blocked = await getAsync('SELECT id FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [viewerId, profileUserId, profileUserId, viewerId]);
 		if (blocked) return res.status(403).json({ error: 'Profile is not available' });
 		const isSelf = profileUserId === viewerId;
@@ -1351,8 +1369,9 @@ app.get('/api/connections', requireAuth, (req, res) => {
 	const uid = req.session.userId;
 	const q = `SELECT u.id, u.username, u.name, u.profile_picture, u.privacy_show_online
 		FROM users u JOIN connections c ON ( (c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id) )
-		WHERE c.status = 'accepted'`;
-	db.all(q, [uid, uid], (err, rows) => {
+		WHERE c.status = 'accepted'
+		AND u.username <> ?`;
+	db.all(q, [uid, uid, SUPERADMIN_USERNAME], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		const withPresence = (rows || []).map((r) => {
 			const canSee = r.privacy_show_online === 'everyone' || r.privacy_show_online === 'connections';
@@ -1365,7 +1384,7 @@ app.get('/api/connections', requireAuth, (req, res) => {
 // list incoming requests
 app.get('/api/requests', requireAuth, (req, res) => {
 	const uid = req.session.userId;
-		db.all('SELECT c.id, c.user_a, c.user_b, c.status, u.username, u.name, u.profile_picture FROM connections c JOIN users u ON u.id = c.user_a WHERE c.user_b = ? AND c.status = ?', [uid, 'pending'], (err, rows) => {
+		db.all('SELECT c.id, c.user_a, c.user_b, c.status, u.username, u.name, u.profile_picture FROM connections c JOIN users u ON u.id = c.user_a WHERE c.user_b = ? AND c.status = ? AND u.username <> ?', [uid, 'pending', SUPERADMIN_USERNAME], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		res.json({ requests: rows });
 	});
@@ -1377,25 +1396,27 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 		const acceptedRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture, u.privacy_show_online
 			FROM users u
 			JOIN connections c ON ((c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id))
-			WHERE c.status = 'accepted'`, [uid, uid]);
+			WHERE c.status = 'accepted'
+			AND u.username <> ?`, [uid, uid, SUPERADMIN_USERNAME]);
 		const sentRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM connections c
 			JOIN users u ON u.id = c.user_b
-			WHERE c.user_a = ? AND c.status = 'pending'
-			ORDER BY c.created_at DESC`, [uid]);
+			WHERE c.user_a = ? AND c.status = 'pending' AND u.username <> ?
+			ORDER BY c.created_at DESC`, [uid, SUPERADMIN_USERNAME]);
 		const receivedRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM connections c
 			JOIN users u ON u.id = c.user_a
-			WHERE c.user_b = ? AND c.status = 'pending'
-			ORDER BY c.created_at DESC`, [uid]);
+			WHERE c.user_b = ? AND c.status = 'pending' AND u.username <> ?
+			ORDER BY c.created_at DESC`, [uid, SUPERADMIN_USERNAME]);
 		const ignoredRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM connections c
 			JOIN users u ON u.id = c.user_a
-			WHERE c.user_b = ? AND c.status = 'ignored'
-			ORDER BY c.created_at DESC`, [uid]);
+			WHERE c.user_b = ? AND c.status = 'ignored' AND u.username <> ?
+			ORDER BY c.created_at DESC`, [uid, SUPERADMIN_USERNAME]);
 		const suggestionRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
 			FROM users u
 			WHERE u.id <> ?
+			AND u.username <> ?
 			AND COALESCE(u.privacy_in_suggestions, 'everyone') <> 'nobody'
 			AND COALESCE(u.privacy_discoverability, 'everyone') <> 'nobody'
 			AND NOT EXISTS (
@@ -1408,7 +1429,7 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 				WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?)
 			)
 			ORDER BY u.username ASC
-			LIMIT 40`, [uid, uid, uid, uid, uid]);
+			LIMIT 40`, [uid, SUPERADMIN_USERNAME, uid, uid, uid, uid]);
 		const accepted = acceptedRows.map((r) => {
 			const canSee = r.privacy_show_online === 'everyone' || r.privacy_show_online === 'connections';
 			return { ...r, online_visible: canSee, online: canSee ? isUserOnline(r.id) : false };
@@ -1443,7 +1464,7 @@ app.get('/api/post/:id/comments', (req, res) => {
 		FROM post_comments c
 		JOIN users u ON u.id = c.user_id
 		LEFT JOIN users mu ON mu.id = c.mention_user_id
-		WHERE c.post_id = ?
+		WHERE c.post_id = ? AND u.username <> '${SUPERADMIN_USERNAME}'
 		ORDER BY c.created_at ASC
 		LIMIT 50`;
 	db.all(q, [postId], (err, rows) => {
@@ -1566,8 +1587,8 @@ app.get('/api/stories', requireAuth, async (req, res) => {
 		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture
 			FROM stories s
 			JOIN users u ON u.id = s.user_id
-			WHERE s.expires_at > ? AND s.user_id IN (${placeholders})
-			ORDER BY s.created_at DESC`, [Date.now(), ...ids]);
+			WHERE s.expires_at > ? AND s.user_id IN (${placeholders}) AND u.username <> ?
+			ORDER BY s.created_at DESC`, [Date.now(), ...ids, SUPERADMIN_USERNAME]);
 		res.json({ stories: rows });
 	} catch (e) {
 		console.error('Stories fetch error:', e);
@@ -1688,8 +1709,9 @@ app.get('/api/saved-posts', requireAuth, async (req, res) => {
 			JOIN posts p ON p.id = sp.post_id
 			JOIN users u ON u.id = p.user_id
 			WHERE sp.user_id = ?
+			AND u.username <> ?
 			AND (? = '' OR sp.list_name = ?)
-			ORDER BY sp.created_at DESC`, [req.session.userId, listName, listName]);
+			ORDER BY sp.created_at DESC`, [req.session.userId, SUPERADMIN_USERNAME, listName, listName]);
 		res.json({ posts: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1778,8 +1800,9 @@ app.get('/api/leaderboard', async (req, res) => {
 			 ORDER BY gm.created_at DESC
 			 LIMIT 1) AS clan_name
 			FROM users u
+			WHERE u.username <> ?
 			ORDER BY u.xp DESC, u.id ASC
-			LIMIT 20`);
+			LIMIT 20`, [SUPERADMIN_USERNAME]);
 		res.json({ users: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1852,16 +1875,16 @@ app.get('/api/groups/:id/detail', requireAuth, async (req, res) => {
 			? await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
 				FROM group_posts gp
 				JOIN users u ON u.id = gp.user_id
-				WHERE gp.group_id = ?
+				WHERE gp.group_id = ? AND u.username <> ?
 				ORDER BY gp.created_at DESC
-				LIMIT 100`, [groupId])
+				LIMIT 100`, [groupId, SUPERADMIN_USERNAME])
 			: [];
 		const members = canViewContent
 			? await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, gm.created_at, u.username, u.name, u.profile_picture
 				FROM group_memberships gm
 				JOIN users u ON u.id = gm.user_id
-				WHERE gm.group_id = ? AND gm.status = 'active'
-				ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId])
+				WHERE gm.group_id = ? AND gm.status = 'active' AND u.username <> ?
+				ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId, SUPERADMIN_USERNAME])
 			: [];
 		res.json({ group, posts, members, canViewContent: Boolean(canViewContent) });
 	} catch (e) {
@@ -1877,15 +1900,15 @@ app.get('/api/groups/:id/activity', requireAuth, async (req, res) => {
 		if (!mine || mine.status !== 'active') return res.status(403).json({ error: 'Not an active clan member' });
 		const postActivity = await allAsync(`SELECT 'post' AS type, gp.created_at, u.username, u.name, gp.content
 			FROM group_posts gp JOIN users u ON u.id = gp.user_id
-			WHERE gp.group_id = ?
+			WHERE gp.group_id = ? AND u.username <> ?
 			ORDER BY gp.created_at DESC
-			LIMIT 20`, [groupId]);
+			LIMIT 20`, [groupId, SUPERADMIN_USERNAME]);
 		const joinActivity = await allAsync(`SELECT CASE WHEN gm.status = 'pending' THEN 'join_request' ELSE 'join' END AS type,
 			gm.created_at, u.username, u.name, '' AS content
 			FROM group_memberships gm JOIN users u ON u.id = gm.user_id
-			WHERE gm.group_id = ?
+			WHERE gm.group_id = ? AND u.username <> ?
 			ORDER BY gm.created_at DESC
-			LIMIT 20`, [groupId]);
+			LIMIT 20`, [groupId, SUPERADMIN_USERNAME]);
 		const events = [...postActivity, ...joinActivity]
 			.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))
 			.slice(0, 30);
@@ -1939,8 +1962,8 @@ app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
 		const rows = await allAsync(`SELECT gm.user_id as id, gm.role, gm.status, u.username, u.name, u.profile_picture
 			FROM group_memberships gm
 			JOIN users u ON u.id = gm.user_id
-			WHERE gm.group_id = ?
-			ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId]);
+			WHERE gm.group_id = ? AND u.username <> ?
+			ORDER BY CASE gm.role WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END, u.username ASC`, [groupId, SUPERADMIN_USERNAME]);
 		res.json({ members: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1956,8 +1979,8 @@ app.get('/api/groups/:id/requests', requireAuth, async (req, res) => {
 		const rows = await allAsync(`SELECT gm.user_id as id, u.username, u.name, u.profile_picture, gm.created_at
 			FROM group_memberships gm
 			JOIN users u ON u.id = gm.user_id
-			WHERE gm.group_id = ? AND gm.status = 'pending'
-			ORDER BY gm.created_at ASC`, [groupId]);
+			WHERE gm.group_id = ? AND gm.status = 'pending' AND u.username <> ?
+			ORDER BY gm.created_at ASC`, [groupId, SUPERADMIN_USERNAME]);
 		res.json({ requests: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -2009,9 +2032,9 @@ app.get('/api/groups/:id/feed', requireAuth, async (req, res) => {
 		const rows = await allAsync(`SELECT gp.id, gp.group_id, gp.user_id, gp.content, gp.created_at, u.username, u.name, u.profile_picture
 			FROM group_posts gp
 			JOIN users u ON u.id = gp.user_id
-			WHERE gp.group_id = ?
+			WHERE gp.group_id = ? AND u.username <> ?
 			ORDER BY gp.created_at DESC
-			LIMIT 50`, [groupId]);
+			LIMIT 50`, [groupId, SUPERADMIN_USERNAME]);
 		res.json({ posts: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -2068,18 +2091,19 @@ app.get('/api/search', (req, res) => {
 	const userQuery = `SELECT id, username, name, profile_picture, 'user' as type
 		FROM users
 		WHERE (username LIKE ? OR name LIKE ?)
+		AND username <> ?
 		AND COALESCE(privacy_discoverability, 'everyone') <> 'nobody'
 		LIMIT 8`;
 	
 	// Search posts
-	const postQuery = `SELECT p.id, p.content, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture, 'post' as type FROM posts p JOIN users u ON p.user_id = u.id WHERE p.content LIKE ? ORDER BY p.created_at DESC LIMIT 8`;
+	const postQuery = `SELECT p.id, p.content, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture, 'post' as type FROM posts p JOIN users u ON p.user_id = u.id WHERE p.content LIKE ? AND u.username <> ? ORDER BY p.created_at DESC LIMIT 8`;
 	
 	const allResults = [];
 	
-	db.all(userQuery, [searchTerm, searchTerm], (err, users) => {
+	db.all(userQuery, [searchTerm, searchTerm, SUPERADMIN_USERNAME], (err, users) => {
 		if (users) allResults.push(...users);
 		
-		db.all(postQuery, [searchTerm], (err2, posts) => {
+		db.all(postQuery, [searchTerm, SUPERADMIN_USERNAME], (err2, posts) => {
 			if (posts) allResults.push(...posts);
 			
 			// Sort: users first, then posts
