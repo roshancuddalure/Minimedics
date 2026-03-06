@@ -2,22 +2,45 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
+const PgSession = require('connect-pg-simple')(session);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ensure data directory
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+function getDatabaseUrl() {
+	const fromEnv = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
+	if (fromEnv) return fromEnv;
+	// Local fallback so Railway URL can be stored in a non-committed text file.
+	const localRailwayFile = path.join(__dirname, 'postgresql railway.txt');
+	if (fs.existsSync(localRailwayFile)) {
+		const raw = fs.readFileSync(localRailwayFile, 'utf8').trim();
+		if (raw) return raw;
+	}
+	return '';
+}
 
-// sqlite DB
-const dbFile = path.join(dataDir, 'app.db');
-const db = new sqlite3.Database(dbFile, (err) => {
-	if (err) console.error('Database connection error:', err);
-	else console.log('Database connected');
+const databaseUrl = getDatabaseUrl();
+const dbConfig = databaseUrl
+	? { connectionString: databaseUrl }
+	: {
+		host: process.env.PGHOST || 'localhost',
+		port: Number(process.env.PGPORT || 5432),
+		user: process.env.PGUSER || 'postgres',
+		password: process.env.PGPASSWORD || '',
+		database: process.env.PGDATABASE || 'project1codex'
+	};
+
+const shouldUseSsl = process.env.PGSSLMODE === 'require'
+	|| (process.env.NODE_ENV === 'production' && process.env.PGSSLMODE !== 'disable');
+
+const pool = new Pool({
+	...dbConfig,
+	ssl: shouldUseSsl ? { rejectUnauthorized: false } : undefined
+});
+pool.on('error', (err) => {
+	console.error('PostgreSQL pool error:', err);
 });
 
 const XP_RULES = {
@@ -73,6 +96,51 @@ function getTitleForLevel(level) {
 	return 'Rookie Medic';
 }
 
+function convertPlaceholders(sql) {
+	let idx = 0;
+	return sql.replace(/\?/g, () => {
+		idx += 1;
+		return `$${idx}`;
+	});
+}
+
+async function executeQuery(sql, params = [], options = {}) {
+	const convertedSql = convertPlaceholders(sql);
+	const isInsert = /^\s*insert\s+/i.test(convertedSql);
+	const hasReturning = /\breturning\b/i.test(convertedSql);
+	const finalSql = (options.expectLastId && isInsert && !hasReturning)
+		? `${convertedSql} RETURNING id`
+		: convertedSql;
+	const result = await pool.query(finalSql, params);
+	return result;
+}
+
+const db = {
+	run(sql, params = [], cb) {
+		executeQuery(sql, params, { expectLastId: true })
+			.then((result) => {
+				const ctx = {
+					lastID: result.rows && result.rows[0] ? result.rows[0].id : null,
+					changes: result.rowCount || 0
+				};
+				if (typeof cb === 'function') cb.call(ctx, null);
+			})
+			.catch((err) => {
+				if (typeof cb === 'function') cb.call({ lastID: null, changes: 0 }, err);
+			});
+	},
+	get(sql, params = [], cb) {
+		executeQuery(sql, params)
+			.then((result) => cb(null, result.rows[0] || undefined))
+			.catch((err) => cb(err));
+	},
+	all(sql, params = [], cb) {
+		executeQuery(sql, params)
+			.then((result) => cb(null, result.rows || []))
+			.catch((err) => cb(err));
+	}
+};
+
 const runAsync = (sql, params = []) => new Promise((resolve, reject) => {
 	db.run(sql, params, function onRun(err) {
 		if (err) return reject(err);
@@ -119,148 +187,151 @@ async function getGroupRole(groupId, userId) {
 	return row || null;
 }
 
-db.serialize(() => {
-	db.run(`CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+async function initializeDatabase() {
+	await runAsync(`CREATE TABLE IF NOT EXISTS users (
+		id BIGSERIAL PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
 		password TEXT NOT NULL,
 		name TEXT,
-		last_login INTEGER,
+		email TEXT,
+		bio TEXT,
+		last_login BIGINT,
 		profile_picture TEXT,
 		role TEXT DEFAULT 'user',
 		xp INTEGER DEFAULT 0,
 		level INTEGER DEFAULT 1,
 		title TEXT DEFAULT 'Rookie Medic',
 		last_xp_login_day TEXT
-	)`, (err) => { if(err) console.log('Users table:', err); else console.log('Users table ready'); });
-	
-	// Add role column if it doesn't exist (for existing databases)
-	db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`, (err) => {
-		// It's OK if column already exists
-	});
-	db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
-	db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, () => {});
-	db.run(`ALTER TABLE users ADD COLUMN xp INTEGER DEFAULT 0`, () => {});
-	db.run(`ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1`, () => {});
-	db.run(`ALTER TABLE users ADD COLUMN title TEXT DEFAULT 'Rookie Medic'`, () => {});
-	db.run(`ALTER TABLE users ADD COLUMN last_xp_login_day TEXT`, () => {});
-	db.run(`UPDATE users SET xp = COALESCE(xp, 0)`);
-	db.run(`UPDATE users SET level = CASE WHEN level IS NULL OR level < 1 THEN 1 ELSE level END`);
-	db.run(`UPDATE users SET title = COALESCE(title, 'Rookie Medic')`);
-	db.run(`CREATE TABLE IF NOT EXISTS posts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER,
+	)`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Rookie Medic'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_xp_login_day TEXT`);
+	await runAsync(`UPDATE users SET xp = COALESCE(xp, 0)`);
+	await runAsync(`UPDATE users SET level = CASE WHEN level IS NULL OR level < 1 THEN 1 ELSE level END`);
+	await runAsync(`UPDATE users SET title = COALESCE(title, 'Rookie Medic')`);
+
+	await runAsync(`CREATE TABLE IF NOT EXISTS posts (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT REFERENCES users(id),
 		content TEXT,
 		image TEXT,
 		quiz_question TEXT,
 		quiz_options TEXT,
 		quiz_correct_index INTEGER,
-		reminder_at INTEGER,
+		reminder_at BIGINT,
 		reminder_note TEXT,
-		created_at INTEGER,
-		FOREIGN KEY(user_id) REFERENCES users(id)
-	)`, (err) => { if(err) console.log('Posts table:', err); else console.log('Posts table ready'); });
-	db.run(`ALTER TABLE posts ADD COLUMN image TEXT`, () => {});
-	db.run(`ALTER TABLE posts ADD COLUMN quiz_question TEXT`, () => {});
-	db.run(`ALTER TABLE posts ADD COLUMN quiz_options TEXT`, () => {});
-	db.run(`ALTER TABLE posts ADD COLUMN quiz_correct_index INTEGER`, () => {});
-	db.run(`ALTER TABLE posts ADD COLUMN reminder_at INTEGER`, () => {});
-	db.run(`ALTER TABLE posts ADD COLUMN reminder_note TEXT`, () => {});
-	db.run(`CREATE TABLE IF NOT EXISTS connections (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_a INTEGER,
-		user_b INTEGER,
+		created_at BIGINT
+	)`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image TEXT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_question TEXT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_options TEXT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_correct_index INTEGER`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_at BIGINT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_note TEXT`);
+
+	await runAsync(`CREATE TABLE IF NOT EXISTS connections (
+		id BIGSERIAL PRIMARY KEY,
+		user_a BIGINT,
+		user_b BIGINT,
 		status TEXT,
-		created_at INTEGER
-	)`, (err) => { if(err) console.log('Connections table:', err); else console.log('Connections table ready'); });
-	db.run(`CREATE TABLE IF NOT EXISTS messages (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		from_user INTEGER,
-		to_user INTEGER,
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS messages (
+		id BIGSERIAL PRIMARY KEY,
+		from_user BIGINT,
+		to_user BIGINT,
 		content TEXT,
-		created_at INTEGER
-	)`, (err) => { if(err) console.log('Messages table:', err); else console.log('Messages table ready'); });
-	db.run(`CREATE TABLE IF NOT EXISTS post_likes (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		post_id INTEGER NOT NULL,
-		user_id INTEGER NOT NULL,
-		created_at INTEGER,
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS post_likes (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT,
 		UNIQUE(post_id, user_id)
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS post_comments (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		post_id INTEGER NOT NULL,
-		user_id INTEGER NOT NULL,
-		parent_comment_id INTEGER,
-		mention_user_id INTEGER,
+	await runAsync(`CREATE TABLE IF NOT EXISTS post_comments (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		parent_comment_id BIGINT,
+		mention_user_id BIGINT,
 		content TEXT NOT NULL,
-		created_at INTEGER
+		created_at BIGINT
 	)`);
-	db.run(`ALTER TABLE post_comments ADD COLUMN parent_comment_id INTEGER`, () => {});
-	db.run(`ALTER TABLE post_comments ADD COLUMN mention_user_id INTEGER`, () => {});
-	db.run(`CREATE TABLE IF NOT EXISTS saved_posts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		post_id INTEGER NOT NULL,
-		user_id INTEGER NOT NULL,
-		created_at INTEGER,
+	await runAsync(`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS parent_comment_id BIGINT`);
+	await runAsync(`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS mention_user_id BIGINT`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS saved_posts (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT,
 		UNIQUE(post_id, user_id)
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS post_shares (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		post_id INTEGER NOT NULL,
-		from_user INTEGER NOT NULL,
-		to_user INTEGER NOT NULL,
-		created_at INTEGER,
+	await runAsync(`CREATE TABLE IF NOT EXISTS post_shares (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		from_user BIGINT NOT NULL,
+		to_user BIGINT NOT NULL,
+		created_at BIGINT,
 		UNIQUE(post_id, from_user, to_user)
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS xp_events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
+	await runAsync(`CREATE TABLE IF NOT EXISTS xp_events (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
 		activity TEXT NOT NULL,
 		xp_delta INTEGER NOT NULL,
 		ref_type TEXT,
-		ref_id INTEGER,
-		created_at INTEGER
+		ref_id BIGINT,
+		created_at BIGINT
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS groups (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+	await runAsync(`CREATE TABLE IF NOT EXISTS groups (
+		id BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL,
 		description TEXT,
 		is_private INTEGER DEFAULT 1,
-		created_by INTEGER NOT NULL,
-		created_at INTEGER
+		created_by BIGINT NOT NULL,
+		created_at BIGINT
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS group_memberships (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_id INTEGER NOT NULL,
-		user_id INTEGER NOT NULL,
+	await runAsync(`CREATE TABLE IF NOT EXISTS group_memberships (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
 		role TEXT DEFAULT 'member',
 		status TEXT DEFAULT 'pending',
-		created_at INTEGER,
+		created_at BIGINT,
 		UNIQUE(group_id, user_id)
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS group_posts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		group_id INTEGER NOT NULL,
-		user_id INTEGER NOT NULL,
+	await runAsync(`CREATE TABLE IF NOT EXISTS group_posts (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
 		content TEXT NOT NULL,
-		created_at INTEGER
+		created_at BIGINT
 	)`);
-	db.run(`CREATE TABLE IF NOT EXISTS stories (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
+	await runAsync(`CREATE TABLE IF NOT EXISTS stories (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
 		content TEXT,
 		image TEXT,
-		created_at INTEGER NOT NULL,
-		expires_at INTEGER NOT NULL
+		created_at BIGINT NOT NULL,
+		expires_at BIGINT NOT NULL
 	)`);
-});
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use(session({
-	store: new SQLiteStore({ db: 'sessions.sqlite', dir: dataDir }),
+	store: new PgSession({
+		pool,
+		tableName: 'user_sessions',
+		createTableIfMissing: true
+	}),
 	secret: process.env.SESSION_SECRET || 'dev-secret',
 	resave: false,
 	saveUninitialized: false,
@@ -906,7 +977,13 @@ app.post('/api/groups/:id/join', requireAuth, async (req, res) => {
 		const g = await getAsync('SELECT id, is_private FROM groups WHERE id = ?', [groupId]);
 		if (!g) return res.status(404).json({ error: 'Group not found' });
 		const status = Number(g.is_private) === 1 ? 'pending' : 'active';
-		await runAsync('INSERT OR REPLACE INTO group_memberships (group_id, user_id, role, status, created_at) VALUES (?, ?, COALESCE((SELECT role FROM group_memberships WHERE group_id = ? AND user_id = ?), ?), ?, ?)', [groupId, req.session.userId, groupId, req.session.userId, 'member', status, Date.now()]);
+		await runAsync(`INSERT INTO group_memberships (group_id, user_id, role, status, created_at)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (group_id, user_id)
+			DO UPDATE SET
+				role = COALESCE(group_memberships.role, EXCLUDED.role),
+				status = EXCLUDED.status,
+				created_at = EXCLUDED.created_at`, [groupId, req.session.userId, 'member', status, Date.now()]);
 		res.json({ success: true, status });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1121,6 +1198,15 @@ io.on('connection', (socket) => {
 	});
 });
 
-server.listen(PORT, () => {
-	console.log(`Server listening on http://localhost:${PORT}`);
-});
+initializeDatabase()
+	.then(async () => {
+		await pool.query('SELECT 1');
+		console.log('PostgreSQL connected');
+		server.listen(PORT, () => {
+			console.log(`Server listening on http://localhost:${PORT}`);
+		});
+	})
+	.catch((err) => {
+		console.error('Database initialization failed:', err);
+		process.exit(1);
+	});
