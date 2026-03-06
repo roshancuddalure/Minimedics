@@ -353,17 +353,37 @@ async function toggleLike(postId, btn) {
 }
 
 async function toggleSave(postId, btn) {
-  const picker = document.getElementById('savedListSelect');
-  const listName = picker && picker.value ? picker.value : 'General';
+  const isCurrentlySaved = String(btn && btn.textContent ? btn.textContent : '').trim().toLowerCase().startsWith('saved');
+  let listName = 'General';
+  if (!isCurrentlySaved) {
+    const picked = await promptSaveListSelection();
+    if (!picked) return;
+    listName = picked;
+  }
   setLoading(btn, true);
   const res = await api(`/api/post/${postId}/save`, 'POST', { listName });
   setLoading(btn, false);
   if (res && res.success) {
     btn.textContent = `${res.saved ? 'Saved' : 'Save'} (${res.count || 0})`;
+    if (res.saved && res.listName) showToast(`Saved to "${res.listName}"`);
     if (document.getElementById('savedPostsBox')) loadSavedPosts();
   } else {
     showToast(res.error || 'Unable to save post', 'error');
   }
+}
+
+async function promptSaveListSelection() {
+  const res = await api('/api/saved-lists');
+  const lists = Array.isArray(res && res.lists ? res.lists : []) ? res.lists : [];
+  const names = lists.map((l) => String(l.name || '').trim()).filter(Boolean);
+  if (!names.includes('General')) names.unshift('General');
+  const hint = names.length ? `Existing: ${names.join(', ')}` : 'Default list: General';
+  const input = window.prompt(`Save to which list?\n${hint}\nYou can type a new list name too.`, currentSavedListFilter || 'General');
+  if (input === null) return null;
+  const chosen = input.trim();
+  if (!chosen) return 'General';
+  currentSavedListFilter = chosen;
+  return chosen;
 }
 
 async function sharePost(postId, btn) {
@@ -1940,6 +1960,28 @@ function initProfileSettingsModal() {
   }
 }
 
+function upsertSavedListsTopButton(user) {
+  const actions = document.querySelector('.actions');
+  if (!actions) return;
+  const existing = document.getElementById('savedListsMenuBtn');
+  if (!user) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+  const anchor = document.createElement('a');
+  anchor.id = 'savedListsMenuBtn';
+  anchor.className = 'btn';
+  anchor.href = '/profile#savedPostsSection';
+  anchor.textContent = 'Saved Lists';
+  const themeToggle = document.getElementById('themeToggle');
+  if (themeToggle && themeToggle.parentElement === actions) {
+    themeToggle.insertAdjacentElement('afterend', anchor);
+  } else {
+    actions.prepend(anchor);
+  }
+}
+
 // open chat with userId
 let socket = null;
 let currentChatUser = null;
@@ -2264,6 +2306,7 @@ async function loadProfile() {
   const res = await api('/api/me');
   cachedMe = res.user || null;
   window.__me = cachedMe;
+  upsertSavedListsTopButton(cachedMe);
   holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
@@ -2493,6 +2536,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const meRes = await api('/api/me');
     cachedMe = meRes.user || null;
     window.__me = cachedMe;
+    upsertSavedListsTopButton(cachedMe);
     const isAdmin = cachedMe && cachedMe.role === 'admin';
     const dashboardAdmin = document.getElementById('dashboardAdminSection');
     if (dashboardAdmin) dashboardAdmin.classList.toggle('hidden', !isAdmin);
