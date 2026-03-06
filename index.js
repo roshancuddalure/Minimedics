@@ -841,7 +841,7 @@ app.get('/api/user/:id', (req, res) => {
 			if (!viewerId || Number(uid) === viewerId) return res.json({ user });
 			try {
 				const [connection, follow, blockedByMe, blockedMe] = await Promise.all([
-					getAsync(`SELECT id, status FROM connections
+					getAsync(`SELECT id, status, user_a FROM connections
 						WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)
 						ORDER BY created_at DESC LIMIT 1`, [viewerId, uid, uid, viewerId]),
 					getAsync('SELECT id FROM follows WHERE follower_id = ? AND followee_id = ?', [viewerId, uid]),
@@ -851,6 +851,7 @@ app.get('/api/user/:id', (req, res) => {
 				user.relationship = {
 					connectionStatus: connection ? connection.status : 'none',
 					connectionId: connection ? connection.id : null,
+					connectionRequestedByMe: connection ? Number(connection.user_a) === viewerId : false,
 					following: Boolean(follow),
 					blockedByMe: Boolean(blockedByMe),
 					blockedMe: Boolean(blockedMe)
@@ -1090,8 +1091,9 @@ app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
 app.post('/api/connect/accept', requireAuth, (req, res) => {
 	const { id } = req.body;
 	if (!id) return res.status(400).json({ error: 'Missing id' });
-	db.run('UPDATE connections SET status = ? WHERE id = ?', ['accepted', id], function (err) {
+	db.run('UPDATE connections SET status = ? WHERE id = ? AND user_b = ? AND status = ?', ['accepted', id, req.session.userId, 'pending'], function (err) {
 		if (err) return res.status(500).json({ error: 'Server error' });
+		if (!this.changes) return res.status(404).json({ error: 'Request not found' });
 		res.json({ success: true });
 	});
 });
@@ -1100,8 +1102,29 @@ app.post('/api/connect/accept', requireAuth, (req, res) => {
 app.post('/api/connect/decline', requireAuth, (req, res) => {
 	const { id } = req.body;
 	if (!id) return res.status(400).json({ error: 'Missing id' });
-	db.run('DELETE FROM connections WHERE id = ?', [id], function (err) {
+	db.run('UPDATE connections SET status = ? WHERE id = ? AND user_b = ? AND status = ?', ['ignored', id, req.session.userId, 'pending'], function (err) {
 		if (err) return res.status(500).json({ error: 'Server error' });
+		if (!this.changes) return res.status(404).json({ error: 'Request not found' });
+		res.json({ success: true });
+	});
+});
+
+app.post('/api/connect/cancel', requireAuth, (req, res) => {
+	const { id } = req.body;
+	if (!id) return res.status(400).json({ error: 'Missing id' });
+	db.run('DELETE FROM connections WHERE id = ? AND user_a = ? AND status = ?', [id, req.session.userId, 'pending'], function (err) {
+		if (err) return res.status(500).json({ error: 'Server error' });
+		if (!this.changes) return res.status(404).json({ error: 'Pending request not found' });
+		res.json({ success: true });
+	});
+});
+
+app.post('/api/connect/unignore', requireAuth, (req, res) => {
+	const { id } = req.body;
+	if (!id) return res.status(400).json({ error: 'Missing id' });
+	db.run('DELETE FROM connections WHERE id = ? AND user_b = ? AND status = ?', [id, req.session.userId, 'ignored'], function (err) {
+		if (err) return res.status(500).json({ error: 'Server error' });
+		if (!this.changes) return res.status(404).json({ error: 'Ignored request not found' });
 		res.json({ success: true });
 	});
 });
@@ -1124,6 +1147,55 @@ app.get('/api/requests', requireAuth, (req, res) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		res.json({ requests: rows });
 	});
+});
+
+app.get('/api/connections/overview', requireAuth, async (req, res) => {
+	const uid = Number(req.session.userId);
+	try {
+		const acceptedRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
+			FROM users u
+			JOIN connections c ON ((c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id))
+			WHERE c.status = 'accepted'`, [uid, uid]);
+		const sentRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
+			FROM connections c
+			JOIN users u ON u.id = c.user_b
+			WHERE c.user_a = ? AND c.status = 'pending'
+			ORDER BY c.created_at DESC`, [uid]);
+		const receivedRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
+			FROM connections c
+			JOIN users u ON u.id = c.user_a
+			WHERE c.user_b = ? AND c.status = 'pending'
+			ORDER BY c.created_at DESC`, [uid]);
+		const ignoredRows = await allAsync(`SELECT c.id, c.created_at, u.id as user_id, u.username, u.name, u.profile_picture
+			FROM connections c
+			JOIN users u ON u.id = c.user_a
+			WHERE c.user_b = ? AND c.status = 'ignored'
+			ORDER BY c.created_at DESC`, [uid]);
+		const suggestionRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
+			FROM users u
+			WHERE u.id <> ?
+			AND NOT EXISTS (
+				SELECT 1 FROM connections c
+				WHERE ((c.user_a = ? AND c.user_b = u.id) OR (c.user_a = u.id AND c.user_b = ?))
+				AND c.status IN ('pending', 'accepted', 'ignored')
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?)
+			)
+			ORDER BY u.username ASC
+			LIMIT 40`, [uid, uid, uid, uid, uid]);
+		const accepted = acceptedRows.map((r) => ({ ...r, online: isUserOnline(r.id) }));
+		res.json({
+			accepted,
+			sent: sentRows,
+			received: receivedRows,
+			ignored: ignoredRows,
+			suggestions: suggestionRows
+		});
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
 });
 
 // messages history between current user and otherId

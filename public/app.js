@@ -995,17 +995,22 @@ async function loadPublicProfilePage() {
     actionsBox.innerHTML = '';
     const isSelf = me && Number(me.id) === Number(u.id);
     if (!isSelf) {
-      const connectLabel = relation.connectionStatus === 'accepted' ? 'Disconnect' : (relation.connectionStatus === 'pending' ? 'Pending' : 'Connect');
+      const connectLabel = relation.connectionStatus === 'accepted'
+        ? 'Disconnect'
+        : (relation.connectionStatus === 'pending'
+          ? (relation.connectionRequestedByMe ? 'Cancel Request' : 'Pending')
+          : 'Connect');
       const connectBtn = createActionButton(connectLabel, async () => {
         setLoading(connectBtn, true);
         let actionRes;
         if (relation.connectionStatus === 'accepted') actionRes = await api('/api/connect/disconnect', 'POST', { userId: u.id });
+        else if (relation.connectionStatus === 'pending' && relation.connectionRequestedByMe && relation.connectionId) actionRes = await api('/api/connect/cancel', 'POST', { id: relation.connectionId });
         else actionRes = await api('/api/connect/request', 'POST', { to: u.id });
         setLoading(connectBtn, false);
         if (actionRes && actionRes.success) loadPublicProfilePage();
         else showToast(actionRes.error || 'Unable to update connection', 'error');
       }, 'btn tiny-btn');
-      if (relation.connectionStatus === 'pending') connectBtn.disabled = true;
+      if (relation.connectionStatus === 'pending' && !relation.connectionRequestedByMe) connectBtn.disabled = true;
 
       const followBtn = createActionButton(relation.following ? 'Unfollow' : 'Follow', async () => {
         const r = await api('/api/follow/toggle', 'POST', { userId: u.id });
@@ -1091,39 +1096,10 @@ async function loadPublicProfilePage() {
   });
 }
 
-// Load incoming requests
-async function loadRequests() {
-  const box = document.getElementById('requests');
-  if (!box) return;
-  const res = await api('/api/requests');
-  if (res.error) { 
-    box.innerHTML = '<div class="muted">Error loading requests</div>'; 
-    return;
-  }
-  if (!res.requests || res.requests.length===0) { 
-    box.innerHTML = '<div class="muted" style="text-align:center;padding:16px">No incoming requests</div>'; 
-    return;
-  }
-  box.innerHTML = '';
-  res.requests.forEach(r => {
-    const el = document.createElement('div');
-    el.innerHTML = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:rgba(16,185,129,0.05);border-radius:8px;border-left:3px solid var(--accent)">
-      <img src="${r.profile_picture || 'data:image/svg+xml,<svg></svg>'}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)" loading="lazy" />
-      <div style="flex:1">
-        <div style="font-weight:500">${r.name || r.username}</div>
-      </div>
-      <button class="btn" style="font-size:12px;padding:8px 12px" onclick="acceptRequest(${r.id})">Accept</button>
-      <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="declineRequest(${r.id})">Decline</button>
-    </div>`;
-    box.appendChild(el);
-  });
-}
-
 async function acceptRequest(id) {
   const res = await api('/api/connect/accept','POST',{id});
   if (res && res.success) { 
-    loadConnections(); 
-    loadRequests();
+    loadConnectionPanels();
     showToast('Connection accepted!');
   } else {
     showToast(res.error||'Unable to accept', 'error');
@@ -1133,42 +1109,110 @@ async function acceptRequest(id) {
 async function declineRequest(id) {
   const res = await api('/api/connect/decline','POST',{id});
   if (res && res.success) { 
-    loadRequests();
-    showToast('Connection declined');
+    loadConnectionPanels();
+    showToast('Request ignored');
   } else {
     showToast(res.error||'Unable to decline', 'error');
   }
 }
 
-// Connections APIs
-async function loadConnections() {
-  const box = document.getElementById('connections');
-  if (!box) return;
-  box.innerHTML = '<div class="muted center" style="padding:20px">Loading...</div>';
-  const res = await api('/api/connections');
+async function cancelRequest(id) {
+  const res = await api('/api/connect/cancel', 'POST', { id });
+  if (res && res.success) {
+    loadConnectionPanels();
+    showToast('Request cancelled');
+  } else {
+    showToast(res.error || 'Unable to cancel request', 'error');
+  }
+}
+
+async function unignoreRequest(id) {
+  const res = await api('/api/connect/unignore', 'POST', { id });
+  if (res && res.success) {
+    loadConnectionPanels();
+    showToast('Removed from ignored');
+  } else {
+    showToast(res.error || 'Unable to update ignored request', 'error');
+  }
+}
+
+function renderPersonCard(person, actionsHtml) {
+  return `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:var(--card);border-radius:8px;transition:all 0.2s;border:1px solid var(--border)">
+    <img src="${getProfilePictureUrl(person)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)" loading="lazy" />
+    <div style="flex:1">
+      <div style="font-weight:500">${escapeHtml(person.name || person.username || 'Unknown')}</div>
+      <div class="muted">@${escapeHtml(person.username || '')}</div>
+    </div>
+    ${actionsHtml}
+  </div>`;
+}
+
+async function loadConnectionPanels() {
+  const acceptedBox = document.getElementById('connections');
+  const receivedBox = document.getElementById('receivedRequests');
+  const sentBox = document.getElementById('sentRequests');
+  const ignoredBox = document.getElementById('ignoredRequests');
+  const suggestionsBox = document.getElementById('connectionSuggestions');
+  if (!acceptedBox) return;
+
+  [acceptedBox, receivedBox, sentBox, ignoredBox, suggestionsBox].forEach((box) => {
+    if (box) box.innerHTML = '<div class="muted center" style="padding:12px">Loading...</div>';
+  });
+
+  const res = await api('/api/connections/overview');
   if (res.error) {
-    box.innerHTML = '<div class="muted">Error loading connections</div>';
+    [acceptedBox, receivedBox, sentBox, ignoredBox, suggestionsBox].forEach((box) => {
+      if (box) box.innerHTML = `<div class="muted">${escapeHtml(res.error || 'Unable to load connections')}</div>`;
+    });
     return;
   }
-  if (!res.connections || res.connections.length===0) {
-    box.innerHTML = '<div class="muted" style="text-align:center;padding:16px">No connections yet.<br>Send connection requests to get started!</div>';
-    return;
-  }
-  box.innerHTML = '';
-  res.connections.forEach(c => {
+
+  const accepted = Array.isArray(res.accepted) ? res.accepted : [];
+  const received = Array.isArray(res.received) ? res.received : [];
+  const sent = Array.isArray(res.sent) ? res.sent : [];
+  const ignored = Array.isArray(res.ignored) ? res.ignored : [];
+  const suggestions = Array.isArray(res.suggestions) ? res.suggestions : [];
+
+  acceptedBox.innerHTML = accepted.length ? accepted.map((c) => {
     const statusText = c.online ? 'Online' : 'Offline';
     const statusClass = c.online ? 'status-online' : 'status-offline';
-    const el = document.createElement('div');
-    el.innerHTML = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:var(--card);border-radius:8px;transition:all 0.2s;border:1px solid var(--border)" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-      <img src="${c.profile_picture || 'data:image/svg+xml,<svg></svg>'}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)" loading="lazy" />
-      <div style="flex:1">
-        <div style="font-weight:500">${c.name || c.username}</div>
-        <div class="connection-status ${statusClass}">${statusText}</div>
-      </div>
-      <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${(c.name || c.username).replace(/'/g, "\\'")}'  )">Chat</button>
-    </div>`;
-    box.appendChild(el);
-  });
+    const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
+    return renderPersonCard(c, `<div style="display:flex;gap:8px;align-items:center">
+      <div class="connection-status ${statusClass}">${statusText}</div>
+      <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}')">Chat</button>
+    </div>`);
+  }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
+
+  if (receivedBox) {
+    receivedBox.innerHTML = received.length ? received.map((r) => renderPersonCard(r, `<div style="display:flex;gap:8px">
+      <button class="btn" style="font-size:12px;padding:8px 12px" onclick="acceptRequest(${r.id})">Accept</button>
+      <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="declineRequest(${r.id})">Ignore</button>
+    </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No received requests.</div>';
+  }
+
+  if (sentBox) {
+    sentBox.innerHTML = sent.length ? sent.map((r) => renderPersonCard(r, `<button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="cancelRequest(${r.id})">Cancel</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No sent requests.</div>';
+  }
+
+  if (ignoredBox) {
+    ignoredBox.innerHTML = ignored.length ? ignored.map((r) => renderPersonCard(r, `<div style="display:flex;gap:8px">
+      <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="unignoreRequest(${r.id})">Remove</button>
+      <button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(r.user_id)}}).then(()=>loadConnectionPanels())">Connect Again</button>
+    </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No ignored requests.</div>';
+  }
+
+  if (suggestionsBox) {
+    suggestionsBox.innerHTML = suggestions.length ? suggestions.map((s) => renderPersonCard(s, `<button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(s.id)}}).then((x)=>{ if(x&&x.success){showToast('Request sent');loadConnectionPanels();} else {showToast((x&&x.error)||'Unable to send request','error');}})">Connect</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No suggestions right now.</div>';
+  }
+}
+
+// Backward-compatible wrappers used elsewhere
+async function loadConnections() {
+  return loadConnectionPanels();
+}
+
+async function loadRequests() {
+  return loadConnectionPanels();
 }
 
 async function loadLeaderboard() {
