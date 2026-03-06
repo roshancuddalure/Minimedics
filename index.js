@@ -11,6 +11,8 @@ const PgSession = require('connect-pg-simple')(session);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const SUPERADMIN_USERNAME = 'elroshan';
+const SUPERADMIN_PASSWORD = 'medicalwizardry28';
 
 function getDatabaseUrl() {
 	const candidateKeys = [
@@ -263,6 +265,7 @@ async function initializeDatabase() {
 		privacy_discoverability TEXT DEFAULT 'everyone',
 		privacy_in_suggestions TEXT DEFAULT 'everyone',
 		privacy_request_policy TEXT DEFAULT 'everyone',
+		account_blocked INTEGER DEFAULT 0,
 		role TEXT DEFAULT 'user',
 		xp INTEGER DEFAULT 0,
 		level INTEGER DEFAULT 1,
@@ -289,6 +292,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_discoverability TEXT DEFAULT 'everyone'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_in_suggestions TEXT DEFAULT 'everyone'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_request_policy TEXT DEFAULT 'everyone'`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_blocked INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Rookie Medic'`);
@@ -344,6 +348,15 @@ async function initializeDatabase() {
 		id BIGSERIAL PRIMARY KEY,
 		reporter_id BIGINT NOT NULL,
 		target_user_id BIGINT NOT NULL,
+		category TEXT,
+		details TEXT,
+		status TEXT DEFAULT 'open',
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS clan_reports (
+		id BIGSERIAL PRIMARY KEY,
+		reporter_id BIGINT NOT NULL,
+		clan_id BIGINT NOT NULL,
 		category TEXT,
 		details TEXT,
 		status TEXT DEFAULT 'open',
@@ -463,6 +476,25 @@ async function initializeDatabase() {
 	)`);
 }
 
+async function ensureSuperAdmin() {
+	try {
+		const existing = await getAsync('SELECT id, role FROM users WHERE username = ?', [SUPERADMIN_USERNAME]);
+		const hash = await bcrypt.hash(SUPERADMIN_PASSWORD, 10);
+		if (!existing) {
+			const ts = Date.now().toString(36);
+			await runAsync(`INSERT INTO users
+				(username, password, name, email_verified, role, email_verify_token, account_blocked)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`, [SUPERADMIN_USERNAME, hash, 'Super Admin', 1, 'admin', null, 0]);
+			console.log(`Superadmin created: ${SUPERADMIN_USERNAME}`);
+			return;
+		}
+		await runAsync('UPDATE users SET password = ?, role = ?, account_blocked = 0, email_verified = 1 WHERE id = ?', [hash, 'admin', existing.id]);
+		console.log(`Superadmin ensured: ${SUPERADMIN_USERNAME}`);
+	} catch (e) {
+		console.error('Failed to ensure superadmin:', e.message || e);
+	}
+}
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -568,6 +600,9 @@ app.post('/api/login', (req, res) => {
 			const ok = await bcrypt.compare(password, user.password);
 			if (!ok) {
 				return res.status(400).json({ error: 'Invalid username or password' });
+			}
+			if (Number(user.account_blocked)) {
+				return res.status(403).json({ error: 'Your account is blocked. Contact administrator.' });
 			}
 			if (!Number(user.email_verified)) {
 				return res.status(403).json({ error: 'Please verify your email before logging in' });
@@ -777,6 +812,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 });
 
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 	try {
 		const rows = await allAsync(`SELECT
 			u.id,
@@ -785,11 +821,13 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 			u.email,
 			u.role,
 			u.email_verified,
+			u.account_blocked,
 			u.xp,
 			u.last_login,
 			(SELECT COUNT(*) FROM connections c WHERE (c.user_a = u.id OR c.user_b = u.id) AND c.status = 'accepted') AS total_connections
 			FROM users u
-			ORDER BY u.id DESC`);
+			WHERE (? = '' OR LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.email, '')) LIKE LOWER(?))
+			ORDER BY u.id DESC`, [q, `%${q}%`, `%${q}%`, `%${q}%`]);
 		res.json({ totalUsers: rows.length, users: rows });
 	} catch (e) {
 		console.error('Admin users API error:', e);
@@ -810,7 +848,36 @@ app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
 	}
 });
 
+app.post('/api/admin/users/:id/verify-email', requireAdmin, async (req, res) => {
+	const userId = Number(req.params.id);
+	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
+	try {
+		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE id = ?', [userId]);
+		if (!updated.changes) return res.status(404).json({ error: 'User not found' });
+		return res.json({ success: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/users/:id/block', requireAdmin, async (req, res) => {
+	const userId = Number(req.params.id);
+	const blocked = Number(req.body.blocked) ? 1 : 0;
+	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
+	if (Number(req.session.userId) === userId) return res.status(400).json({ error: 'Cannot block yourself' });
+	try {
+		const updated = await runAsync('UPDATE users SET account_blocked = ? WHERE id = ?', [blocked, userId]);
+		if (!updated.changes) return res.status(404).json({ error: 'User not found' });
+		res.json({ success: true, blocked: Boolean(blocked) });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/admin/reports', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+	const fromTs = Number(req.query.from || 0);
 	try {
 		const rows = await allAsync(`SELECT
 			r.id,
@@ -825,9 +892,95 @@ app.get('/api/admin/reports', requireAdmin, async (req, res) => {
 			FROM user_reports r
 			LEFT JOIN users reporter ON reporter.id = r.reporter_id
 			LEFT JOIN users target ON target.id = r.target_user_id
+			WHERE (? = '' OR r.status = ?)
+			AND (? = 0 OR r.created_at >= ?)
+			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(target.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
 			ORDER BY r.created_at DESC
-			LIMIT 200`);
+			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
 		res.json({ reports: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/reports/all', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+	const fromTs = Number(req.query.from || 0);
+	try {
+		const userRows = await allAsync(`SELECT
+			'user' AS report_type,
+			r.id,
+			r.reporter_id,
+			r.target_user_id AS target_id,
+			NULL::BIGINT AS clan_id,
+			r.category,
+			r.details,
+			r.status,
+			r.created_at,
+			reporter.username AS reporter_username,
+			target.username AS target_name
+			FROM user_reports r
+			LEFT JOIN users reporter ON reporter.id = r.reporter_id
+			LEFT JOIN users target ON target.id = r.target_user_id
+			WHERE (? = '' OR r.status = ?)
+			AND (? = 0 OR r.created_at >= ?)
+			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(target.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
+			ORDER BY r.created_at DESC
+			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+		const clanRows = await allAsync(`SELECT
+			'clan' AS report_type,
+			r.id,
+			r.reporter_id,
+			NULL::BIGINT AS target_id,
+			r.clan_id,
+			r.category,
+			r.details,
+			r.status,
+			r.created_at,
+			reporter.username AS reporter_username,
+			g.name AS target_name
+			FROM clan_reports r
+			LEFT JOIN users reporter ON reporter.id = r.reporter_id
+			LEFT JOIN groups g ON g.id = r.clan_id
+			WHERE (? = '' OR r.status = ?)
+			AND (? = 0 OR r.created_at >= ?)
+			AND (? = '' OR LOWER(COALESCE(reporter.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(g.name, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.category, '')) LIKE LOWER(?) OR LOWER(COALESCE(r.details, '')) LIKE LOWER(?))
+			ORDER BY r.created_at DESC
+			LIMIT 500`, [status, status, fromTs, fromTs, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+		const reports = [...userRows, ...clanRows].sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0)).slice(0, 800);
+		res.json({ reports });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/clans', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const sort = typeof req.query.sort === 'string' ? req.query.sort.trim() : 'members_desc';
+	try {
+		const rows = await allAsync(`SELECT
+			g.id,
+			g.name,
+			g.description,
+			g.is_private,
+			g.clan_level,
+			g.clan_xp,
+			g.created_at,
+			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') AS total_members,
+			(SELECT MAX(gp.created_at) FROM group_posts gp WHERE gp.group_id = g.id) AS last_active,
+			(SELECT COUNT(*) FROM clan_reports cr WHERE cr.clan_id = g.id AND cr.status = 'open') AS open_reports
+			FROM groups g
+			WHERE (? = '' OR LOWER(g.name) LIKE LOWER(?) OR LOWER(COALESCE(g.description, '')) LIKE LOWER(?))
+			ORDER BY g.created_at DESC
+			LIMIT 500`, [q, `%${q}%`, `%${q}%`]);
+		const sorted = [...rows].sort((a, b) => {
+			if (sort === 'name_asc') return String(a.name || '').localeCompare(String(b.name || ''));
+			if (sort === 'last_active_desc') return Number(b.last_active || 0) - Number(a.last_active || 0);
+			if (sort === 'reports_desc') return Number(b.open_reports || 0) - Number(a.open_reports || 0);
+			return Number(b.total_members || 0) - Number(a.total_members || 0);
+		});
+		res.json({ clans: sorted });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1100,6 +1253,24 @@ app.post('/api/report/user', requireAuth, async (req, res) => {
 	if (details.length > 400) return res.status(400).json({ error: 'Report details are too long' });
 	try {
 		await runAsync('INSERT INTO user_reports (reporter_id, target_user_id, category, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [me, targetId, category, details || null, 'open', Date.now()]);
+		return res.json({ success: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/report/clan', requireAuth, async (req, res) => {
+	const clanId = Number(req.body.clanId);
+	const category = typeof req.body.category === 'string' ? req.body.category.trim() : '';
+	const details = typeof req.body.details === 'string' ? req.body.details.trim() : '';
+	const me = Number(req.session.userId);
+	if (!clanId || !me) return res.status(400).json({ error: 'Invalid clan id' });
+	if (!category) return res.status(400).json({ error: 'Report category is required' });
+	if (details.length > 400) return res.status(400).json({ error: 'Report details are too long' });
+	try {
+		const clan = await getAsync('SELECT id FROM groups WHERE id = ?', [clanId]);
+		if (!clan) return res.status(404).json({ error: 'Clan not found' });
+		await runAsync('INSERT INTO clan_reports (reporter_id, clan_id, category, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [me, clanId, category, details || null, 'open', Date.now()]);
 		return res.json({ success: true });
 	} catch (e) {
 		return res.status(500).json({ error: 'Server error' });
@@ -1986,6 +2157,7 @@ io.on('connection', (socket) => {
 
 initializeDatabase()
 	.then(async () => {
+		await ensureSuperAdmin();
 		await pool.query('SELECT 1');
 		console.log('PostgreSQL connected');
 		server.listen(PORT, () => {

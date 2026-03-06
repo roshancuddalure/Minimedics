@@ -568,6 +568,12 @@ a {
   border-color: transparent;
 }
 
+.admin-tab-btn.active {
+  background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+  color: #032025;
+  border-color: transparent;
+}
+
 .group-top {
   display: flex;
   justify-content: space-between;

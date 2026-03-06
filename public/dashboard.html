@@ -149,6 +149,52 @@
           <div id="feed" class="feed section-gap"></div>
         </section>
 
+        <section id="dashboardAdminSection" class="card hidden">
+          <h3>Admin Management</h3>
+          <p class="muted">Superadmin and admins can manage users, clans, and reports here.</p>
+          <div class="row" style="justify-content:flex-start;margin-top:0.7rem">
+            <button class="btn tiny-btn admin-tab-btn active" data-tab="users" type="button">Users</button>
+            <button class="btn tiny-btn admin-tab-btn" data-tab="clans" type="button">Clans</button>
+            <button class="btn tiny-btn admin-tab-btn" data-tab="reports" type="button">Reports</button>
+          </div>
+          <section id="adminTabUsers" class="section-gap">
+            <h4 id="adminUsersTitle">Registered Users</h4>
+            <div class="row" style="justify-content:flex-start">
+              <input id="adminUsersSearch" type="text" placeholder="Search users..." />
+              <button id="adminUsersSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+            </div>
+            <div id="adminUsers" class="section-gap"></div>
+          </section>
+          <section id="adminTabClans" class="section-gap hidden">
+            <h4>Clans</h4>
+            <div class="row" style="justify-content:flex-start">
+              <input id="adminClansSearch" type="text" placeholder="Search clans..." />
+              <select id="adminClansSort">
+                <option value="members_desc">Most members</option>
+                <option value="last_active_desc">Last active</option>
+                <option value="reports_desc">Most reports</option>
+                <option value="name_asc">Name A-Z</option>
+              </select>
+              <button id="adminClansSearchBtn" class="btn secondary tiny-btn" type="button">Apply</button>
+            </div>
+            <div id="adminClans" class="section-gap"></div>
+          </section>
+          <section id="adminTabReports" class="section-gap hidden">
+            <h4>Reports</h4>
+            <div class="row" style="justify-content:flex-start">
+              <input id="adminReportsSearch" type="text" placeholder="Search reports..." />
+              <select id="adminReportsStatus">
+                <option value="">All status</option>
+                <option value="open">Open</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="closed">Closed</option>
+              </select>
+              <button id="adminReportsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+            </div>
+            <div id="adminReports" class="section-gap"></div>
+          </section>
+        </section>
+
         <section class="card">
           <h3 id="groupFeedTitle">Clan Space</h3>
           <form id="groupPostForm" class="form">

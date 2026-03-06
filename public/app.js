@@ -640,7 +640,9 @@ async function loadAdminUsers() {
   const title = document.getElementById('adminUsersTitle');
   const box = document.getElementById('adminUsers');
   if (!box) return;
-  const res = await api('/api/admin/users');
+  const qEl = document.getElementById('adminUsersSearch');
+  const q = qEl ? qEl.value.trim() : '';
+  const res = await api(`/api/admin/users?q=${encodeURIComponent(q)}`);
   if (res.error) {
     box.innerHTML = '<div class="muted">Admin access required.</div>';
     return;
@@ -671,6 +673,8 @@ async function loadAdminUsers() {
       <td>${xp}</td>
       <td>${escapeHtml(lastLogin)}</td>
       <td>${totalConnections}</td>
+      <td>${Number(u.email_verified) ? '<span class="muted">Done</span>' : '<button class="btn tiny-btn admin-verify-btn" type="button">Verify Email</button>'}</td>
+      <td><button class="btn secondary tiny-btn admin-block-btn" type="button">${Number(u.account_blocked) ? 'Unblock' : 'Block'}</button></td>
     </tr>`;
   }).join('');
   box.innerHTML = `<div class="admin-users-table-wrap">
@@ -684,6 +688,8 @@ async function loadAdminUsers() {
           <th>XP</th>
           <th>Last Login</th>
           <th>Total Connections</th>
+          <th>Approval</th>
+          <th>Block</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -699,13 +705,48 @@ async function loadAdminUsers() {
       if (res && res.success) showToast('Role updated');
       else showToast(res.error || 'Unable to update role', 'error');
     });
+    const verifyBtn = row.querySelector('.admin-verify-btn');
+    if (verifyBtn) {
+      verifyBtn.addEventListener('click', async () => {
+        verifyBtn.disabled = true;
+        const userId = Number(row.getAttribute('data-user-id'));
+        const verifyRes = await api(`/api/admin/users/${userId}/verify-email`, 'POST', {});
+        if (verifyRes && verifyRes.success) {
+          showToast('User verified');
+          loadAdminUsers();
+        } else {
+          verifyBtn.disabled = false;
+          showToast(verifyRes.error || 'Unable to verify user', 'error');
+        }
+      });
+    }
+    const blockBtn = row.querySelector('.admin-block-btn');
+    if (blockBtn) {
+      blockBtn.addEventListener('click', async () => {
+        blockBtn.disabled = true;
+        const userId = Number(row.getAttribute('data-user-id'));
+        const shouldBlock = blockBtn.textContent.trim().toLowerCase() === 'block';
+        const blockRes = await api(`/api/admin/users/${userId}/block`, 'POST', { blocked: shouldBlock });
+        if (blockRes && blockRes.success) {
+          showToast(shouldBlock ? 'User blocked' : 'User unblocked');
+          loadAdminUsers();
+        } else {
+          blockBtn.disabled = false;
+          showToast(blockRes.error || 'Unable to update block status', 'error');
+        }
+      });
+    }
   });
 }
 
 async function loadAdminReports() {
   const box = document.getElementById('adminReports');
   if (!box) return;
-  const res = await api('/api/admin/reports');
+  const qEl = document.getElementById('adminReportsSearch');
+  const q = qEl ? qEl.value.trim() : '';
+  const statusEl = document.getElementById('adminReportsStatus');
+  const status = statusEl ? statusEl.value.trim() : '';
+  const res = await api(`/api/admin/reports/all?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`);
   if (res.error) {
     box.innerHTML = '<div class="muted">Unable to load reports.</div>';
     return;
@@ -716,24 +757,20 @@ async function loadAdminReports() {
     return;
   }
   const rows = reports.map((r) => `<tr data-report-id="${r.id}">
+      <td>${escapeHtml(r.report_type || 'user')}</td>
       <td>${r.id}</td>
       <td>${escapeHtml(r.reporter_username || String(r.reporter_id || ''))}</td>
-      <td>${escapeHtml(r.target_username || String(r.target_user_id || ''))}</td>
+      <td>${escapeHtml(r.target_name || String(r.target_id || r.clan_id || ''))}</td>
       <td>${escapeHtml(r.category || '')}</td>
       <td>${escapeHtml(r.details || '')}</td>
       <td>${formatDateTime(r.created_at)}</td>
-      <td>
-        <select class="admin-report-status">
-          <option value="open" ${r.status === 'open' ? 'selected' : ''}>open</option>
-          <option value="reviewed" ${r.status === 'reviewed' ? 'selected' : ''}>reviewed</option>
-          <option value="closed" ${r.status === 'closed' ? 'selected' : ''}>closed</option>
-        </select>
-      </td>
+      <td>${escapeHtml(r.status || 'open')}</td>
     </tr>`).join('');
   box.innerHTML = `<div class="admin-users-table-wrap">
     <table class="admin-users-table">
       <thead>
         <tr>
+          <th>Type</th>
           <th>ID</th>
           <th>Reporter</th>
           <th>Target</th>
@@ -746,17 +783,70 @@ async function loadAdminReports() {
       <tbody>${rows}</tbody>
     </table>
   </div>`;
-  box.querySelectorAll('tr[data-report-id]').forEach((row) => {
-    const select = row.querySelector('.admin-report-status');
-    if (!select) return;
-    select.addEventListener('change', async () => {
-      const reportId = Number(row.getAttribute('data-report-id'));
-      const status = select.value;
-      const update = await api(`/api/admin/reports/${reportId}/status`, 'POST', { status });
-      if (update && update.success) showToast('Report status updated');
-      else showToast(update.error || 'Unable to update report status', 'error');
+}
+
+async function loadAdminClans() {
+  const box = document.getElementById('adminClans');
+  if (!box) return;
+  const qEl = document.getElementById('adminClansSearch');
+  const q = qEl ? qEl.value.trim() : '';
+  const sortEl = document.getElementById('adminClansSort');
+  const sort = sortEl ? sortEl.value.trim() : 'members_desc';
+  const res = await api(`/api/admin/clans?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`);
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load clans.</div>';
+    return;
+  }
+  const clans = Array.isArray(res.clans) ? res.clans : [];
+  if (!clans.length) {
+    box.innerHTML = '<div class="muted">No clans found.</div>';
+    return;
+  }
+  const rows = clans.map((c) => `<tr>
+      <td><a href="/clan.html?id=${encodeURIComponent(c.id)}">${escapeHtml(c.name || '')}</a></td>
+      <td>${Number(c.total_members) || 0}</td>
+      <td>${formatDateTime(c.last_active, 'Never')}</td>
+      <td>${Number(c.open_reports) || 0}</td>
+      <td>L${Number(c.clan_level) || 1}</td>
+      <td>${Number(c.clan_xp) || 0}</td>
+      <td>${Number(c.is_private) ? 'Private' : 'Public'}</td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>Clan</th>
+          <th>Members</th>
+          <th>Last Active</th>
+          <th>Open Reports</th>
+          <th>Level</th>
+          <th>XP</th>
+          <th>Privacy</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function initAdminTabs() {
+  const tabBtns = Array.from(document.querySelectorAll('.admin-tab-btn'));
+  if (!tabBtns.length) return;
+  const sections = {
+    users: 'adminTabUsers',
+    clans: 'adminTabClans',
+    reports: 'adminTabReports'
+  };
+  const activate = (tab) => {
+    tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab));
+    Object.keys(sections).forEach((key) => {
+      const panel = document.getElementById(sections[key]);
+      if (!panel) return;
+      panel.classList.toggle('hidden', key !== tab);
     });
-  });
+  };
+  tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
+  activate('users');
 }
 
 async function handleStoryImageSelection(e) {
@@ -2321,6 +2411,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('connections')) loadConnectionPanels();
   if (document.getElementById('connections')) setInterval(loadConnectionPanels, 15000);
   initConnectionTabs();
+  if (document.querySelector('.admin-tab-btn')) initAdminTabs();
   if (document.getElementById('groupsList')) loadGroups();
   if (document.getElementById('leaderboard')) loadLeaderboard();
   if (document.getElementById('groupFeed')) loadGroupFeed();
@@ -2402,7 +2493,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const meRes = await api('/api/me');
     cachedMe = meRes.user || null;
     window.__me = cachedMe;
-    if (document.getElementById('adminUsers')) loadAdminUsers();
-    if (document.getElementById('adminReports')) loadAdminReports();
+    const isAdmin = cachedMe && cachedMe.role === 'admin';
+    const dashboardAdmin = document.getElementById('dashboardAdminSection');
+    if (dashboardAdmin) dashboardAdmin.classList.toggle('hidden', !isAdmin);
+    if (isAdmin && document.getElementById('adminUsers')) loadAdminUsers();
+    if (isAdmin && document.getElementById('adminReports')) loadAdminReports();
+    if (isAdmin && document.getElementById('adminClans')) loadAdminClans();
+    const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
+    if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
+    const clansSearchBtn = document.getElementById('adminClansSearchBtn');
+    if (clansSearchBtn) clansSearchBtn.onclick = () => loadAdminClans();
+    const reportsSearchBtn = document.getElementById('adminReportsSearchBtn');
+    if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
   })();
 });
