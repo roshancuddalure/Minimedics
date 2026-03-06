@@ -327,6 +327,27 @@ app.post('/api/login', (req, res) => {
 	});
 });
 
+app.post('/api/forgot-password', async (req, res) => {
+	const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
+	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+	const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
+	if (!username || !newPassword) return res.status(400).json({ error: 'Username and new password are required' });
+	if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+	try {
+		const user = await getAsync('SELECT id, name FROM users WHERE username = ?', [username]);
+		if (!user) return res.status(400).json({ error: 'Unable to verify account details' });
+		const savedName = String(user.name || '').trim().toLowerCase();
+		const providedName = name.toLowerCase();
+		if (savedName && savedName !== providedName) return res.status(400).json({ error: 'Unable to verify account details' });
+		const hash = await bcrypt.hash(newPassword, 10);
+		await runAsync('UPDATE users SET password = ? WHERE id = ?', [hash, user.id]);
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Forgot password error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.post('/api/logout', (req, res) => {
 	req.session.destroy(err => {
 		res.json({ success: true });

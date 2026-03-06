@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Forgot Password - MiniMedics</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="auth-page">
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <main class="auth-shell">
+    <section class="auth-intro">
+      <span class="eyebrow">Account Recovery</span>
+      <h1>Reset your password</h1>
+      <p class="muted">Enter your username and new password. If your account has a full name saved, enter it exactly to verify ownership.</p>
+      <a class="btn secondary" href="/login.html">Back to Login</a>
+    </section>
+
+    <section class="card auth-card">
+      <h2>Forgot password</h2>
+      <form id="forgotForm" class="form">
+        <input id="forgotUser" placeholder="Username" required />
+        <input id="forgotName" placeholder="Full name (if set on account)" />
+        <input id="forgotNewPass" type="password" placeholder="New password (min 6 chars)" required />
+        <input id="forgotConfirmPass" type="password" placeholder="Confirm new password" required />
+        <div class="row">
+          <button class="btn primary" type="submit">Reset Password</button>
+        </div>
+      </form>
+      <p class="muted auth-link">Remembered it? <a href="/login.html">Log in</a></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

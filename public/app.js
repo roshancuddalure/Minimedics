@@ -859,6 +859,46 @@ async function handleLogin(e){
   }
 }
 
+async function handleForgotPassword(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const usernameEl = document.getElementById('forgotUser');
+  const nameEl = document.getElementById('forgotName');
+  const passEl = document.getElementById('forgotNewPass');
+  const confirmEl = document.getElementById('forgotConfirmPass');
+  const username = usernameEl ? usernameEl.value.trim() : '';
+  const name = nameEl ? nameEl.value.trim() : '';
+  const newPassword = passEl ? passEl.value.trim() : '';
+  const confirmPassword = confirmEl ? confirmEl.value.trim() : '';
+
+  if (!username || !newPassword || !confirmPassword) {
+    showToast('Username and password fields are required', 'error');
+    return;
+  }
+  if (newPassword.length < 6) {
+    showToast('Password must be at least 6 characters', 'error');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showToast('Passwords do not match', 'error');
+    return;
+  }
+
+  setLoading(form, true);
+  if (submitBtn) submitBtn.textContent = 'Resetting...';
+  const res = await api('/api/forgot-password', 'POST', { username, name, newPassword });
+  setLoading(form, false);
+  if (submitBtn) submitBtn.textContent = 'Reset Password';
+
+  if (res && res.success) {
+    showToast('Password reset successful. Redirecting to login...');
+    setTimeout(() => { location.href = '/login.html'; }, 900);
+  } else {
+    showToast(res.error || 'Unable to reset password', 'error');
+  }
+}
+
 async function loadProfile() {
   const holder = document.getElementById('profileBox');
   if (!holder) return;
@@ -1031,6 +1071,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Auth forms
   if (document.getElementById('regForm')) document.getElementById('regForm').addEventListener('submit', handleRegister);
   if (document.getElementById('loginForm')) document.getElementById('loginForm').addEventListener('submit', handleLogin);
+  if (document.getElementById('forgotForm')) document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
   
   // Profile display
   loadProfile();
