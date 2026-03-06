@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -12,7 +14,9 @@ const PORT = process.env.PORT || 3000;
 function getDatabaseUrl() {
 	const fromEnv = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
 	if (fromEnv) return fromEnv;
-	// Local fallback so Railway URL can be stored in a non-committed text file.
+	// Optional fallback (disabled by default): enable only when explicitly requested.
+	const allowFileFallback = String(process.env.USE_RAILWAY_FILE_DB_URL || '').toLowerCase() === 'true';
+	if (!allowFileFallback) return '';
 	const localRailwayFile = path.join(__dirname, 'postgresql railway.txt');
 	if (fs.existsSync(localRailwayFile)) {
 		const raw = fs.readFileSync(localRailwayFile, 'utf8').trim();
@@ -34,6 +38,18 @@ const dbConfig = databaseUrl
 
 const shouldUseSsl = process.env.PGSSLMODE === 'require'
 	|| (process.env.NODE_ENV === 'production' && process.env.PGSSLMODE !== 'disable');
+
+function getDbTargetLabel() {
+	if (databaseUrl) {
+		try {
+			const parsed = new URL(databaseUrl);
+			return `${parsed.hostname}:${parsed.port || '5432'}`;
+		} catch (e) {
+			return 'DATABASE_URL';
+		}
+	}
+	return `${dbConfig.host}:${dbConfig.port}`;
+}
 
 const pool = new Pool({
 	...dbConfig,
@@ -1207,6 +1223,14 @@ initializeDatabase()
 		});
 	})
 	.catch((err) => {
-		console.error('Database initialization failed:', err);
+		console.error('Database initialization failed:', err.message || err);
+		console.error(`PostgreSQL target: ${getDbTargetLabel()}`);
+		if (err && err.code === 'ECONNREFUSED') {
+			console.error('ECONNREFUSED: PostgreSQL is not running or not reachable at that host/port.');
+		}
+		if (err && err.code === 'ENOTFOUND') {
+			console.error('ENOTFOUND: Hostname cannot be resolved. Railway internal hostnames only work inside Railway.');
+		}
+		console.error('Set DATABASE_URL in .env for local run, for example: postgresql://postgres:password@localhost:5432/project1codex');
 		process.exit(1);
 	});
