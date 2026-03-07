@@ -144,6 +144,19 @@ button {
   letter-spacing: 0.01em;
 }
 
+.brand h1.brand-wordmark {
+  letter-spacing: 0;
+  font-weight: 800;
+}
+
+.brand .wm-med {
+  color: #0b4b8f;
+}
+
+.brand .wm-necta {
+  color: #2f9b4b;
+}
+
 .eyebrow {
   display: inline-block;
   margin-bottom: 0.3rem;
