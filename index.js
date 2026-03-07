@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 const session = require('express-session');
@@ -84,6 +85,60 @@ function getPublicBaseUrl(req) {
 		return `${proto}://${req.headers.host}`;
 	}
 	return `http://localhost:${PORT}`;
+}
+
+const EMAIL_FROM = typeof process.env.EMAIL_FROM === 'string' && process.env.EMAIL_FROM.trim()
+	? process.env.EMAIL_FROM.trim()
+	: 'onboarding@resend.dev';
+const APP_NAME = typeof process.env.APP_NAME === 'string' && process.env.APP_NAME.trim()
+	? process.env.APP_NAME.trim()
+	: 'MiniMedics';
+
+function createVerificationToken() {
+	return crypto.randomBytes(32).toString('hex');
+}
+
+async function sendVerificationEmail(toEmail, verifyUrl) {
+	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
+	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
+	if (!toEmail) throw new Error('Recipient email is missing');
+	if (!verifyUrl) throw new Error('Verification URL is missing');
+	if (typeof fetch !== 'function') throw new Error('Global fetch is unavailable. Use Node 18+ on Railway.');
+	const html = `
+			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
+				<h2 style="margin:0 0 10px">Welcome to ${APP_NAME}</h2>
+				<p style="margin:0 0 12px">Please verify your email to activate your account.</p>
+				<p style="margin:0 0 16px">
+					<a href="${verifyUrl}" style="display:inline-block;padding:10px 16px;background:#0f9f9a;color:#ffffff;text-decoration:none;border-radius:8px">Verify Email</a>
+				</p>
+				<p style="margin:0 0 8px">Or copy this link into your browser:</p>
+				<p style="margin:0 0 16px;word-break:break-all">${verifyUrl}</p>
+				<p style="margin:0;color:#475569">If you did not create this account, you can ignore this email.</p>
+			</div>
+		`;
+	const response = await fetch('https://api.resend.com/emails', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${apiKey}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			from: EMAIL_FROM,
+			to: [toEmail],
+			subject: `Verify your ${APP_NAME} account`,
+			html
+		})
+	});
+	if (!response.ok) {
+		let details = '';
+		try {
+			const json = await response.json();
+			details = json && (json.message || json.error || JSON.stringify(json)) ? ` - ${json.message || json.error || JSON.stringify(json)}` : '';
+		} catch (e) {
+			// ignore parse issues for non-JSON responses
+		}
+		throw new Error(`Resend API error (${response.status})${details}`);
+	}
 }
 
 const pool = new Pool({
@@ -676,40 +731,45 @@ app.post('/api/register', async (req, res) => {
 	}
 	
 	try {
-		// Check if this is the first user
-		db.get('SELECT COUNT(*) as cnt FROM users', [], async (err, row) => {
-			const isFirstUser = !err && row.cnt === 0;
-			
-			const hash = await bcrypt.hash(password, 10);
-			const role = isFirstUser ? 'admin' : 'user';
-			const verifyToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
-			
-			db.run('INSERT INTO users (username, password, name, email, institute, program_type, degree, academic_year, speciality, role, email_verified, email_verify_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-				[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, safeSpeciality || null, role, 0, verifyToken], 
-				function (err) {
-					if (err) {
-						console.error('Register insert error:', err.message);
-						return res.status(400).json({ error: 'Username already exists or database error' });
-					}
-					const userId = this.lastID;
-					const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
-					const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
-					console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
-					console.log(`Email verification link for ${username}: ${verifyUrl}`);
-					res.json({
-						success: true,
-						id: userId,
-						role: role,
-						emailVerified: false,
-						verifyUrl,
-						...(isProduction ? {} : { verifyToken })
-					});
-				}
-			);
-		});
+		const countRow = await getAsync('SELECT COUNT(*) as cnt FROM users');
+		const isFirstUser = Number(countRow && countRow.cnt) === 0;
+		const hash = await bcrypt.hash(password, 10);
+		const role = isFirstUser ? 'admin' : 'user';
+		const verifyToken = createVerificationToken();
+		const created = await runAsync(
+			'INSERT INTO users (username, password, name, email, institute, program_type, degree, academic_year, speciality, role, email_verified, email_verify_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+			[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, safeSpeciality || null, role, 0, verifyToken]
+		);
+		const userId = created.lastID;
+		const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
+		const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
+		console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
+		try {
+			await sendVerificationEmail(safeEmail, verifyUrl);
+			console.log(`Verification email sent to ${safeEmail}`);
+		} catch (mailErr) {
+			console.error(`Verification email failed for ${username}:`, mailErr.message || mailErr);
+			await runAsync('DELETE FROM users WHERE id = ?', [userId]);
+			return res.status(500).json({ error: 'Unable to send verification email right now. Please try again shortly.' });
+		}
+		const payload = {
+			success: true,
+			id: userId,
+			role,
+			emailVerified: false,
+			message: 'Registration successful. Please check your email to verify your account.'
+		};
+		if (!isProduction) {
+			payload.verifyUrl = verifyUrl;
+			payload.verifyToken = verifyToken;
+		}
+		return res.json(payload);
 	} catch (e) {
+		if (String(e && e.message || '').toLowerCase().includes('unique')) {
+			return res.status(400).json({ error: 'Username already exists' });
+		}
 		console.error('Register exception:', e);
-		res.status(500).json({ error: 'Server error: ' + e.message });
+		return res.status(500).json({ error: 'Server error: ' + e.message });
 	}
 });
 
@@ -2580,3 +2640,4 @@ initializeDatabase()
 		console.error('Set DATABASE_URL in .env for local run, for example: postgresql://postgres:password@localhost:5432/project1codex');
 		process.exit(1);
 	});
+
