@@ -54,7 +54,11 @@
             <div id="clanImageFields" class="hidden">
               <label class="tool-group">
                 <span class="tool-label">Attach Image</span>
-                <input id="clanPostImage" type="file" accept="image/*" />
+                <div class="file-upload">
+                  <input id="clanPostImage" class="file-upload-input" type="file" accept="image/*" />
+                  <button class="btn secondary tiny-btn file-upload-trigger" type="button" data-file-trigger="clanPostImage">Attach</button>
+                  <span id="clanPostImageName" class="file-upload-name">No file selected</span>
+                </div>
               </label>
               <label class="tool-group">
                 <span class="tool-label">Caption</span>

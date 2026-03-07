@@ -79,7 +79,11 @@
           </div>
           <form id="storyForm" class="form hidden section-gap">
             <input id="storyContent" type="text" maxlength="300" placeholder="Share a quick story update..." />
-            <input id="storyImage" type="file" accept="image/*" />
+            <div class="file-upload">
+              <input id="storyImage" class="file-upload-input" type="file" accept="image/*" />
+              <button class="btn secondary tiny-btn file-upload-trigger" type="button" data-file-trigger="storyImage">Attach</button>
+              <span id="storyImageName" class="file-upload-name">No file selected</span>
+            </div>
             <div id="storyImagePreview" class="post-image-preview hidden"></div>
             <p class="muted" style="margin:0;font-size:0.82rem">Stories auto-play for 30 seconds in viewer.</p>
             <div class="row">
@@ -108,7 +112,11 @@
             <div class="composer-tools">
               <div class="tool-group">
                 <label class="tool-label" for="postImage">Attach Image</label>
-                <input id="postImage" type="file" accept="image/*" />
+                <div class="file-upload">
+                  <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
+                  <button class="btn secondary tiny-btn file-upload-trigger" type="button" data-file-trigger="postImage">Attach</button>
+                  <span id="postImageName" class="file-upload-name">No file selected</span>
+                </div>
                 <div id="postImagePreview" class="post-image-preview hidden"></div>
               </div>
               <div id="reminderModeFields" class="mode-fields hidden">

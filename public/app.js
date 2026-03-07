@@ -227,13 +227,83 @@ function getProfilePictureUrl(userLike) {
   return getDefaultAvatarDataUri(userLike ? userLike.gender : '');
 }
 
+function getActionIconSvg(actionKey) {
+  const iconMap = {
+    like: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.7-4.2-9.3-8.1C.8 9.9 2.2 6 5.8 6c2.1 0 3.3 1.2 4.2 2.6.9-1.4 2.1-2.6 4.2-2.6 3.6 0 5 3.9 3.1 6.9C18.7 16.8 12 21 12 21z"/></svg>',
+    comment: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H8l-4 4V5z"/></svg>',
+    share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12l8-5M8 12l8 5M8 12V7M8 12v5"/><circle cx="17" cy="7" r="2"/><circle cx="17" cy="17" r="2"/><circle cx="7" cy="12" r="2"/></svg>',
+    close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M9 10v8M15 10v8M7 7l1 13h8l1-13"/></svg>',
+    attach: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5l6.6-6.6a3 3 0 114.2 4.2L10 19a5 5 0 11-7.1-7.1l8.8-8.8"/></svg>'
+  };
+  return iconMap[actionKey] || '';
+}
+
+function getActionKeyFromLabel(label) {
+  const normalized = String(label || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized.startsWith('like') || normalized.startsWith('unlike')) return 'like';
+  if (normalized.startsWith('comment')) return 'comment';
+  if (normalized.startsWith('share')) return 'share';
+  if (normalized.startsWith('close')) return 'close';
+  if (normalized.startsWith('delete')) return 'delete';
+  if (normalized.startsWith('attach')) return 'attach';
+  return '';
+}
+
+function setActionButtonLabel(btn, label, forcedActionKey = '') {
+  if (!btn) return;
+  const actionKey = forcedActionKey || getActionKeyFromLabel(label);
+  const safeLabel = escapeHtml(label);
+  const iconSvg = getActionIconSvg(actionKey);
+  if (!iconSvg) {
+    btn.textContent = label;
+    return;
+  }
+  btn.innerHTML = `<span class="btn-icon">${iconSvg}</span><span class="btn-label">${safeLabel}</span>`;
+}
+
 function createActionButton(label, onClick, className = 'btn secondary tiny-btn') {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = className;
-  btn.textContent = label;
+  setActionButtonLabel(btn, label);
   if (typeof onClick === 'function') btn.addEventListener('click', onClick);
   return btn;
+}
+
+function updateFileNameChip(inputEl) {
+  if (!inputEl || !inputEl.id) return;
+  const nameEl = document.getElementById(`${inputEl.id}Name`);
+  if (!nameEl) return;
+  const fileName = inputEl.files && inputEl.files[0] ? inputEl.files[0].name : 'No file selected';
+  nameEl.textContent = fileName;
+}
+
+function initFileUploadControls() {
+  document.querySelectorAll('.file-upload-trigger').forEach((btn) => {
+    const targetId = btn.getAttribute('data-file-trigger');
+    const inputEl = targetId ? document.getElementById(targetId) : null;
+    if (!inputEl) return;
+    setActionButtonLabel(btn, 'Attach', 'attach');
+    btn.addEventListener('click', () => inputEl.click());
+    inputEl.addEventListener('change', () => updateFileNameChip(inputEl));
+    updateFileNameChip(inputEl);
+  });
+}
+
+function initStaticActionIcons() {
+  const byId = [
+    ['closeStoryViewerBtn', 'Close', 'close'],
+    ['storyShareBtn', 'Share', 'share'],
+    ['storyDeleteBtn', 'Delete', 'delete'],
+    ['chatCloseBtn', 'Close', 'close']
+  ];
+  byId.forEach(([id, label, key]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    setActionButtonLabel(btn, label, key);
+  });
 }
 
 function showQuizResultPopup(isCorrect, correctText) {
@@ -360,7 +430,7 @@ async function toggleLike(postId, btn) {
   const res = await api(`/api/post/${postId}/like`, 'POST');
   setLoading(btn, false);
   if (res && res.success) {
-    btn.textContent = `${res.liked ? 'Unlike' : 'Like'} (${res.count || 0})`;
+    setActionButtonLabel(btn, `${res.liked ? 'Unlike' : 'Like'} (${res.count || 0})`, 'like');
   } else {
     showToast(res.error || 'Unable to like post', 'error');
   }
@@ -405,7 +475,7 @@ async function sharePost(postId, btn) {
   const res = await api(`/api/post/${postId}/share`, 'POST', {});
   setLoading(btn, false);
   if (res && res.success) {
-    btn.textContent = `Shared (${res.count || 0})`;
+    setActionButtonLabel(btn, `Shared (${res.count || 0})`, 'share');
     showToast(`Shared to ${res.sharedTo || 0} connection(s)`);
   } else {
     showToast(res.error || 'Unable to share post', 'error');
@@ -910,6 +980,7 @@ async function handleStoryImageSelection(e) {
   const file = e.target.files[0];
   if (!file) {
     selectedStoryImageDataUrl = null;
+    updateFileNameChip(e.target);
     const preview = document.getElementById('storyImagePreview');
     if (preview) {
       preview.classList.add('hidden');
@@ -920,12 +991,14 @@ async function handleStoryImageSelection(e) {
   if (!file.type.startsWith('image/')) {
     showToast('Please choose a valid story image', 'error');
     e.target.value = '';
+    updateFileNameChip(e.target);
     selectedStoryImageDataUrl = null;
     return;
   }
   if (file.size > 4 * 1024 * 1024) {
     showToast('Story image must be below 4MB', 'error');
     e.target.value = '';
+    updateFileNameChip(e.target);
     selectedStoryImageDataUrl = null;
     return;
   }
@@ -1062,7 +1135,7 @@ function updateStoryStats(story) {
   if (likesEl) likesEl.textContent = `${Number(story.likes_count) || 0} likes`;
   if (repliesEl) repliesEl.textContent = `${Number(story.replies_count) || 0} replies`;
   if (sharesEl) sharesEl.textContent = `${Number(story.shares_count) || 0} shares`;
-  if (likeBtn) likeBtn.textContent = story.liked_by_me ? 'Unlike' : 'Like';
+  if (likeBtn) setActionButtonLabel(likeBtn, story.liked_by_me ? 'Unlike' : 'Like', 'like');
 }
 
 function clearStoryTimers() {
@@ -1263,7 +1336,10 @@ async function handleStorySubmit(e) {
   if (btn) btn.textContent = 'Post Story (24h)';
   if (res && res.success) {
     if (contentEl) contentEl.value = '';
-    if (imageEl) imageEl.value = '';
+    if (imageEl) {
+      imageEl.value = '';
+      updateFileNameChip(imageEl);
+    }
     const preview = document.getElementById('storyImagePreview');
     if (preview) {
       preview.classList.add('hidden');
@@ -1808,16 +1884,19 @@ async function handleClanPostImageSelection(e) {
   const file = e.target && e.target.files ? e.target.files[0] : null;
   if (!file) {
     selectedClanPostImageDataUrl = null;
+    updateFileNameChip(e.target);
     return;
   }
   if (!file.type.startsWith('image/')) {
     showToast('Select a valid image file', 'error');
     e.target.value = '';
+    updateFileNameChip(e.target);
     return;
   }
   if (file.size > 4 * 1024 * 1024) {
     showToast('Image must be less than 4MB', 'error');
     e.target.value = '';
+    updateFileNameChip(e.target);
     return;
   }
   const reader = new FileReader();
@@ -3035,7 +3114,10 @@ function clearPostImageSelection() {
   selectedPostImageDataUrl = null;
   const imageInput = document.getElementById('postImage');
   const preview = document.getElementById('postImagePreview');
-  if (imageInput) imageInput.value = '';
+  if (imageInput) {
+    imageInput.value = '';
+    updateFileNameChip(imageInput);
+  }
   if (preview) {
     preview.innerHTML = '';
     preview.classList.add('hidden');
@@ -3078,6 +3160,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   upsertSavedListsTopButton(null);
   // Initialize theme toggle
   initThemeToggle();
+  initFileUploadControls();
+  initStaticActionIcons();
   
   // Initialize search bar
   const searchInput = document.getElementById('searchInput');
