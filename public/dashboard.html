@@ -80,6 +80,8 @@
           <form id="storyForm" class="form hidden section-gap">
             <input id="storyContent" type="text" maxlength="300" placeholder="Share a quick story update..." />
             <input id="storyImage" type="file" accept="image/*" />
+            <div id="storyImagePreview" class="post-image-preview hidden"></div>
+            <p class="muted" style="margin:0;font-size:0.82rem">Stories auto-play for 30 seconds in viewer.</p>
             <div class="row">
               <button class="btn primary" type="submit">Post Story (24h)</button>
             </div>
@@ -264,9 +266,25 @@
         </div>
         <button id="closeStoryViewerBtn" class="btn secondary tiny-btn" type="button">Close</button>
       </div>
+      <div class="story-timer"><div id="storyViewerProgress" class="story-timer-progress"></div></div>
       <div class="story-viewer-body">
         <img id="storyViewerImage" class="story-viewer-image hidden" alt="Story" />
         <div id="storyViewerText" class="story-viewer-text"></div>
+        <div class="story-stats muted">
+          <span id="storyLikesCount">0 likes</span>
+          <span id="storyCommentsCount">0 comments</span>
+          <span id="storySharesCount">0 shares</span>
+        </div>
+        <div class="row" style="justify-content:flex-start">
+          <button id="storyLikeBtn" class="btn secondary tiny-btn" type="button">Like</button>
+          <button id="storyShareBtn" class="btn secondary tiny-btn" type="button">Share</button>
+          <button id="storyDeleteBtn" class="btn secondary tiny-btn hidden" type="button">Delete</button>
+        </div>
+        <div id="storyCommentsList" class="story-comments-list"></div>
+        <form id="storyCommentForm" class="row" style="justify-content:flex-start">
+          <input id="storyCommentInput" type="text" maxlength="500" placeholder="Write a comment..." />
+          <button class="btn tiny-btn" type="submit">Send</button>
+        </form>
       </div>
       <div class="row story-viewer-actions">
         <button id="storyViewerPrevBtn" class="btn secondary tiny-btn" type="button">Prev</button>

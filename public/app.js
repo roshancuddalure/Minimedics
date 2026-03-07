@@ -109,9 +109,12 @@ let cachedMe = null;
 let storyGroups = [];
 let activeStoryGroupIndex = -1;
 let activeStoryIndex = 0;
+let storyAutoAdvanceTimeout = null;
+let storyProgressInterval = null;
 let postMode = null;
 let currentSavedListFilter = 'General';
 let clanLoungeInterval = null;
+const STORY_VIEW_DURATION_MS = 30000;
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {}, cache: 'no-store' };
@@ -901,6 +904,11 @@ async function handleStoryImageSelection(e) {
   const file = e.target.files[0];
   if (!file) {
     selectedStoryImageDataUrl = null;
+    const preview = document.getElementById('storyImagePreview');
+    if (preview) {
+      preview.classList.add('hidden');
+      preview.innerHTML = '';
+    }
     return;
   }
   if (!file.type.startsWith('image/')) {
@@ -918,6 +926,11 @@ async function handleStoryImageSelection(e) {
   const reader = new FileReader();
   reader.onload = (evt) => {
     selectedStoryImageDataUrl = evt.target.result;
+    const preview = document.getElementById('storyImagePreview');
+    if (preview) {
+      preview.classList.remove('hidden');
+      preview.innerHTML = `<img src="${selectedStoryImageDataUrl}" alt="Story preview" loading="lazy" />`;
+    }
   };
   reader.onerror = () => showToast('Unable to read story image', 'error');
   reader.readAsDataURL(file);
@@ -971,7 +984,13 @@ async function loadStories() {
         stories: []
       });
     }
-    byUser.get(key).stories.push(s);
+    byUser.get(key).stories.push({
+      ...s,
+      likes_count: Number(s.likes_count) || 0,
+      comments_count: Number(s.comments_count) || 0,
+      shares_count: Number(s.shares_count) || 0,
+      liked_by_me: Boolean(s.liked_by_me)
+    });
   });
   storyGroups = Array.from(byUser.values()).map((g) => ({
     ...g,
@@ -1022,6 +1041,106 @@ async function loadStories() {
   });
 }
 
+function getActiveStory() {
+  const group = storyGroups[activeStoryGroupIndex];
+  if (!group || !Array.isArray(group.stories) || !group.stories.length) return null;
+  if (activeStoryIndex < 0 || activeStoryIndex >= group.stories.length) return null;
+  return group.stories[activeStoryIndex];
+}
+
+function updateStoryStats(story) {
+  const likesEl = document.getElementById('storyLikesCount');
+  const commentsEl = document.getElementById('storyCommentsCount');
+  const sharesEl = document.getElementById('storySharesCount');
+  const likeBtn = document.getElementById('storyLikeBtn');
+  if (likesEl) likesEl.textContent = `${Number(story.likes_count) || 0} likes`;
+  if (commentsEl) commentsEl.textContent = `${Number(story.comments_count) || 0} comments`;
+  if (sharesEl) sharesEl.textContent = `${Number(story.shares_count) || 0} shares`;
+  if (likeBtn) likeBtn.textContent = story.liked_by_me ? 'Unlike' : 'Like';
+}
+
+async function loadStoryComments(storyId) {
+  const listEl = document.getElementById('storyCommentsList');
+  if (!listEl || !storyId) return;
+  listEl.innerHTML = '<div class="muted">Loading comments...</div>';
+  const res = await api(`/api/stories/${storyId}/comments`);
+  if (res.error) {
+    listEl.innerHTML = '<div class="muted">Unable to load comments.</div>';
+    return;
+  }
+  const comments = Array.isArray(res.comments) ? res.comments : [];
+  if (!comments.length) {
+    listEl.innerHTML = '<div class="muted">No comments yet.</div>';
+    return;
+  }
+  listEl.innerHTML = comments.map((c) => `<div class="story-comment-item">
+    <strong>${escapeHtml(c.name || c.username || 'User')}</strong>
+    <span class="meta"> ${escapeHtml(formatDateTime(c.created_at, ''))}</span>
+    <div>${escapeHtml(c.content || '')}</div>
+  </div>`).join('');
+}
+
+function clearStoryTimers() {
+  if (storyAutoAdvanceTimeout) {
+    clearTimeout(storyAutoAdvanceTimeout);
+    storyAutoAdvanceTimeout = null;
+  }
+  if (storyProgressInterval) {
+    clearInterval(storyProgressInterval);
+    storyProgressInterval = null;
+  }
+}
+
+function goToNextStory() {
+  const group = storyGroups[activeStoryGroupIndex];
+  if (!group || !Array.isArray(group.stories)) return closeStoryViewer();
+  if (activeStoryIndex < group.stories.length - 1) {
+    activeStoryIndex += 1;
+    renderStoryViewer();
+    return;
+  }
+  if (activeStoryGroupIndex < storyGroups.length - 1) {
+    activeStoryGroupIndex += 1;
+    activeStoryIndex = 0;
+    renderStoryViewer();
+    return;
+  }
+  closeStoryViewer();
+}
+
+function goToPrevStory() {
+  const group = storyGroups[activeStoryGroupIndex];
+  if (!group || !Array.isArray(group.stories)) return closeStoryViewer();
+  if (activeStoryIndex > 0) {
+    activeStoryIndex -= 1;
+    renderStoryViewer();
+    return;
+  }
+  if (activeStoryGroupIndex > 0) {
+    activeStoryGroupIndex -= 1;
+    const prevGroup = storyGroups[activeStoryGroupIndex];
+    activeStoryIndex = Math.max(0, (prevGroup && prevGroup.stories ? prevGroup.stories.length : 1) - 1);
+    renderStoryViewer();
+  }
+}
+
+function startStoryTimer() {
+  clearStoryTimers();
+  const progressEl = document.getElementById('storyViewerProgress');
+  const startedAt = Date.now();
+  if (progressEl) progressEl.style.width = '0%';
+  storyProgressInterval = setInterval(() => {
+    const elapsed = Date.now() - startedAt;
+    const pct = Math.max(0, Math.min(100, (elapsed / STORY_VIEW_DURATION_MS) * 100));
+    if (progressEl) progressEl.style.width = `${pct}%`;
+    if (pct >= 100) clearStoryTimers();
+  }, 120);
+  storyAutoAdvanceTimeout = setTimeout(() => {
+    clearStoryTimers();
+    goToNextStory();
+  }, STORY_VIEW_DURATION_MS);
+}
+
 function renderStoryViewer() {
   const modal = document.getElementById('storyViewerModal');
   const avatar = document.getElementById('storyViewerAvatar');
@@ -1029,6 +1148,7 @@ function renderStoryViewer() {
   const meta = document.getElementById('storyViewerMeta');
   const image = document.getElementById('storyViewerImage');
   const text = document.getElementById('storyViewerText');
+  const deleteBtn = document.getElementById('storyDeleteBtn');
   const prevBtn = document.getElementById('storyViewerPrevBtn');
   const nextBtn = document.getElementById('storyViewerNextBtn');
   if (!modal || !avatar || !title || !meta || !image || !text || !prevBtn || !nextBtn) return;
@@ -1053,8 +1173,13 @@ function renderStoryViewer() {
     image.classList.add('hidden');
   }
   text.textContent = story.content || '';
-  prevBtn.disabled = activeStoryIndex <= 0;
-  nextBtn.disabled = activeStoryIndex >= group.stories.length - 1;
+  updateStoryStats(story);
+  const canDelete = cachedMe && Number(story.user_id) === Number(cachedMe.id);
+  if (deleteBtn) deleteBtn.classList.toggle('hidden', !canDelete);
+  loadStoryComments(story.id);
+  prevBtn.disabled = activeStoryGroupIndex <= 0 && activeStoryIndex <= 0;
+  nextBtn.disabled = activeStoryGroupIndex >= storyGroups.length - 1 && activeStoryIndex >= group.stories.length - 1;
+  startStoryTimer();
 }
 
 function openStoryViewer(groupIndex, storyIndex = 0) {
@@ -1070,8 +1195,68 @@ function openStoryViewer(groupIndex, storyIndex = 0) {
 function closeStoryViewer() {
   const modal = document.getElementById('storyViewerModal');
   if (!modal) return;
+  clearStoryTimers();
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
+}
+
+async function toggleStoryLike() {
+  const story = getActiveStory();
+  if (!story) return;
+  const res = await api(`/api/stories/${story.id}/like`, 'POST', {});
+  if (res.error) return showToast(res.error || 'Unable to update like', 'error');
+  story.liked_by_me = Boolean(res.liked);
+  story.likes_count = Number(res.count) || 0;
+  updateStoryStats(story);
+}
+
+async function shareActiveStory() {
+  const story = getActiveStory();
+  if (!story) return;
+  const res = await api(`/api/stories/${story.id}/share`, 'POST', {});
+  if (res.error) return showToast(res.error || 'Unable to share story', 'error');
+  story.shares_count = Number(res.count) || 0;
+  updateStoryStats(story);
+  const shareText = `Check this story on Mednecta: ${res.shareUrl || location.href}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ text: shareText, url: res.shareUrl || location.href });
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(res.shareUrl || location.href);
+      showToast('Story link copied');
+    } else {
+      showToast('Story shared');
+    }
+  } catch (e) {
+    showToast('Share cancelled');
+  }
+}
+
+async function deleteActiveStory() {
+  const story = getActiveStory();
+  if (!story) return;
+  const ok = window.confirm('Delete this story permanently?');
+  if (!ok) return;
+  const res = await api(`/api/stories/${story.id}`, 'DELETE');
+  if (res.error) return showToast(res.error || 'Unable to delete story', 'error');
+  showToast('Story deleted');
+  closeStoryViewer();
+  await loadStories();
+}
+
+async function submitStoryComment(e) {
+  e.preventDefault();
+  const story = getActiveStory();
+  if (!story) return;
+  const input = document.getElementById('storyCommentInput');
+  const content = input ? input.value.trim() : '';
+  if (!content) return;
+  const res = await api(`/api/stories/${story.id}/comment`, 'POST', { content });
+  if (res.error) return showToast(res.error || 'Unable to add comment', 'error');
+  if (input) input.value = '';
+  story.comments_count = Number(res.count) || story.comments_count || 0;
+  updateStoryStats(story);
+  loadStoryComments(story.id);
 }
 
 async function handleStorySubmit(e) {
@@ -1093,6 +1278,11 @@ async function handleStorySubmit(e) {
   if (res && res.success) {
     if (contentEl) contentEl.value = '';
     if (imageEl) imageEl.value = '';
+    const preview = document.getElementById('storyImagePreview');
+    if (preview) {
+      preview.classList.add('hidden');
+      preview.innerHTML = '';
+    }
     selectedStoryImageDataUrl = null;
     showToast('Story posted');
     const storyForm = document.getElementById('storyForm');
@@ -2989,6 +3179,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const closeStoryViewerBtn = document.getElementById('closeStoryViewerBtn');
     const storyViewerPrevBtn = document.getElementById('storyViewerPrevBtn');
     const storyViewerNextBtn = document.getElementById('storyViewerNextBtn');
+    const storyLikeBtn = document.getElementById('storyLikeBtn');
+    const storyShareBtn = document.getElementById('storyShareBtn');
+    const storyDeleteBtn = document.getElementById('storyDeleteBtn');
+    const storyCommentForm = document.getElementById('storyCommentForm');
     if (closeStoryViewerBtn) closeStoryViewerBtn.addEventListener('click', closeStoryViewer);
     if (storyViewerModal) {
       storyViewerModal.addEventListener('click', (evt) => {
@@ -2997,18 +3191,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
     if (storyViewerPrevBtn) {
       storyViewerPrevBtn.addEventListener('click', () => {
-        activeStoryIndex = Math.max(0, activeStoryIndex - 1);
-        renderStoryViewer();
+        goToPrevStory();
       });
     }
     if (storyViewerNextBtn) {
       storyViewerNextBtn.addEventListener('click', () => {
-        const group = storyGroups[activeStoryGroupIndex];
-        if (!group || !Array.isArray(group.stories)) return;
-        activeStoryIndex = Math.min(group.stories.length - 1, activeStoryIndex + 1);
-        renderStoryViewer();
+        goToNextStory();
       });
     }
+    if (storyLikeBtn) storyLikeBtn.addEventListener('click', toggleStoryLike);
+    if (storyShareBtn) storyShareBtn.addEventListener('click', shareActiveStory);
+    if (storyDeleteBtn) storyDeleteBtn.addEventListener('click', deleteActiveStory);
+    if (storyCommentForm) storyCommentForm.addEventListener('submit', submitStoryComment);
     loadStories();
     setInterval(loadStories, 30000);
   }

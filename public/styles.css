@@ -861,6 +861,22 @@ button {
   margin-top: 0.7rem;
 }
 
+.story-timer {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  margin-top: 0.55rem;
+  overflow: hidden;
+}
+
+.story-timer-progress {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #0ea5e9);
+  transition: width 0.1s linear;
+}
+
 .story-viewer-image {
   width: 100%;
   max-height: 65vh;
@@ -878,6 +894,35 @@ button {
 .story-viewer-actions {
   justify-content: flex-end;
   margin-top: 0.8rem;
+}
+
+.story-stats {
+  display: flex;
+  gap: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.story-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: var(--surface);
+}
+
+.story-comment-item {
+  font-size: 0.86rem;
+  border-bottom: 1px dashed var(--line-soft);
+  padding-bottom: 0.35rem;
+}
+
+.story-comment-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .auth-theme-btn {
@@ -1153,6 +1198,15 @@ button {
 
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  /* On narrow screens, keep feed/stories column first under the hero. */
+  .layout > aside {
+    order: 2;
+  }
+
+  .layout > section {
+    order: 1;
   }
 
   .composer-tools {

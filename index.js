@@ -658,6 +658,27 @@ async function initializeDatabase() {
 		created_at BIGINT NOT NULL,
 		expires_at BIGINT NOT NULL
 	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS story_likes (
+		id BIGSERIAL PRIMARY KEY,
+		story_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(story_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS story_comments (
+		id BIGSERIAL PRIMARY KEY,
+		story_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		content TEXT NOT NULL,
+		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS story_shares (
+		id BIGSERIAL PRIMARY KEY,
+		story_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(story_id, user_id)
+	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS quiz_attempts (
 		id BIGSERIAL PRIMARY KEY,
 		post_id BIGINT NOT NULL,
@@ -1118,6 +1139,12 @@ async function deleteUserAndRelatedData(userId) {
 	await runAsync('DELETE FROM clan_reports WHERE reporter_id = ?', [userId]);
 	await runAsync('DELETE FROM messages WHERE from_user = ? OR to_user = ?', [userId, userId]);
 	await runAsync('DELETE FROM xp_events WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM story_likes WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM story_comments WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM story_shares WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM story_likes WHERE story_id IN (SELECT id FROM stories WHERE user_id = ?)', [userId]);
+	await runAsync('DELETE FROM story_comments WHERE story_id IN (SELECT id FROM stories WHERE user_id = ?)', [userId]);
+	await runAsync('DELETE FROM story_shares WHERE story_id IN (SELECT id FROM stories WHERE user_id = ?)', [userId]);
 	await runAsync('DELETE FROM stories WHERE user_id = ?', [userId]);
 	await runAsync('DELETE FROM speciality_suggestions WHERE user_id = ?', [userId]);
 
@@ -1875,11 +1902,15 @@ app.get('/api/stories', requireAuth, async (req, res) => {
 		const ids = [userId, ...connectionIds];
 		if (!ids.length) return res.json({ stories: [] });
 		const placeholders = ids.map(() => '?').join(',');
-		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture
+		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture,
+			(SELECT COUNT(*)::int FROM story_likes sl WHERE sl.story_id = s.id) AS likes_count,
+			(SELECT COUNT(*)::int FROM story_comments sc WHERE sc.story_id = s.id) AS comments_count,
+			(SELECT COUNT(*)::int FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
+			EXISTS (SELECT 1 FROM story_likes sl2 WHERE sl2.story_id = s.id AND sl2.user_id = ?) AS liked_by_me
 			FROM stories s
 			JOIN users u ON u.id = s.user_id
 			WHERE s.expires_at > ? AND s.user_id IN (${placeholders}) AND u.username <> ?
-			ORDER BY s.created_at DESC`, [Date.now(), ...ids, SUPERADMIN_USERNAME]);
+			ORDER BY s.created_at DESC`, [userId, Date.now(), ...ids, SUPERADMIN_USERNAME]);
 		res.json({ stories: rows });
 	} catch (e) {
 		console.error('Stories fetch error:', e);
@@ -1902,6 +1933,104 @@ app.post('/api/stories', requireAuth, async (req, res) => {
 	} catch (e) {
 		console.error('Story create error:', e);
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.delete('/api/stories/:id', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const story = await getAsync('SELECT id, user_id FROM stories WHERE id = ?', [storyId]);
+		if (!story) return res.status(404).json({ error: 'Story not found' });
+		if (Number(story.user_id) !== userId) return res.status(403).json({ error: 'You can delete only your own story' });
+		await runAsync('DELETE FROM story_likes WHERE story_id = ?', [storyId]);
+		await runAsync('DELETE FROM story_comments WHERE story_id = ?', [storyId]);
+		await runAsync('DELETE FROM story_shares WHERE story_id = ?', [storyId]);
+		await runAsync('DELETE FROM stories WHERE id = ?', [storyId]);
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Story delete error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories/:id/like', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const story = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!story || Number(story.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		const existing = await getAsync('SELECT id FROM story_likes WHERE story_id = ? AND user_id = ?', [storyId, userId]);
+		if (existing) {
+			await runAsync('DELETE FROM story_likes WHERE id = ?', [existing.id]);
+			const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_likes WHERE story_id = ?', [storyId]);
+			return res.json({ success: true, liked: false, count: Number(count && count.cnt) || 0 });
+		}
+		await runAsync('INSERT INTO story_likes (story_id, user_id, created_at) VALUES (?, ?, ?)', [storyId, userId, Date.now()]);
+		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_likes WHERE story_id = ?', [storyId]);
+		return res.json({ success: true, liked: true, count: Number(count && count.cnt) || 0 });
+	} catch (e) {
+		console.error('Story like error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/stories/:id/comments', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const row = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!row || Number(row.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		const comments = await allAsync(`SELECT sc.id, sc.story_id, sc.user_id, sc.content, sc.created_at, u.username, u.name, u.profile_picture
+			FROM story_comments sc
+			JOIN users u ON u.id = sc.user_id
+			WHERE sc.story_id = ? AND u.username <> ?
+			ORDER BY sc.created_at ASC
+			LIMIT 200`, [storyId, SUPERADMIN_USERNAME]);
+		return res.json({ comments });
+	} catch (e) {
+		console.error('Story comments fetch error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories/:id/comment', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	if (!content) return res.status(400).json({ error: 'Comment is required' });
+	if (content.length > 500) return res.status(400).json({ error: 'Comment is too long' });
+	try {
+		const row = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!row || Number(row.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		await runAsync('INSERT INTO story_comments (story_id, user_id, content, created_at) VALUES (?, ?, ?, ?)', [storyId, userId, content, Date.now()]);
+		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_comments WHERE story_id = ?', [storyId]);
+		return res.json({ success: true, count: Number(count && count.cnt) || 0 });
+	} catch (e) {
+		console.error('Story comment create error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories/:id/share', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const row = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!row || Number(row.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		await runAsync(`INSERT INTO story_shares (story_id, user_id, created_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT (story_id, user_id) DO NOTHING`, [storyId, userId, Date.now()]);
+		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_shares WHERE story_id = ?', [storyId]);
+		const shareUrl = `${getPublicBaseUrl(req)}/dashboard?story=${storyId}`;
+		return res.json({ success: true, count: Number(count && count.cnt) || 0, shareUrl });
+	} catch (e) {
+		console.error('Story share error:', e);
+		return res.status(500).json({ error: 'Server error' });
 	}
 });
 
