@@ -2850,17 +2850,19 @@ function setChatStatus(isOnline) {
   statusEl.className = `meta ${isOnline ? 'status-online' : 'status-offline'}`;
 }
 
-function updateChatAttachmentHint(msg = 'Image up to 100KB') {
+function updateChatAttachmentHint(msg = '') {
   const hint = document.getElementById('chatAttachmentHint');
   if (!hint) return;
-  hint.textContent = msg;
+  const text = String(msg || '').trim();
+  hint.textContent = text;
+  hint.classList.toggle('hidden', !text);
 }
 
 function clearChatAttachment() {
   chatAttachmentDataUrl = null;
   const input = document.getElementById('chatImageInput');
   if (input) input.value = '';
-  updateChatAttachmentHint('Image up to 100KB');
+  updateChatAttachmentHint('');
 }
 
 function setChatMinimized(minimized) {

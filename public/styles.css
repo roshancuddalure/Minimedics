@@ -265,7 +265,7 @@ button {
   width: 14px;
   height: 14px;
   margin-right: 0.35rem;
-  color: var(--accent);
+  color: currentColor;
 }
 
 .btn .btn-label {
@@ -287,6 +287,10 @@ button {
 .btn .btn-iconify svg {
   width: 100%;
   height: 100%;
+}
+
+.btn.primary .btn-iconify {
+  color: #ecfffb;
 }
 
 .btn .btn-count {
@@ -1046,13 +1050,16 @@ button {
   right: 1rem;
   bottom: 1rem;
   width: min(360px, calc(100% - 2rem));
-  height: min(500px, 70vh);
+  height: clamp(320px, 56vh, 460px);
+  min-height: 320px;
   z-index: 20;
   border: 1px solid var(--line);
   background: var(--card-strong);
   border-radius: 16px;
   padding: 0;
   overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 #chatTitle {
@@ -1074,22 +1081,35 @@ button {
   gap: 0.45rem;
 }
 
+.chat-header-actions .btn {
+  width: 1.75rem;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+}
+
 .chat-panel.minimized {
   height: auto;
+  grid-template-rows: auto;
 }
 
 .chat-panel.minimized #messages,
-.chat-panel.minimized #chatForm {
+.chat-panel.minimized #chatForm,
+.chat-panel.minimized #chatAttachmentHint {
   display: none;
 }
 
 #messages {
-  height: calc(100% - 7.6rem);
+  min-height: 0;
   overflow-y: auto;
   padding: 0.8rem;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+#messages .post {
+  flex: 0 0 auto;
 }
 
 .chat-msg-image {
@@ -1101,21 +1121,30 @@ button {
 }
 
 #chatForm {
-  display: flex;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
   padding: 0.75rem;
   border-top: 1px solid var(--line);
 }
 
 #chatInput {
   min-height: auto;
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
 }
 
 #chatForm .btn {
   width: auto;
-  flex: 0 0 auto;
+  min-width: 2.05rem;
+  height: 2.05rem;
+  padding: 0;
+}
+
+#chatAttachmentHint {
+  padding: 0 0.75rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
 }
 
 #searchResults {
@@ -1300,7 +1329,7 @@ button {
   .chat-panel {
     right: 0.8rem;
     bottom: 0.8rem;
-    height: 64vh;
+    height: clamp(320px, 58vh, 440px);
   }
 }
 
@@ -1417,7 +1446,12 @@ button {
     width: calc(100% - 1rem);
     right: 0.5rem;
     bottom: 0.5rem;
-    height: 72vh;
+    height: min(68vh, 500px);
+  }
+
+  #chatPanel .btn,
+  .chat-panel .btn {
+    width: auto;
   }
 }
 
