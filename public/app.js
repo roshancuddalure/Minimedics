@@ -2376,10 +2376,11 @@ async function loadConnectionPanels() {
     const statusText = c.online_visible ? (c.online ? 'Online' : 'Offline') : 'Hidden';
     const statusClass = c.online_visible ? (c.online ? 'status-online' : 'status-offline') : 'status-offline';
     const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
+    const chatAvatar = (c.profile_picture || '').replace(/'/g, "\\'");
     connectionPresenceMap.set(Number(c.id), Boolean(c.online));
     return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
-      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'})"></button>
+      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'}, '${chatAvatar}')"></button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
@@ -2937,7 +2938,7 @@ function initChatControls() {
   }
 }
 
-async function openChat(otherId, otherName, knownOnline = null) {
+async function openChat(otherId, otherName, knownOnline = null, otherAvatar = '') {
   const meRes = await api('/api/me');
   if (!meRes.user) return alert('Please log in');
   const me = meRes.user;
@@ -2946,9 +2947,17 @@ async function openChat(otherId, otherName, knownOnline = null) {
   const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
   currentChatUser = otherId;
   const chatPanel = document.getElementById('chatPanel');
-  chatPanel.style.display='block';
+  chatPanel.style.display='grid';
   setChatMinimized(false);
-  document.getElementById('chatTitle').textContent = `Chat with ${otherName}`;
+  const titleEl = document.getElementById('chatTitle');
+  const avatarEl = document.getElementById('chatTitleAvatar');
+  if (titleEl) {
+    titleEl.textContent = `${otherName}`;
+    titleEl.style.cursor = 'pointer';
+    titleEl.title = `Open ${otherName}'s profile`;
+    titleEl.onclick = () => { location.href = `/user-profile.html?id=${encodeURIComponent(otherId)}`; };
+  }
+  if (avatarEl) avatarEl.src = otherAvatar || getDefaultAvatarDataUri('');
   if (knownOnline !== null && knownOnline !== undefined) setChatStatus(Boolean(knownOnline));
   else if (connectionPresenceMap.has(Number(otherId))) setChatStatus(Boolean(connectionPresenceMap.get(Number(otherId))));
   else setChatStatus(false);
@@ -2959,6 +2968,7 @@ async function openChat(otherId, otherName, knownOnline = null) {
   const hist = await api(`/api/messages/${otherId}`);
   const box = document.getElementById('messages');
   box.innerHTML='';
+  box.dataset.lastDateKey = '';
   if (hist.error) {
     box.innerHTML = `<div class="muted">${escapeHtml(hist.error)}</div>`;
     return;
@@ -2969,6 +2979,22 @@ async function openChat(otherId, otherName, knownOnline = null) {
 function appendMessage(m){
   const box = document.getElementById('messages');
   if (!box) return;
+  const ts = toTimestamp(m.created_at);
+  const date = ts !== null ? new Date(ts) : new Date();
+  const dateKey = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`;
+  if (box.dataset.lastDateKey !== dateKey) {
+    const divider = document.createElement('div');
+    divider.className = 'chat-date-divider';
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yKey = `${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`;
+    if (dateKey === todayKey) divider.textContent = 'Today';
+    else if (dateKey === yKey) divider.textContent = 'Yesterday';
+    else divider.textContent = date.toLocaleDateString();
+    box.appendChild(divider);
+    box.dataset.lastDateKey = dateKey;
+  }
   const el = document.createElement('div'); el.className='post';
   const msgWrapper = document.createElement('div'); msgWrapper.style.display='flex'; msgWrapper.style.gap='6px'; msgWrapper.style.alignItems='flex-start';
   const pic = document.createElement('img'); pic.className='profile-picture'; pic.src = m.from_picture || 'data:image/svg+xml,<svg></svg>'; pic.style.width='24px'; pic.style.height='24px'; pic.style.borderRadius='50%'; pic.style.marginTop='2px';
