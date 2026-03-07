@@ -121,7 +121,13 @@ async function api(path, method='GET', data) {
   if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
   try {
     const res = await fetch(path, opts);
-    const json = await res.json();
+    const raw = await res.text();
+    let json = null;
+    try {
+      json = raw ? JSON.parse(raw) : {};
+    } catch (parseErr) {
+      return { error: `Invalid server response (HTTP ${res.status})`, raw };
+    }
     if (!res.ok && !json.error) json.error = `HTTP ${res.status}`;
     return json;
   } catch (e) {
@@ -987,7 +993,7 @@ async function loadStories() {
     byUser.get(key).stories.push({
       ...s,
       likes_count: Number(s.likes_count) || 0,
-      comments_count: Number(s.comments_count) || 0,
+      replies_count: Number(s.replies_count) || 0,
       shares_count: Number(s.shares_count) || 0,
       liked_by_me: Boolean(s.liked_by_me)
     });
@@ -1050,34 +1056,13 @@ function getActiveStory() {
 
 function updateStoryStats(story) {
   const likesEl = document.getElementById('storyLikesCount');
-  const commentsEl = document.getElementById('storyCommentsCount');
+  const repliesEl = document.getElementById('storyRepliesCount');
   const sharesEl = document.getElementById('storySharesCount');
   const likeBtn = document.getElementById('storyLikeBtn');
   if (likesEl) likesEl.textContent = `${Number(story.likes_count) || 0} likes`;
-  if (commentsEl) commentsEl.textContent = `${Number(story.comments_count) || 0} comments`;
+  if (repliesEl) repliesEl.textContent = `${Number(story.replies_count) || 0} replies`;
   if (sharesEl) sharesEl.textContent = `${Number(story.shares_count) || 0} shares`;
   if (likeBtn) likeBtn.textContent = story.liked_by_me ? 'Unlike' : 'Like';
-}
-
-async function loadStoryComments(storyId) {
-  const listEl = document.getElementById('storyCommentsList');
-  if (!listEl || !storyId) return;
-  listEl.innerHTML = '<div class="muted">Loading comments...</div>';
-  const res = await api(`/api/stories/${storyId}/comments`);
-  if (res.error) {
-    listEl.innerHTML = '<div class="muted">Unable to load comments.</div>';
-    return;
-  }
-  const comments = Array.isArray(res.comments) ? res.comments : [];
-  if (!comments.length) {
-    listEl.innerHTML = '<div class="muted">No comments yet.</div>';
-    return;
-  }
-  listEl.innerHTML = comments.map((c) => `<div class="story-comment-item">
-    <strong>${escapeHtml(c.name || c.username || 'User')}</strong>
-    <span class="meta"> ${escapeHtml(formatDateTime(c.created_at, ''))}</span>
-    <div>${escapeHtml(c.content || '')}</div>
-  </div>`).join('');
 }
 
 function clearStoryTimers() {
@@ -1176,7 +1161,6 @@ function renderStoryViewer() {
   updateStoryStats(story);
   const canDelete = cachedMe && Number(story.user_id) === Number(cachedMe.id);
   if (deleteBtn) deleteBtn.classList.toggle('hidden', !canDelete);
-  loadStoryComments(story.id);
   prevBtn.disabled = activeStoryGroupIndex <= 0 && activeStoryIndex <= 0;
   nextBtn.disabled = activeStoryGroupIndex >= storyGroups.length - 1 && activeStoryIndex >= group.stories.length - 1;
   startStoryTimer();
@@ -1244,19 +1228,19 @@ async function deleteActiveStory() {
   await loadStories();
 }
 
-async function submitStoryComment(e) {
+async function submitStoryReply(e) {
   e.preventDefault();
   const story = getActiveStory();
   if (!story) return;
-  const input = document.getElementById('storyCommentInput');
+  const input = document.getElementById('storyReplyInput');
   const content = input ? input.value.trim() : '';
   if (!content) return;
-  const res = await api(`/api/stories/${story.id}/comment`, 'POST', { content });
-  if (res.error) return showToast(res.error || 'Unable to add comment', 'error');
+  const res = await api(`/api/stories/${story.id}/reply`, 'POST', { content });
+  if (res.error) return showToast(res.error || 'Unable to send reply', 'error');
   if (input) input.value = '';
-  story.comments_count = Number(res.count) || story.comments_count || 0;
+  story.replies_count = Number(res.count) || story.replies_count || 0;
   updateStoryStats(story);
-  loadStoryComments(story.id);
+  showToast('Reply sent to story owner');
 }
 
 async function handleStorySubmit(e) {
@@ -3182,7 +3166,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const storyLikeBtn = document.getElementById('storyLikeBtn');
     const storyShareBtn = document.getElementById('storyShareBtn');
     const storyDeleteBtn = document.getElementById('storyDeleteBtn');
-    const storyCommentForm = document.getElementById('storyCommentForm');
+    const storyReplyForm = document.getElementById('storyReplyForm');
     if (closeStoryViewerBtn) closeStoryViewerBtn.addEventListener('click', closeStoryViewer);
     if (storyViewerModal) {
       storyViewerModal.addEventListener('click', (evt) => {
@@ -3202,7 +3186,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (storyLikeBtn) storyLikeBtn.addEventListener('click', toggleStoryLike);
     if (storyShareBtn) storyShareBtn.addEventListener('click', shareActiveStory);
     if (storyDeleteBtn) storyDeleteBtn.addEventListener('click', deleteActiveStory);
-    if (storyCommentForm) storyCommentForm.addEventListener('submit', submitStoryComment);
+    if (storyReplyForm) storyReplyForm.addEventListener('submit', submitStoryReply);
     loadStories();
     setInterval(loadStories, 30000);
   }

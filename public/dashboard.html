@@ -272,7 +272,7 @@
         <div id="storyViewerText" class="story-viewer-text"></div>
         <div class="story-stats muted">
           <span id="storyLikesCount">0 likes</span>
-          <span id="storyCommentsCount">0 comments</span>
+          <span id="storyRepliesCount">0 replies</span>
           <span id="storySharesCount">0 shares</span>
         </div>
         <div class="row" style="justify-content:flex-start">
@@ -280,9 +280,9 @@
           <button id="storyShareBtn" class="btn secondary tiny-btn" type="button">Share</button>
           <button id="storyDeleteBtn" class="btn secondary tiny-btn hidden" type="button">Delete</button>
         </div>
-        <div id="storyCommentsList" class="story-comments-list"></div>
-        <form id="storyCommentForm" class="row" style="justify-content:flex-start">
-          <input id="storyCommentInput" type="text" maxlength="500" placeholder="Write a comment..." />
+        <div class="muted" style="font-size:0.82rem">Replies are sent as direct messages to the story owner.</div>
+        <form id="storyReplyForm" class="row" style="justify-content:flex-start">
+          <input id="storyReplyInput" type="text" maxlength="500" placeholder="Reply to this story..." />
           <button class="btn tiny-btn" type="submit">Send</button>
         </form>
       </div>
