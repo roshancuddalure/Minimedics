@@ -1092,6 +1092,14 @@ button {
   gap: 0.6rem;
 }
 
+.chat-msg-image {
+  margin-top: 0.35rem;
+  width: 170px;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+}
+
 #chatForm {
   display: flex;
   gap: 0.5rem;

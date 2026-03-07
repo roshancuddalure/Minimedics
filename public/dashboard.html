@@ -224,7 +224,10 @@
 
         <section id="chatPanel" class="card chat-panel" style="display:none">
           <div class="chat-header">
-            <h3 id="chatTitle">Chat</h3>
+            <div>
+              <h3 id="chatTitle">Chat</h3>
+              <div id="chatStatus" class="meta">Offline</div>
+            </div>
             <div class="chat-header-actions">
               <button id="chatMinimizeBtn" class="btn secondary tiny-btn" type="button">Minimize</button>
               <button id="chatCloseBtn" class="btn secondary tiny-btn" type="button">Close</button>
@@ -233,8 +236,11 @@
           <div id="messages"></div>
           <form id="chatForm">
             <input id="chatInput" placeholder="Type a message" />
+            <input id="chatImageInput" class="file-upload-input" type="file" accept="image/*" />
+            <button id="chatAttachBtn" class="btn secondary tiny-btn" type="button"></button>
             <button class="btn primary" type="submit">Send</button>
           </form>
+          <div id="chatAttachmentHint" class="meta" style="padding:0 1rem 0.7rem">Image up to 100KB</div>
         </section>
       </section>
     </main>

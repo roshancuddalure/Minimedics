@@ -241,6 +241,7 @@ function getActionIconName(actionKey) {
     unblock: 'lucide:user-check',
     save: 'lucide:bookmark',
     send: 'lucide:send',
+    chat: 'lucide:message-square',
     home: 'lucide:house',
     logout: 'lucide:log-out',
     search: 'lucide:search',
@@ -279,6 +280,7 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('block')) return 'block';
   if (normalized.startsWith('save') || normalized.startsWith('saved')) return 'save';
   if (normalized.startsWith('send')) return 'send';
+  if (normalized.startsWith('chat')) return 'chat';
   if (normalized.startsWith('home')) return 'home';
   if (normalized.startsWith('logout')) return 'logout';
   if (normalized.startsWith('search')) return 'search';
@@ -2374,9 +2376,10 @@ async function loadConnectionPanels() {
     const statusText = c.online_visible ? (c.online ? 'Online' : 'Offline') : 'Hidden';
     const statusClass = c.online_visible ? (c.online ? 'status-online' : 'status-offline') : 'status-offline';
     const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
+    connectionPresenceMap.set(Number(c.id), Boolean(c.online));
     return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
-      <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}')">Chat</button>
+      <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'})">Chat</button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
@@ -2401,6 +2404,7 @@ async function loadConnectionPanels() {
   if (suggestionsBox) {
     suggestionsBox.innerHTML = suggestions.length ? suggestions.map((s) => renderPersonCard(s, `<button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(s.id)}}).then((x)=>{ if(x&&x.success){showToast('Request sent');loadConnectionPanels();} else {showToast((x&&x.error)||'Unable to send request','error');}})">Connect</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No suggestions right now.</div>';
   }
+  applyIconifyAudit();
 }
 
 // Backward-compatible wrappers used elsewhere
@@ -2803,6 +2807,8 @@ function upsertSavedListsTopButton(user) {
 let socket = null;
 let currentChatUser = null;
 let chatMinimized = false;
+let chatAttachmentDataUrl = null;
+const connectionPresenceMap = new Map();
 function ensureSocket(userId) {
   if (socket) return socket;
   socket = io();
@@ -2822,7 +2828,38 @@ function ensureSocket(userId) {
   socket.on('postShared', ()=>{
     showToast('A connection shared a post with you');
   });
+  socket.on('presenceUpdate', (payload) => {
+    const userIdNum = Number(payload && payload.userId);
+    if (!userIdNum) return;
+    connectionPresenceMap.set(userIdNum, Boolean(payload.online));
+    if (currentChatUser && Number(currentChatUser) === userIdNum) {
+      setChatStatus(Boolean(payload.online));
+    }
+  });
+  socket.on('chatError', (payload) => {
+    showToast((payload && payload.error) || 'Chat error', 'error');
+  });
   return socket;
+}
+
+function setChatStatus(isOnline) {
+  const statusEl = document.getElementById('chatStatus');
+  if (!statusEl) return;
+  statusEl.textContent = isOnline ? 'Online' : 'Offline';
+  statusEl.className = `meta ${isOnline ? 'status-online' : 'status-offline'}`;
+}
+
+function updateChatAttachmentHint(msg = 'Image up to 100KB') {
+  const hint = document.getElementById('chatAttachmentHint');
+  if (!hint) return;
+  hint.textContent = msg;
+}
+
+function clearChatAttachment() {
+  chatAttachmentDataUrl = null;
+  const input = document.getElementById('chatImageInput');
+  if (input) input.value = '';
+  updateChatAttachmentHint('Image up to 100KB');
 }
 
 function setChatMinimized(minimized) {
@@ -2832,13 +2869,53 @@ function setChatMinimized(minimized) {
   chatMinimized = Boolean(minimized);
   panel.classList.toggle('minimized', chatMinimized);
   minBtn.textContent = chatMinimized ? 'Expand' : 'Minimize';
+  setButtonIconWithText(minBtn, chatMinimized ? 'open' : 'minimize');
 }
 
 function initChatControls() {
   const panel = document.getElementById('chatPanel');
   const minBtn = document.getElementById('chatMinimizeBtn');
   const closeBtn = document.getElementById('chatCloseBtn');
+  const attachBtn = document.getElementById('chatAttachBtn');
+  const imageInput = document.getElementById('chatImageInput');
   if (!panel || !minBtn || !closeBtn) return;
+  if (attachBtn && !attachBtn.dataset.bound) {
+    attachBtn.dataset.bound = '1';
+    setActionButtonLabel(attachBtn, 'Attach', 'attach');
+    attachBtn.addEventListener('click', () => {
+      if (imageInput) imageInput.click();
+    });
+  }
+  if (imageInput && !imageInput.dataset.bound) {
+    imageInput.dataset.bound = '1';
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files && imageInput.files[0] ? imageInput.files[0] : null;
+      if (!file) {
+        clearChatAttachment();
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        showToast('Only image attachments are supported', 'error');
+        clearChatAttachment();
+        return;
+      }
+      if (file.size > 100 * 1024) {
+        showToast('Attachment must be 100KB or smaller', 'error');
+        clearChatAttachment();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        chatAttachmentDataUrl = evt.target && evt.target.result ? String(evt.target.result) : null;
+        updateChatAttachmentHint(file.name);
+      };
+      reader.onerror = () => {
+        showToast('Unable to read attachment', 'error');
+        clearChatAttachment();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
   if (!minBtn.dataset.bound) {
     minBtn.dataset.bound = '1';
     minBtn.addEventListener('click', () => setChatMinimized(!chatMinimized));
@@ -2849,11 +2926,12 @@ function initChatControls() {
       panel.style.display = 'none';
       currentChatUser = null;
       setChatMinimized(false);
+      clearChatAttachment();
     });
   }
 }
 
-async function openChat(otherId, otherName) {
+async function openChat(otherId, otherName, knownOnline = null) {
   const meRes = await api('/api/me');
   if (!meRes.user) return alert('Please log in');
   const me = meRes.user;
@@ -2865,11 +2943,20 @@ async function openChat(otherId, otherName) {
   chatPanel.style.display='block';
   setChatMinimized(false);
   document.getElementById('chatTitle').textContent = `Chat with ${otherName}`;
+  if (knownOnline !== null && knownOnline !== undefined) setChatStatus(Boolean(knownOnline));
+  else if (connectionPresenceMap.has(Number(otherId))) setChatStatus(Boolean(connectionPresenceMap.get(Number(otherId))));
+  else setChatStatus(false);
   document.getElementById('messages').innerHTML = '<div class="muted">Loading...</div>';
+  clearChatAttachment();
   ensureSocket(me.id).emit('joinRoom', room);
   // load history
   const hist = await api(`/api/messages/${otherId}`);
-  const box = document.getElementById('messages'); box.innerHTML='';
+  const box = document.getElementById('messages');
+  box.innerHTML='';
+  if (hist.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(hist.error)}</div>`;
+    return;
+  }
   (hist.messages||[]).forEach(m=>appendMessage(m));
 }
 
@@ -2885,7 +2972,15 @@ function appendMessage(m){
   const who = m.from === meId || m.from_user === meId ? 'You' : (m.from_username || m.from || 'Unknown');
   meta.textContent = `${who} - ${formatDateTime(m.created_at)}`;
   const content = document.createElement('div'); content.textContent = m.content;
-  msgContent.appendChild(meta); msgContent.appendChild(content);
+  if (m.image) {
+    const image = document.createElement('img');
+    image.className = 'chat-msg-image';
+    image.src = m.image;
+    image.alt = 'Chat attachment';
+    image.loading = 'lazy';
+    msgContent.appendChild(image);
+  }
+  msgContent.appendChild(meta); if (m.content) msgContent.appendChild(content);
   msgWrapper.appendChild(pic); msgWrapper.appendChild(msgContent);
   el.appendChild(msgWrapper); box.appendChild(el); box.scrollTop = box.scrollHeight;
 }
@@ -3371,14 +3466,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('chatForm').addEventListener('submit', async (e)=>{
       e.preventDefault();
       const input = document.getElementById('chatInput');
-      const content = input.value.trim(); if (!content) return;
+      const content = input.value.trim();
+      if (!content && !chatAttachmentDataUrl) return;
       if (!currentChatUser) {
         showToast('Open a chat first', 'error');
         return;
       }
       const socketInst = ensureSocket();
-      socketInst.emit('chatMessage',{ to: Number(currentChatUser), content });
+      socketInst.emit('chatMessage',{ to: Number(currentChatUser), content, image: chatAttachmentDataUrl || '' });
       input.value='';
+      clearChatAttachment();
     });
   }
   

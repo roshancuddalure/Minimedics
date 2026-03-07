@@ -515,8 +515,10 @@ async function initializeDatabase() {
 		from_user BIGINT,
 		to_user BIGINT,
 		content TEXT,
+		image TEXT,
 		created_at BIGINT
 	)`);
+	await runAsync(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS image TEXT`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS post_likes (
 		id BIGSERIAL PRIMARY KEY,
 		post_id BIGINT NOT NULL,
@@ -1778,10 +1780,19 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 app.get('/api/messages/:otherId', requireAuth, (req, res) => {
 	const uid = Number(req.session.userId);
 	const other = Number(req.params.otherId);
-	const q = `SELECT m.*, ua.username as from_username, ua.profile_picture as from_picture, ub.username as to_username FROM messages m LEFT JOIN users ua ON ua.id = m.from_user LEFT JOIN users ub ON ub.id = m.to_user WHERE (m.from_user = ? AND m.to_user = ?) OR (m.from_user = ? AND m.to_user = ?) ORDER BY m.created_at ASC`;
-	db.all(q, [uid, other, other, uid], (err, rows) => {
-		if (err) return res.status(500).json({ error: 'Server error' });
-		res.json({ messages: rows });
+	if (!uid || !other || uid === other) return res.status(400).json({ error: 'Invalid user' });
+	const allowedQ = `SELECT id FROM connections
+		WHERE status = 'accepted'
+		AND ((user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?))
+		LIMIT 1`;
+	db.get(allowedQ, [uid, other, other, uid], (allowedErr, allowed) => {
+		if (allowedErr) return res.status(500).json({ error: 'Server error' });
+		if (!allowed) return res.status(403).json({ error: 'Chat is available only with accepted connections' });
+		const q = `SELECT m.*, ua.username as from_username, ua.profile_picture as from_picture, ub.username as to_username FROM messages m LEFT JOIN users ua ON ua.id = m.from_user LEFT JOIN users ub ON ub.id = m.to_user WHERE (m.from_user = ? AND m.to_user = ?) OR (m.from_user = ? AND m.to_user = ?) ORDER BY m.created_at ASC`;
+		db.all(q, [uid, other, other, uid], (err, rows) => {
+			if (err) return res.status(500).json({ error: 'Server error' });
+			res.json({ messages: rows });
+		});
 	});
 });
 
@@ -2828,26 +2839,64 @@ const server = http.createServer(app);
 const { Server: IOServer } = require('socket.io');
 const io = new IOServer(server);
 
+async function emitPresence(userId, online) {
+	try {
+		const ids = await getAcceptedConnectionIds(userId);
+		ids.forEach((id) => {
+			io.to(`user:${id}`).emit('presenceUpdate', { userId: Number(userId), online: Boolean(online) });
+		});
+	} catch (e) {
+		console.error('Presence emit error:', e && (e.message || e));
+	}
+}
+
 io.on('connection', (socket) => {
 	socket.on('identify', (userId) => {
 		socket.userId = userId;
 		markUserOnline(userId, socket.id);
 		socket.join(`user:${userId}`);
+		emitPresence(userId, true);
 	});
 
 	socket.on('joinRoom', (room) => {
 		socket.join(room);
 	});
 
-	socket.on('chatMessage', (data) => {
+	socket.on('chatMessage', async (data) => {
 		// data: { to, content }
-		const from = socket.userId;
+		const from = Number(socket.userId);
 		if (!from) return;
-		const to = data.to;
-		const content = data.content;
+		const to = Number(data && data.to);
+		const content = typeof data.content === 'string' ? data.content.trim() : '';
+		const image = typeof data.image === 'string' ? data.image : '';
+		const hasImage = Boolean(image && image.startsWith('data:image'));
+		if (!to || to === from) return;
+		if (!content && !hasImage) return;
+		if (content.length > 2000) return;
+		if (hasImage && image.length > 100 * 1024) {
+			socket.emit('chatError', { error: 'Image attachment must be 100KB or smaller' });
+			return;
+		}
+		try {
+			const allowed = await getAsync(`SELECT id FROM connections
+				WHERE status = 'accepted'
+				AND ((user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?))
+				LIMIT 1`, [from, to, to, from]);
+			if (!allowed) {
+				socket.emit('chatError', { error: 'Chat is allowed only with accepted connections' });
+				return;
+			}
+		} catch (e) {
+			socket.emit('chatError', { error: 'Unable to send message right now' });
+			return;
+		}
 		const created_at = Date.now();
-		db.run('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [from, to, content, created_at], function (err) {
-			const msg = { id: this ? this.lastID : null, from, to, content, created_at };
+		db.run('INSERT INTO messages (from_user,to_user,content,image,created_at) VALUES (?,?,?,?,?)', [from, to, content || null, hasImage ? image : null, created_at], function (err) {
+			if (err) {
+				socket.emit('chatError', { error: 'Unable to send message right now' });
+				return;
+			}
+			const msg = { id: this ? this.lastID : null, from, to, content, image: hasImage ? image : null, created_at };
 			// room is normalized: smallerId:largerId
 			const a = Number(from), b = Number(to);
 			const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
@@ -2856,7 +2905,10 @@ io.on('connection', (socket) => {
 	});
 
 	socket.on('disconnect', () => {
-		if (socket.userId) markUserOffline(socket.userId, socket.id);
+		if (socket.userId) {
+			markUserOffline(socket.userId, socket.id);
+			if (!isUserOnline(socket.userId)) emitPresence(socket.userId, false);
+		}
 	});
 });
 
