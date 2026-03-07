@@ -2896,11 +2896,23 @@ io.on('connection', (socket) => {
 				socket.emit('chatError', { error: 'Unable to send message right now' });
 				return;
 			}
-			const msg = { id: this ? this.lastID : null, from, to, content, image: hasImage ? image : null, created_at };
-			// room is normalized: smallerId:largerId
-			const a = Number(from), b = Number(to);
-			const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
-			io.to(room).emit('message', msg);
+			const msgId = this ? this.lastID : null;
+			db.get('SELECT username, profile_picture FROM users WHERE id = ?', [from], (metaErr, sender) => {
+				const msg = {
+					id: msgId,
+					from,
+					to,
+					content,
+					image: hasImage ? image : null,
+					created_at,
+					from_username: sender && sender.username ? sender.username : null,
+					from_picture: sender && sender.profile_picture ? sender.profile_picture : null
+				};
+				// room is normalized: smallerId:largerId
+				const a = Number(from), b = Number(to);
+				const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
+				io.to(room).emit('message', msg);
+			});
 		});
 	});
 

@@ -2811,6 +2811,8 @@ let currentChatUser = null;
 let chatMinimized = false;
 let chatAttachmentDataUrl = null;
 const connectionPresenceMap = new Map();
+let currentChatName = '';
+let currentChatAvatar = '';
 function ensureSocket(userId) {
   if (socket) return socket;
   socket = io();
@@ -2820,6 +2822,13 @@ function ensureSocket(userId) {
     if (me.user) socket.emit('identify', me.user.id);
   });
   socket.on('message', (m)=>{
+    const meId = window.__me ? Number(window.__me.id) : 0;
+    const current = currentChatUser ? Number(currentChatUser) : 0;
+    const from = Number(m && (m.from ?? m.from_user));
+    const to = Number(m && (m.to ?? m.to_user));
+    if (!meId || !current) return;
+    const isCurrentThread = (from === meId && to === current) || (from === current && to === meId);
+    if (!isCurrentThread) return;
     appendMessage(m);
   });
   socket.on('connectionRequest', (data)=>{
@@ -2946,6 +2955,8 @@ async function openChat(otherId, otherName, knownOnline = null, otherAvatar = ''
   const a = Number(me.id), b = Number(otherId);
   const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
   currentChatUser = otherId;
+  currentChatName = String(otherName || 'User');
+  currentChatAvatar = String(otherAvatar || '');
   const chatPanel = document.getElementById('chatPanel');
   chatPanel.style.display='grid';
   setChatMinimized(false);
@@ -2997,12 +3008,22 @@ function appendMessage(m){
   }
   const el = document.createElement('div'); el.className='post';
   const msgWrapper = document.createElement('div'); msgWrapper.style.display='flex'; msgWrapper.style.gap='6px'; msgWrapper.style.alignItems='flex-start';
-  const pic = document.createElement('img'); pic.className='profile-picture'; pic.src = m.from_picture || 'data:image/svg+xml,<svg></svg>'; pic.style.width='24px'; pic.style.height='24px'; pic.style.borderRadius='50%'; pic.style.marginTop='2px';
+  const pic = document.createElement('img');
+  pic.className='profile-picture';
+  const meId = window.__me ? Number(window.__me.id) : 0;
+  const fromId = Number(m && (m.from ?? m.from_user));
+  const isMine = meId && fromId === meId;
+  const fallbackAvatar = isMine
+    ? getProfilePictureUrl(window.__me || {})
+    : (currentChatAvatar || getDefaultAvatarDataUri(''));
+  pic.src = m.from_picture || fallbackAvatar;
+  pic.onerror = () => { pic.src = fallbackAvatar; };
+  pic.style.width='24px'; pic.style.height='24px'; pic.style.borderRadius='50%'; pic.style.marginTop='2px';
   const msgContent = document.createElement('div');
   const meta = document.createElement('div'); meta.className='meta';
-  const meId = window.__me ? window.__me.id : null;
-  const who = m.from === meId || m.from_user === meId ? 'You' : (m.from_username || m.from || 'Unknown');
-  meta.textContent = `${who} - ${formatDateTime(m.created_at)}`;
+  const who = isMine ? 'You' : (m.from_username || currentChatName || m.from || 'User');
+  const createdAtLabel = formatDateTime(m.created_at, formatDateTime(Date.now()));
+  meta.textContent = `${who} - ${createdAtLabel}`;
   const content = document.createElement('div'); content.textContent = m.content;
   if (m.image) {
     const image = document.createElement('img');
