@@ -53,6 +53,7 @@ function updateThemeButton() {
   if (!btn) return;
   const isDark = !document.body.classList.contains('light-mode');
   btn.textContent = isDark ? 'Light' : 'Dark';
+  setButtonIconWithText(btn, isDark ? 'light' : 'dark');
 }
 
 // Search functionality
@@ -227,17 +228,39 @@ function getProfilePictureUrl(userLike) {
   return getDefaultAvatarDataUri(userLike ? userLike.gender : '');
 }
 
-function getActionIconSvg(actionKey) {
+function getActionIconName(actionKey) {
   const iconMap = {
-    like: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.7-4.2-9.3-8.1C.8 9.9 2.2 6 5.8 6c2.1 0 3.3 1.2 4.2 2.6.9-1.4 2.1-2.6 4.2-2.6 3.6 0 5 3.9 3.1 6.9C18.7 16.8 12 21 12 21z"/></svg>',
-    comment: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H8l-4 4V5z"/></svg>',
-    share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12l8-5M8 12l8 5M8 12V7M8 12v5"/><circle cx="17" cy="7" r="2"/><circle cx="17" cy="17" r="2"/><circle cx="7" cy="12" r="2"/></svg>',
-    close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-    delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M9 10v8M15 10v8M7 7l1 13h8l1-13"/></svg>',
-    attach: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5l6.6-6.6a3 3 0 114.2 4.2L10 19a5 5 0 11-7.1-7.1l8.8-8.8"/></svg>',
-    verify: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7L9 18l-5-5"/></svg>',
-    block: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M7 17l10-10"/></svg>',
-    unblock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12a7 7 0 1014 0 7 7 0 10-14 0"/><path d="M12 8v8M8 12h8"/></svg>'
+    like: 'lucide:heart',
+    comment: 'lucide:message-circle',
+    share: 'lucide:share-2',
+    close: 'lucide:x',
+    delete: 'lucide:trash-2',
+    attach: 'lucide:paperclip',
+    verify: 'lucide:badge-check',
+    block: 'lucide:user-x',
+    unblock: 'lucide:user-check',
+    save: 'lucide:bookmark',
+    send: 'lucide:send',
+    home: 'lucide:house',
+    logout: 'lucide:log-out',
+    search: 'lucide:search',
+    settings: 'lucide:settings',
+    admin: 'lucide:shield',
+    add: 'lucide:plus',
+    post: 'lucide:square-pen',
+    clan: 'lucide:users',
+    approve: 'lucide:check',
+    reject: 'lucide:x',
+    connect: 'lucide:user-plus',
+    follow: 'lucide:user-plus',
+    unfollow: 'lucide:user-minus',
+    open: 'lucide:external-link',
+    manage: 'lucide:sliders-horizontal',
+    join: 'lucide:door-open',
+    minimize: 'lucide:minus',
+    dark: 'lucide:moon',
+    light: 'lucide:sun',
+    list: 'lucide:list'
   };
   return iconMap[actionKey] || '';
 }
@@ -254,6 +277,28 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('verify')) return 'verify';
   if (normalized.startsWith('unblock')) return 'unblock';
   if (normalized.startsWith('block')) return 'block';
+  if (normalized.startsWith('save') || normalized.startsWith('saved')) return 'save';
+  if (normalized.startsWith('send')) return 'send';
+  if (normalized.startsWith('home')) return 'home';
+  if (normalized.startsWith('logout')) return 'logout';
+  if (normalized.startsWith('search')) return 'search';
+  if (normalized.startsWith('settings')) return 'settings';
+  if (normalized.startsWith('open admin') || normalized.startsWith('admin')) return 'admin';
+  if (normalized.startsWith('add')) return 'add';
+  if (normalized.startsWith('post')) return 'post';
+  if (normalized.includes('clan')) return 'clan';
+  if (normalized.startsWith('approve')) return 'approve';
+  if (normalized.startsWith('reject')) return 'reject';
+  if (normalized.startsWith('connect')) return 'connect';
+  if (normalized.startsWith('follow')) return 'follow';
+  if (normalized.startsWith('unfollow')) return 'unfollow';
+  if (normalized.startsWith('open')) return 'open';
+  if (normalized.startsWith('manage')) return 'manage';
+  if (normalized.startsWith('join')) return 'join';
+  if (normalized.startsWith('minimize')) return 'minimize';
+  if (normalized.startsWith('dark')) return 'dark';
+  if (normalized.startsWith('light')) return 'light';
+  if (normalized.includes('list')) return 'list';
   return '';
 }
 
@@ -266,17 +311,38 @@ function extractCountFromLabel(label) {
 function setActionButtonLabel(btn, label, forcedActionKey = '') {
   if (!btn) return;
   const actionKey = forcedActionKey || getActionKeyFromLabel(label);
-  const safeLabel = escapeHtml(label);
-  const iconSvg = getActionIconSvg(actionKey);
-  if (!iconSvg) {
+  const iconName = getActionIconName(actionKey);
+  if (!iconName) {
     btn.textContent = label;
     return;
   }
   const count = extractCountFromLabel(label);
   const countMarkup = Number.isFinite(count) ? `<span class="btn-count">${count}</span>` : '';
-  btn.innerHTML = `<span class="btn-icon">${iconSvg}</span>${countMarkup}`;
+  btn.innerHTML = `<span class="btn-iconify iconify" data-icon="${iconName}" aria-hidden="true"></span>${countMarkup}`;
+  btn.classList.add('icon-only-btn');
   btn.setAttribute('aria-label', String(label || actionKey));
   btn.setAttribute('title', String(label || actionKey));
+}
+
+function setButtonIconWithText(btn, iconKey) {
+  if (!btn) return;
+  const iconName = getActionIconName(iconKey);
+  if (!iconName) return;
+  if (btn.querySelector('.btn-iconify')) return;
+  const label = btn.textContent ? btn.textContent.trim() : '';
+  if (!label) return;
+  btn.innerHTML = `<span class="btn-iconify iconify" data-icon="${iconName}" aria-hidden="true"></span><span class="btn-label">${escapeHtml(label)}</span>`;
+}
+
+function applyIconifyAudit() {
+  document.querySelectorAll('button.btn, a.btn').forEach((el) => {
+    if (el.classList.contains('icon-only-btn')) return;
+    const label = (el.textContent || '').trim();
+    if (!label) return;
+    const key = getActionKeyFromLabel(label);
+    if (!key) return;
+    setButtonIconWithText(el, key);
+  });
 }
 
 function createActionButton(label, onClick, className = 'btn secondary tiny-btn') {
@@ -3183,6 +3249,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initThemeToggle();
   initFileUploadControls();
   initStaticActionIcons();
+  applyIconifyAudit();
   
   // Initialize search bar
   const searchInput = document.getElementById('searchInput');
@@ -3351,6 +3418,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (clansSearchBtn) clansSearchBtn.onclick = () => loadAdminClans();
     const reportsSearchBtn = document.getElementById('adminReportsSearchBtn');
     if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
+    applyIconifyAudit();
   })();
 });
 
