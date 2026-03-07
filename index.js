@@ -709,6 +709,10 @@ app.use(session({
 	cookie: { maxAge: 1000 * 60 * 60 * 24 }
 }));
 
+app.get('/favicon.ico', (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 function requireAuth(req, res, next) {
