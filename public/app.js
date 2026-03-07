@@ -234,7 +234,10 @@ function getActionIconSvg(actionKey) {
     share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12l8-5M8 12l8 5M8 12V7M8 12v5"/><circle cx="17" cy="7" r="2"/><circle cx="17" cy="17" r="2"/><circle cx="7" cy="12" r="2"/></svg>',
     close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M9 10v8M15 10v8M7 7l1 13h8l1-13"/></svg>',
-    attach: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5l6.6-6.6a3 3 0 114.2 4.2L10 19a5 5 0 11-7.1-7.1l8.8-8.8"/></svg>'
+    attach: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5l6.6-6.6a3 3 0 114.2 4.2L10 19a5 5 0 11-7.1-7.1l8.8-8.8"/></svg>',
+    verify: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7L9 18l-5-5"/></svg>',
+    block: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M7 17l10-10"/></svg>',
+    unblock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12a7 7 0 1014 0 7 7 0 10-14 0"/><path d="M12 8v8M8 12h8"/></svg>'
   };
   return iconMap[actionKey] || '';
 }
@@ -248,7 +251,16 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('close')) return 'close';
   if (normalized.startsWith('delete')) return 'delete';
   if (normalized.startsWith('attach')) return 'attach';
+  if (normalized.startsWith('verify')) return 'verify';
+  if (normalized.startsWith('unblock')) return 'unblock';
+  if (normalized.startsWith('block')) return 'block';
   return '';
+}
+
+function extractCountFromLabel(label) {
+  const match = String(label || '').match(/\((\d+)\)\s*$/);
+  if (!match) return null;
+  return Number(match[1]);
 }
 
 function setActionButtonLabel(btn, label, forcedActionKey = '') {
@@ -260,7 +272,11 @@ function setActionButtonLabel(btn, label, forcedActionKey = '') {
     btn.textContent = label;
     return;
   }
-  btn.innerHTML = `<span class="btn-icon">${iconSvg}</span><span class="btn-label">${safeLabel}</span>`;
+  const count = extractCountFromLabel(label);
+  const countMarkup = Number.isFinite(count) ? `<span class="btn-count">${count}</span>` : '';
+  btn.innerHTML = `<span class="btn-icon">${iconSvg}</span>${countMarkup}`;
+  btn.setAttribute('aria-label', String(label || actionKey));
+  btn.setAttribute('title', String(label || actionKey));
 }
 
 function createActionButton(label, onClick, className = 'btn secondary tiny-btn') {
@@ -778,9 +794,9 @@ async function loadAdminUsers() {
       <td>${xp}</td>
       <td>${escapeHtml(lastLogin)}</td>
       <td>${totalConnections}</td>
-      <td>${Number(u.email_verified) ? '<span class="muted">Done</span>' : '<button class="btn tiny-btn admin-verify-btn" type="button">Verify Email</button>'}</td>
-      <td><button class="btn secondary tiny-btn admin-block-btn" type="button">${Number(u.account_blocked) ? 'Unblock' : 'Block'}</button></td>
-      <td><button class="btn secondary tiny-btn admin-delete-btn" type="button">Delete</button></td>
+      <td>${Number(u.email_verified) ? '<span class="muted">Done</span>' : '<button class="btn tiny-btn admin-verify-btn" type="button"></button>'}</td>
+      <td><button class="btn secondary tiny-btn admin-block-btn" data-blocked="${Number(u.account_blocked) ? 1 : 0}" type="button"></button></td>
+      <td><button class="btn secondary tiny-btn admin-delete-btn" type="button"></button></td>
     </tr>`;
   }).join('');
   box.innerHTML = `<div class="admin-users-table-wrap">
@@ -815,6 +831,7 @@ async function loadAdminUsers() {
     }
     const verifyBtn = row.querySelector('.admin-verify-btn');
     if (verifyBtn) {
+      setActionButtonLabel(verifyBtn, 'Verify', 'verify');
       verifyBtn.addEventListener('click', async () => {
         verifyBtn.disabled = true;
         const userId = Number(row.getAttribute('data-user-id'));
@@ -830,10 +847,13 @@ async function loadAdminUsers() {
     }
     const blockBtn = row.querySelector('.admin-block-btn');
     if (blockBtn) {
+      const isBlockedOnRender = blockBtn.getAttribute('data-blocked') === '1';
+      setActionButtonLabel(blockBtn, isBlockedOnRender ? 'Unblock' : 'Block', isBlockedOnRender ? 'unblock' : 'block');
       blockBtn.addEventListener('click', async () => {
         blockBtn.disabled = true;
         const userId = Number(row.getAttribute('data-user-id'));
-        const shouldBlock = blockBtn.textContent.trim().toLowerCase() === 'block';
+        const currentlyBlocked = blockBtn.getAttribute('data-blocked') === '1';
+        const shouldBlock = !currentlyBlocked;
         const blockRes = await api(`/api/admin/users/${userId}/block`, 'POST', { blocked: shouldBlock });
         if (blockRes && blockRes.success) {
           showToast(shouldBlock ? 'User blocked' : 'User unblocked');
@@ -846,6 +866,7 @@ async function loadAdminUsers() {
     }
     const deleteBtn = row.querySelector('.admin-delete-btn');
     if (deleteBtn) {
+      setActionButtonLabel(deleteBtn, 'Delete', 'delete');
       deleteBtn.addEventListener('click', async () => {
         const userId = Number(row.getAttribute('data-user-id'));
         const target = userById.get(userId) || {};

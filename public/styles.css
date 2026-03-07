@@ -277,6 +277,13 @@ button {
   stroke-linejoin: round;
 }
 
+.btn .btn-count {
+  margin-left: 0.32rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .file-upload {
   display: flex;
   align-items: center;
