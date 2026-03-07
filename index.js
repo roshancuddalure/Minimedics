@@ -1088,6 +1088,89 @@ app.post('/api/admin/users/:id/block', requireAdmin, async (req, res) => {
 	}
 });
 
+async function deleteUserAndRelatedData(userId) {
+	const postRows = await allAsync('SELECT id FROM posts WHERE user_id = ?', [userId]);
+	const postIds = postRows.map((r) => Number(r.id)).filter((id) => !Number.isNaN(id));
+	if (postIds.length) {
+		const placeholders = postIds.map(() => '?').join(', ');
+		await runAsync(`DELETE FROM quiz_attempts WHERE post_id IN (${placeholders})`, postIds);
+		await runAsync(`DELETE FROM post_likes WHERE post_id IN (${placeholders})`, postIds);
+		await runAsync(`DELETE FROM post_comments WHERE post_id IN (${placeholders})`, postIds);
+		await runAsync(`DELETE FROM saved_posts WHERE post_id IN (${placeholders})`, postIds);
+		await runAsync(`DELETE FROM post_shares WHERE post_id IN (${placeholders})`, postIds);
+	}
+	await runAsync('DELETE FROM quiz_attempts WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM post_likes WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM post_comments WHERE user_id = ? OR mention_user_id = ?', [userId, userId]);
+	await runAsync('DELETE FROM saved_posts WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM saved_post_lists WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM post_shares WHERE from_user = ? OR to_user = ?', [userId, userId]);
+	await runAsync('DELETE FROM posts WHERE user_id = ?', [userId]);
+
+	await runAsync('DELETE FROM connections WHERE user_a = ? OR user_b = ?', [userId, userId]);
+	await runAsync('DELETE FROM follows WHERE follower_id = ? OR followee_id = ?', [userId, userId]);
+	await runAsync('DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?', [userId, userId]);
+	await runAsync('DELETE FROM user_reports WHERE reporter_id = ? OR target_user_id = ?', [userId, userId]);
+	await runAsync('DELETE FROM clan_reports WHERE reporter_id = ?', [userId]);
+	await runAsync('DELETE FROM messages WHERE from_user = ? OR to_user = ?', [userId, userId]);
+	await runAsync('DELETE FROM xp_events WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM stories WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM speciality_suggestions WHERE user_id = ?', [userId]);
+
+	const ownedGroups = await allAsync('SELECT id FROM groups WHERE created_by = ?', [userId]);
+	for (const group of ownedGroups) {
+		const groupId = Number(group.id);
+		if (!groupId) continue;
+		await runAsync('DELETE FROM clan_reports WHERE clan_id = ?', [groupId]);
+		await runAsync('DELETE FROM group_memberships WHERE group_id = ?', [groupId]);
+		await runAsync('DELETE FROM group_roles WHERE group_id = ?', [groupId]);
+		await runAsync('DELETE FROM group_posts WHERE group_id = ?', [groupId]);
+		await runAsync('DELETE FROM group_invites WHERE group_id = ?', [groupId]);
+		await runAsync('DELETE FROM group_lounge_messages WHERE group_id = ?', [groupId]);
+		await runAsync('DELETE FROM groups WHERE id = ?', [groupId]);
+	}
+
+	await runAsync('DELETE FROM group_memberships WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM group_roles WHERE created_by = ?', [userId]);
+	await runAsync('DELETE FROM group_posts WHERE user_id = ?', [userId]);
+	await runAsync('DELETE FROM group_invites WHERE created_by = ?', [userId]);
+	await runAsync('DELETE FROM group_lounge_messages WHERE user_id = ?', [userId]);
+
+	// Best effort cleanup for persistent sessions created by connect-pg-simple.
+	try {
+		await runAsync(`DELETE FROM user_sessions WHERE COALESCE((sess::json->>'userId'), '') = ?`, [String(userId)]);
+	} catch (e) {
+		if (!e || String(e.code) !== '42P01') throw e;
+	}
+
+	const deleted = await runAsync('DELETE FROM users WHERE id = ?', [userId]);
+	return Boolean(deleted && deleted.changes);
+}
+
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+	const userId = Number(req.params.id);
+	const actorId = Number(req.session.userId);
+	if (!userId) return res.status(400).json({ error: 'Invalid user id' });
+	if (!actorId) return res.status(401).json({ error: 'Unauthorized' });
+	if (userId === actorId) return res.status(400).json({ error: 'Cannot delete your own account from admin panel' });
+	try {
+		const actor = await getAsync('SELECT username, role FROM users WHERE id = ?', [actorId]);
+		if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+		const target = await getAsync('SELECT username, role FROM users WHERE id = ?', [userId]);
+		if (!target) return res.status(404).json({ error: 'User not found' });
+		if (target.username === SUPERADMIN_USERNAME) return res.status(403).json({ error: 'Operation not allowed for this account' });
+		if (target.role === 'admin' && actor.username !== SUPERADMIN_USERNAME) {
+			return res.status(403).json({ error: 'Only superadmin can delete admin accounts' });
+		}
+		const ok = await deleteUserAndRelatedData(userId);
+		if (!ok) return res.status(404).json({ error: 'User not found' });
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Admin delete user API error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/admin/reports', requireAdmin, async (req, res) => {
 	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';

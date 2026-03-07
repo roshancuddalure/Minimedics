@@ -670,6 +670,7 @@ async function loadAdminUsers() {
     return;
   }
   const users = Array.isArray(res.users) ? res.users : [];
+  const userById = new Map(users.map((u) => [Number(u.id), u]));
   if (title) title.textContent = `Registered Users (${res.totalUsers || users.length || 0})`;
   if (!users.length) {
     box.innerHTML = '<div class="muted">No registered users found.</div>';
@@ -697,6 +698,7 @@ async function loadAdminUsers() {
       <td>${totalConnections}</td>
       <td>${Number(u.email_verified) ? '<span class="muted">Done</span>' : '<button class="btn tiny-btn admin-verify-btn" type="button">Verify Email</button>'}</td>
       <td><button class="btn secondary tiny-btn admin-block-btn" type="button">${Number(u.account_blocked) ? 'Unblock' : 'Block'}</button></td>
+      <td><button class="btn secondary tiny-btn admin-delete-btn" type="button">Delete</button></td>
     </tr>`;
   }).join('');
   box.innerHTML = `<div class="admin-users-table-wrap">
@@ -712,6 +714,7 @@ async function loadAdminUsers() {
           <th>Total Connections</th>
           <th>Approval</th>
           <th>Block</th>
+          <th>Delete</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -719,14 +722,15 @@ async function loadAdminUsers() {
   </div>`;
   box.querySelectorAll('tr[data-user-id]').forEach((row) => {
     const select = row.querySelector('.admin-role-select');
-    if (!select) return;
-    select.addEventListener('change', async () => {
-      const userId = Number(row.getAttribute('data-user-id'));
-      const role = select.value;
-      const res = await api(`/api/admin/users/${userId}/role`, 'POST', { role });
-      if (res && res.success) showToast('Role updated');
-      else showToast(res.error || 'Unable to update role', 'error');
-    });
+    if (select) {
+      select.addEventListener('change', async () => {
+        const userId = Number(row.getAttribute('data-user-id'));
+        const role = select.value;
+        const res = await api(`/api/admin/users/${userId}/role`, 'POST', { role });
+        if (res && res.success) showToast('Role updated');
+        else showToast(res.error || 'Unable to update role', 'error');
+      });
+    }
     const verifyBtn = row.querySelector('.admin-verify-btn');
     if (verifyBtn) {
       verifyBtn.addEventListener('click', async () => {
@@ -755,6 +759,25 @@ async function loadAdminUsers() {
         } else {
           blockBtn.disabled = false;
           showToast(blockRes.error || 'Unable to update block status', 'error');
+        }
+      });
+    }
+    const deleteBtn = row.querySelector('.admin-delete-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        const userId = Number(row.getAttribute('data-user-id'));
+        const target = userById.get(userId) || {};
+        const label = target.username || target.email || `ID ${userId}`;
+        const confirmed = window.confirm(`Delete user "${label}" permanently? This removes profile and related data.`);
+        if (!confirmed) return;
+        deleteBtn.disabled = true;
+        const deleteRes = await api(`/api/admin/users/${userId}`, 'DELETE');
+        if (deleteRes && deleteRes.success) {
+          showToast('User deleted');
+          loadAdminUsers();
+        } else {
+          deleteBtn.disabled = false;
+          showToast(deleteRes.error || 'Unable to delete user', 'error');
         }
       });
     }
