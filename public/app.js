@@ -2379,7 +2379,7 @@ async function loadConnectionPanels() {
     connectionPresenceMap.set(Number(c.id), Boolean(c.online));
     return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
-      <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'})">Chat</button>
+      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'})"></button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
@@ -2404,6 +2404,7 @@ async function loadConnectionPanels() {
   if (suggestionsBox) {
     suggestionsBox.innerHTML = suggestions.length ? suggestions.map((s) => renderPersonCard(s, `<button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(s.id)}}).then((x)=>{ if(x&&x.success){showToast('Request sent');loadConnectionPanels();} else {showToast((x&&x.error)||'Unable to send request','error');}})">Connect</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No suggestions right now.</div>';
   }
+  acceptedBox.querySelectorAll('.chat-open-btn').forEach((btn) => setActionButtonLabel(btn, 'Chat', 'chat'));
   applyIconifyAudit();
 }
 
@@ -2868,8 +2869,7 @@ function setChatMinimized(minimized) {
   if (!panel || !minBtn) return;
   chatMinimized = Boolean(minimized);
   panel.classList.toggle('minimized', chatMinimized);
-  minBtn.textContent = chatMinimized ? 'Expand' : 'Minimize';
-  setButtonIconWithText(minBtn, chatMinimized ? 'open' : 'minimize');
+  setActionButtonLabel(minBtn, chatMinimized ? 'Expand' : 'Minimize', chatMinimized ? 'open' : 'minimize');
 }
 
 function initChatControls() {
@@ -2878,7 +2878,11 @@ function initChatControls() {
   const closeBtn = document.getElementById('chatCloseBtn');
   const attachBtn = document.getElementById('chatAttachBtn');
   const imageInput = document.getElementById('chatImageInput');
+  const sendBtn = document.getElementById('chatSendBtn');
   if (!panel || !minBtn || !closeBtn) return;
+  setActionButtonLabel(minBtn, chatMinimized ? 'Expand' : 'Minimize', chatMinimized ? 'open' : 'minimize');
+  setActionButtonLabel(closeBtn, 'Close', 'close');
+  if (sendBtn) setActionButtonLabel(sendBtn, 'Send', 'send');
   if (attachBtn && !attachBtn.dataset.bound) {
     attachBtn.dataset.bound = '1';
     setActionButtonLabel(attachBtn, 'Attach', 'attach');
