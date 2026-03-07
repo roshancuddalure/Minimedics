@@ -106,6 +106,9 @@ let selectedClanPostImageDataUrl = null;
 let selectedGroupId = null;
 let selectedGroupRole = null;
 let cachedMe = null;
+let storyGroups = [];
+let activeStoryGroupIndex = -1;
+let activeStoryIndex = 0;
 let postMode = null;
 let currentSavedListFilter = 'General';
 let clanLoungeInterval = null;
@@ -921,7 +924,7 @@ async function handleStoryImageSelection(e) {
 }
 
 async function loadStories() {
-  const box = document.getElementById('storiesList');
+  const box = document.getElementById('storiesBar');
   if (!box) return;
   box.innerHTML = '<div class="muted">Loading stories...</div>';
   const res = await api('/api/stories');
@@ -930,39 +933,145 @@ async function loadStories() {
     return;
   }
   if (!res.stories || !res.stories.length) {
-    box.innerHTML = '<div class="muted">No active stories from your connections.</div>';
+    storyGroups = [];
+    box.innerHTML = '';
+    if (cachedMe) {
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'stories-bar-item is-self is-add';
+      addBtn.innerHTML = `<span class="stories-avatar-wrap">
+        <img class="stories-avatar" src="${cachedMe.profile_picture || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'}" alt="Your story" loading="lazy" />
+      </span>
+      <span class="stories-name">Your Story</span>`;
+      addBtn.addEventListener('click', () => {
+        const storyForm = document.getElementById('storyForm');
+        const storyComposerToggle = document.getElementById('storyComposerToggle');
+        if (!storyForm) return;
+        storyForm.classList.remove('hidden');
+        if (storyComposerToggle) storyComposerToggle.textContent = 'Close';
+        const contentInput = document.getElementById('storyContent');
+        if (contentInput) contentInput.focus();
+      });
+      box.appendChild(addBtn);
+    } else {
+      box.innerHTML = '<div class="muted">No active stories yet.</div>';
+    }
     return;
   }
-  box.innerHTML = '';
-  const rail = document.createElement('div');
-  rail.className = 'stories-rail';
-  res.stories.forEach((s) => {
-    const story = document.createElement('article');
-    story.className = 'story-card';
-    story.innerHTML = `<div class="story-head">
-      <img src="${s.profile_picture || 'data:image/svg+xml,<svg></svg>'}" loading="lazy" />
-      <div>
-        <div class="story-user">${escapeHtml(s.name || s.username)}</div>
-        <div class="meta">${formatDateTime(s.created_at)}</div>
-      </div>
-    </div>`;
-    if (s.image) {
-      const image = document.createElement('img');
-      image.className = 'story-image';
-      image.src = s.image;
-      image.alt = 'Story image';
-      image.loading = 'lazy';
-      story.appendChild(image);
+  const byUser = new Map();
+  const stories = Array.isArray(res.stories) ? res.stories : [];
+  stories.forEach((s) => {
+    const key = Number(s.user_id) || String(s.user_id);
+    if (!byUser.has(key)) {
+      byUser.set(key, {
+        userId: Number(s.user_id) || null,
+        username: s.username || '',
+        name: s.name || '',
+        profile_picture: s.profile_picture || '',
+        stories: []
+      });
     }
-    if (s.content) {
-      const text = document.createElement('div');
-      text.className = 'story-content';
-      text.textContent = s.content;
-      story.appendChild(text);
-    }
-    rail.appendChild(story);
+    byUser.get(key).stories.push(s);
   });
-  box.appendChild(rail);
+  storyGroups = Array.from(byUser.values()).map((g) => ({
+    ...g,
+    stories: g.stories.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))
+  })).sort((a, b) => Number(b.stories[0]?.created_at || 0) - Number(a.stories[0]?.created_at || 0));
+  if (cachedMe && cachedMe.id) {
+    const meId = Number(cachedMe.id);
+    storyGroups.sort((a, b) => {
+      if (Number(a.userId) === meId) return -1;
+      if (Number(b.userId) === meId) return 1;
+      return Number(b.stories[0]?.created_at || 0) - Number(a.stories[0]?.created_at || 0);
+    });
+  }
+  box.innerHTML = '';
+  const hasSelfStory = cachedMe && storyGroups.some((g) => Number(g.userId) === Number(cachedMe.id));
+  if (cachedMe && !hasSelfStory) {
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'stories-bar-item is-self is-add';
+    addBtn.innerHTML = `<span class="stories-avatar-wrap">
+      <img class="stories-avatar" src="${cachedMe.profile_picture || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'}" alt="Your story" loading="lazy" />
+    </span>
+    <span class="stories-name">Your Story</span>`;
+    addBtn.addEventListener('click', () => {
+      const storyForm = document.getElementById('storyForm');
+      const storyComposerToggle = document.getElementById('storyComposerToggle');
+      if (!storyForm) return;
+      storyForm.classList.remove('hidden');
+      if (storyComposerToggle) storyComposerToggle.textContent = 'Close';
+      const contentInput = document.getElementById('storyContent');
+      if (contentInput) contentInput.focus();
+    });
+    box.appendChild(addBtn);
+  }
+  storyGroups.forEach((group, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const isSelf = cachedMe && Number(group.userId) === Number(cachedMe.id);
+    btn.className = `stories-bar-item${isSelf ? ' is-self' : ''}`;
+    const avatar = group.profile_picture || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E';
+    const displayName = isSelf ? 'Your Story' : (group.name || group.username || 'User');
+    btn.innerHTML = `<span class="stories-avatar-wrap">
+      <img class="stories-avatar" src="${avatar}" alt="${escapeHtml(displayName)}" loading="lazy" />
+    </span>
+    <span class="stories-name">${escapeHtml(displayName)}</span>`;
+    btn.addEventListener('click', () => openStoryViewer(idx, 0));
+    box.appendChild(btn);
+  });
+}
+
+function renderStoryViewer() {
+  const modal = document.getElementById('storyViewerModal');
+  const avatar = document.getElementById('storyViewerAvatar');
+  const title = document.getElementById('storyViewerTitle');
+  const meta = document.getElementById('storyViewerMeta');
+  const image = document.getElementById('storyViewerImage');
+  const text = document.getElementById('storyViewerText');
+  const prevBtn = document.getElementById('storyViewerPrevBtn');
+  const nextBtn = document.getElementById('storyViewerNextBtn');
+  if (!modal || !avatar || !title || !meta || !image || !text || !prevBtn || !nextBtn) return;
+  const group = storyGroups[activeStoryGroupIndex];
+  if (!group || !Array.isArray(group.stories) || !group.stories.length) {
+    closeStoryViewer();
+    return;
+  }
+  if (activeStoryIndex < 0) activeStoryIndex = 0;
+  if (activeStoryIndex >= group.stories.length) activeStoryIndex = group.stories.length - 1;
+  const story = group.stories[activeStoryIndex];
+  const isSelf = cachedMe && Number(group.userId) === Number(cachedMe.id);
+  const name = isSelf ? 'Your Story' : (group.name || group.username || 'Story');
+  avatar.src = group.profile_picture || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E';
+  title.textContent = name;
+  meta.textContent = formatDateTime(story.created_at, '');
+  if (story.image) {
+    image.src = story.image;
+    image.classList.remove('hidden');
+  } else {
+    image.src = '';
+    image.classList.add('hidden');
+  }
+  text.textContent = story.content || '';
+  prevBtn.disabled = activeStoryIndex <= 0;
+  nextBtn.disabled = activeStoryIndex >= group.stories.length - 1;
+}
+
+function openStoryViewer(groupIndex, storyIndex = 0) {
+  const modal = document.getElementById('storyViewerModal');
+  if (!modal) return;
+  activeStoryGroupIndex = Number(groupIndex);
+  activeStoryIndex = Number(storyIndex) || 0;
+  renderStoryViewer();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeStoryViewer() {
+  const modal = document.getElementById('storyViewerModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
 }
 
 async function handleStorySubmit(e) {
@@ -986,6 +1095,10 @@ async function handleStorySubmit(e) {
     if (imageEl) imageEl.value = '';
     selectedStoryImageDataUrl = null;
     showToast('Story posted');
+    const storyForm = document.getElementById('storyForm');
+    const storyComposerToggle = document.getElementById('storyComposerToggle');
+    if (storyForm) storyForm.classList.add('hidden');
+    if (storyComposerToggle) storyComposerToggle.textContent = 'Add Story';
     loadStories();
   } else {
     showToast(res.error || 'Unable to post story', 'error');
@@ -2861,9 +2974,41 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (postImageInput) postImageInput.addEventListener('change', handlePostImageSelection);
   }
   if (document.getElementById('storyForm')) {
-    document.getElementById('storyForm').addEventListener('submit', handleStorySubmit);
+    const storyForm = document.getElementById('storyForm');
+    const storyComposerToggle = document.getElementById('storyComposerToggle');
+    if (storyComposerToggle && storyForm) {
+      storyComposerToggle.addEventListener('click', () => {
+        const isHidden = storyForm.classList.toggle('hidden');
+        storyComposerToggle.textContent = isHidden ? 'Add Story' : 'Close';
+      });
+    }
+    storyForm.addEventListener('submit', handleStorySubmit);
     const storyImageInput = document.getElementById('storyImage');
     if (storyImageInput) storyImageInput.addEventListener('change', handleStoryImageSelection);
+    const storyViewerModal = document.getElementById('storyViewerModal');
+    const closeStoryViewerBtn = document.getElementById('closeStoryViewerBtn');
+    const storyViewerPrevBtn = document.getElementById('storyViewerPrevBtn');
+    const storyViewerNextBtn = document.getElementById('storyViewerNextBtn');
+    if (closeStoryViewerBtn) closeStoryViewerBtn.addEventListener('click', closeStoryViewer);
+    if (storyViewerModal) {
+      storyViewerModal.addEventListener('click', (evt) => {
+        if (evt.target === storyViewerModal) closeStoryViewer();
+      });
+    }
+    if (storyViewerPrevBtn) {
+      storyViewerPrevBtn.addEventListener('click', () => {
+        activeStoryIndex = Math.max(0, activeStoryIndex - 1);
+        renderStoryViewer();
+      });
+    }
+    if (storyViewerNextBtn) {
+      storyViewerNextBtn.addEventListener('click', () => {
+        const group = storyGroups[activeStoryGroupIndex];
+        if (!group || !Array.isArray(group.stories)) return;
+        activeStoryIndex = Math.min(group.stories.length - 1, activeStoryIndex + 1);
+        renderStoryViewer();
+      });
+    }
     loadStories();
     setInterval(loadStories, 30000);
   }
@@ -2907,6 +3052,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const meRes = await api('/api/me');
     cachedMe = meRes.user || null;
     window.__me = cachedMe;
+    if (document.getElementById('storiesBar')) loadStories();
     upsertSavedListsTopButton(cachedMe);
     const isAdmin = cachedMe && cachedMe.role === 'admin';
     const dashboardAdmin = document.getElementById('dashboardAdminSection');

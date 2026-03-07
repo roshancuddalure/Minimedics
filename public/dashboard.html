@@ -132,16 +132,19 @@
           </form>
         </section>
 
-        <section class="card">
-          <h3>Stories</h3>
-          <form id="storyForm" class="form">
+        <section class="card stories-card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <h3 style="margin:0">Stories</h3>
+            <button id="storyComposerToggle" class="btn secondary tiny-btn" type="button">Add Story</button>
+          </div>
+          <form id="storyForm" class="form hidden section-gap">
             <input id="storyContent" type="text" maxlength="300" placeholder="Share a quick story update..." />
             <input id="storyImage" type="file" accept="image/*" />
             <div class="row">
               <button class="btn primary" type="submit">Post Story (24h)</button>
             </div>
           </form>
-          <div id="storiesList" class="section-gap"></div>
+          <div id="storiesBar" class="stories-bar section-gap"></div>
         </section>
 
         <section class="card">
@@ -244,6 +247,29 @@
           <button class="btn primary" type="submit">Update Password</button>
         </div>
       </form>
+    </section>
+  </div>
+
+  <div id="storyViewerModal" class="modal-backdrop hidden" aria-hidden="true">
+    <section class="modal-card story-viewer-card" role="dialog" aria-modal="true" aria-labelledby="storyViewerTitle">
+      <div class="modal-head story-viewer-head">
+        <div class="story-viewer-user">
+          <img id="storyViewerAvatar" class="story-viewer-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="Story user" />
+          <div>
+            <div id="storyViewerTitle">Story</div>
+            <div id="storyViewerMeta" class="meta"></div>
+          </div>
+        </div>
+        <button id="closeStoryViewerBtn" class="btn secondary tiny-btn" type="button">Close</button>
+      </div>
+      <div class="story-viewer-body">
+        <img id="storyViewerImage" class="story-viewer-image hidden" alt="Story" />
+        <div id="storyViewerText" class="story-viewer-text"></div>
+      </div>
+      <div class="row story-viewer-actions">
+        <button id="storyViewerPrevBtn" class="btn secondary tiny-btn" type="button">Prev</button>
+        <button id="storyViewerNextBtn" class="btn secondary tiny-btn" type="button">Next</button>
+      </div>
     </section>
   </div>
 
