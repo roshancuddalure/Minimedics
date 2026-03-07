@@ -1188,7 +1188,10 @@ async function toggleStoryLike() {
   const story = getActiveStory();
   if (!story) return;
   const res = await api(`/api/stories/${story.id}/like`, 'POST', {});
-  if (res.error) return showToast(res.error || 'Unable to update like', 'error');
+  if (res.error) {
+    if (res.raw) console.error('Story like raw response:', res.raw);
+    return showToast(res.error || 'Unable to update like', 'error');
+  }
   story.liked_by_me = Boolean(res.liked);
   story.likes_count = Number(res.count) || 0;
   updateStoryStats(story);

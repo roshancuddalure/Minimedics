@@ -2811,6 +2811,18 @@ app.get('/user-profile.html', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'user-profile.html'));
 });
 
+app.use('/api', (req, res) => {
+	res.status(404).json({ error: 'API route not found' });
+});
+
+app.use((err, req, res, next) => {
+	console.error('Unhandled server error:', err && (err.stack || err.message || err));
+	if (req && String(req.path || '').startsWith('/api/')) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+	return res.status(500).send('Server error');
+});
+
 const http = require('http');
 const server = http.createServer(app);
 const { Server: IOServer } = require('socket.io');
