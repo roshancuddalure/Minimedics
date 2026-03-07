@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
@@ -103,7 +104,6 @@ async function sendVerificationEmail(toEmail, verifyUrl) {
 	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
 	if (!toEmail) throw new Error('Recipient email is missing');
 	if (!verifyUrl) throw new Error('Verification URL is missing');
-	if (typeof fetch !== 'function') throw new Error('Global fetch is unavailable. Use Node 18+ on Railway.');
 	const html = `
 			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
 				<h2 style="margin:0 0 10px">Welcome to ${APP_NAME}</h2>
@@ -116,28 +116,42 @@ async function sendVerificationEmail(toEmail, verifyUrl) {
 				<p style="margin:0;color:#475569">If you did not create this account, you can ignore this email.</p>
 			</div>
 		`;
-	const response = await fetch('https://api.resend.com/emails', {
-		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${apiKey}`,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify({
-			from: EMAIL_FROM,
-			to: [toEmail],
-			subject: `Verify your ${APP_NAME} account`,
-			html
-		})
+	const body = JSON.stringify({
+		from: EMAIL_FROM,
+		to: [toEmail],
+		subject: `Verify your ${APP_NAME} account`,
+		html
 	});
-	if (!response.ok) {
-		let details = '';
-		try {
-			const json = await response.json();
-			details = json && (json.message || json.error || JSON.stringify(json)) ? ` - ${json.message || json.error || JSON.stringify(json)}` : '';
-		} catch (e) {
-			// ignore parse issues for non-JSON responses
-		}
-		throw new Error(`Resend API error (${response.status})${details}`);
+	const result = await new Promise((resolve, reject) => {
+		const req = https.request('https://api.resend.com/emails', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${apiKey}`,
+				'Content-Type': 'application/json',
+				'Content-Length': Buffer.byteLength(body)
+			}
+		}, (res) => {
+			let raw = '';
+			res.on('data', (chunk) => { raw += chunk; });
+			res.on('end', () => {
+				let json = null;
+				try {
+					json = raw ? JSON.parse(raw) : null;
+				} catch (e) {
+					json = null;
+				}
+				resolve({ statusCode: res.statusCode || 0, json, raw });
+			});
+		});
+		req.on('error', reject);
+		req.write(body);
+		req.end();
+	});
+	if (result.statusCode < 200 || result.statusCode >= 300) {
+		const details = result.json && (result.json.message || result.json.error)
+			? `${result.json.message || result.json.error}`
+			: (result.raw || '').slice(0, 300);
+		throw new Error(`Resend API error (${result.statusCode})${details ? ` - ${details}` : ''}`);
 	}
 }
 
