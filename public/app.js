@@ -1118,7 +1118,6 @@ function startStoryTimer() {
     const elapsed = Date.now() - startedAt;
     const pct = Math.max(0, Math.min(100, (elapsed / STORY_VIEW_DURATION_MS) * 100));
     if (progressEl) progressEl.style.width = `${pct}%`;
-    if (pct >= 100) clearStoryTimers();
   }, 120);
   storyAutoAdvanceTimeout = setTimeout(() => {
     clearStoryTimers();
