@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
@@ -93,7 +93,7 @@ const EMAIL_FROM = typeof process.env.EMAIL_FROM === 'string' && process.env.EMA
 	: 'onboarding@resend.dev';
 const APP_NAME = typeof process.env.APP_NAME === 'string' && process.env.APP_NAME.trim()
 	? process.env.APP_NAME.trim()
-	: 'MiniMedics';
+	: 'Mednecta';
 
 function createVerificationToken() {
 	return crypto.randomBytes(32).toString('hex');
@@ -2654,4 +2654,5 @@ initializeDatabase()
 		console.error('Set DATABASE_URL in .env for local run, for example: postgresql://postgres:password@localhost:5432/project1codex');
 		process.exit(1);
 	});
+
 

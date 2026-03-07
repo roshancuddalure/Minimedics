@@ -1,4 +1,4 @@
-// Debounce helper
+﻿// Debounce helper
 function debounce(func, ms) {
   let timeout;
   return function(...args) {
@@ -2649,7 +2649,7 @@ async function loadProfile() {
   holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
-      <h3>Welcome to MiniMedics</h3>
+      <h3>Welcome to Mednecta</h3>
       <p class="muted">Build social connections, turn posts into reminders, and collaborate with your medical community in one place.</p>
       <div class="guest-cta-row">
         <a class="btn primary" href="/register.html">Create Account</a>
@@ -2899,4 +2899,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
   })();
 });
+
 
