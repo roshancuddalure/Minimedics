@@ -1854,13 +1854,15 @@ async function unignoreRequest(id) {
 }
 
 function renderPersonCard(person, actionsHtml) {
-  return `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;padding:12px;background:var(--card);border-radius:8px;transition:all 0.2s;border:1px solid var(--border)">
-    <img src="${getProfilePictureUrl(person)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)" loading="lazy" />
-    <div style="flex:1">
-      <div style="font-weight:500">${escapeHtml(person.name || person.username || 'Unknown')}</div>
-      <div class="muted">@${escapeHtml(person.username || '')}</div>
+  return `<div class="person-card">
+    <div class="person-card-main">
+      <img src="${getProfilePictureUrl(person)}" class="person-card-avatar" loading="lazy" />
+      <div class="person-card-meta">
+        <div class="person-card-name">${escapeHtml(person.name || person.username || 'Unknown')}</div>
+        <div class="muted person-card-handle">@${escapeHtml(person.username || '')}</div>
+      </div>
     </div>
-    ${actionsHtml}
+    <div class="person-card-actions">${actionsHtml}</div>
   </div>`;
 }
 
@@ -1894,14 +1896,14 @@ async function loadConnectionPanels() {
     const statusText = c.online_visible ? (c.online ? 'Online' : 'Offline') : 'Hidden';
     const statusClass = c.online_visible ? (c.online ? 'status-online' : 'status-offline') : 'status-offline';
     const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
-    return renderPersonCard(c, `<div style="display:flex;gap:8px;align-items:center">
+    return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
       <button class="btn primary" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}')">Chat</button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
   if (receivedBox) {
-    receivedBox.innerHTML = received.length ? received.map((r) => renderPersonCard(r, `<div style="display:flex;gap:8px">
+    receivedBox.innerHTML = received.length ? received.map((r) => renderPersonCard(r, `<div class="post-actions">
       <button class="btn" style="font-size:12px;padding:8px 12px" onclick="acceptRequest(${r.id})">Accept</button>
       <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="declineRequest(${r.id})">Ignore</button>
     </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No received requests.</div>';
@@ -1912,7 +1914,7 @@ async function loadConnectionPanels() {
   }
 
   if (ignoredBox) {
-    ignoredBox.innerHTML = ignored.length ? ignored.map((r) => renderPersonCard(r, `<div style="display:flex;gap:8px">
+    ignoredBox.innerHTML = ignored.length ? ignored.map((r) => renderPersonCard(r, `<div class="post-actions">
       <button class="btn secondary" style="font-size:12px;padding:8px 12px" onclick="unignoreRequest(${r.id})">Remove</button>
       <button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(r.user_id)}}).then(()=>loadConnectionPanels())">Connect Again</button>
     </div>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No declined requests.</div>';

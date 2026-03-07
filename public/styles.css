@@ -61,12 +61,36 @@ video {
   max-width: 100%;
 }
 
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+
 .post,
 .group-item,
 .request-item,
 .card,
 .leader-row {
   overflow-wrap: anywhere;
+}
+
+.hero > *,
+.layout > *,
+.stack > *,
+.card > *,
+.post > *,
+.group-item > *,
+.request-item > *,
+.leader-row > *,
+.row > *,
+.actions > *,
+.post-actions > *,
+.chat-header > *,
+.comment-composer > *,
+.group-top > * {
+  min-width: 0;
 }
 
 .bg-orb {
@@ -264,8 +288,21 @@ video {
 .row {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.6rem;
   margin-top: 0.7rem;
+}
+
+.row > input,
+.row > select,
+.row > textarea {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.row > .btn {
+  flex: 0 0 auto;
 }
 
 .feed {
@@ -557,7 +594,7 @@ video {
 
 .leader-row {
   display: grid;
-  grid-template-columns: 36px minmax(120px, 1fr) auto auto minmax(90px, auto);
+  grid-template-columns: 36px minmax(0, 1fr) auto auto minmax(0, 1fr);
   gap: 0.45rem;
   align-items: center;
   border: 1px solid var(--line-soft);
@@ -590,6 +627,8 @@ video {
 .group-top {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 0.3rem;
 }
@@ -627,6 +666,7 @@ video {
 .inline-check {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.45rem;
   color: var(--text-dim);
   font-size: 0.85rem;
@@ -923,6 +963,62 @@ video {
   object-fit: cover;
 }
 
+.person-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background: var(--card);
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+}
+
+.person-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.person-card-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent);
+  flex-shrink: 0;
+}
+
+.person-card-meta {
+  min-width: 0;
+}
+
+.person-card-name {
+  font-weight: 600;
+}
+
+.person-card-handle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.person-card-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.person-card-actions .btn {
+  width: auto;
+}
+
 .auth-page {
   min-height: 100vh;
 }
@@ -1014,6 +1110,37 @@ video {
   .auth-card {
     order: 1;
   }
+
+  .leader-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'rank user level'
+      'rank xp clan';
+    row-gap: 0.3rem;
+  }
+
+  .leader-row > :nth-child(1) {
+    grid-area: rank;
+  }
+
+  .leader-row > :nth-child(2) {
+    grid-area: user;
+  }
+
+  .leader-row > :nth-child(3) {
+    grid-area: level;
+    justify-self: end;
+  }
+
+  .leader-row > :nth-child(4) {
+    grid-area: xp;
+  }
+
+  .leader-row > :nth-child(5) {
+    grid-area: clan;
+    justify-self: end;
+    text-align: right;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1040,14 +1167,38 @@ video {
     justify-content: center;
   }
 
+  .hero .actions .btn {
+    width: auto;
+    flex: 1 1 120px;
+  }
+
   .post-actions .btn,
   .request-item .btn,
-  .row .btn {
+  .row .btn,
+  .person-card-actions .btn {
     width: auto;
   }
 
   .request-item {
     align-items: flex-start;
+  }
+
+  .comment-composer {
+    flex-direction: column;
+  }
+
+  .comment-composer .btn {
+    width: 100%;
+  }
+
+  .person-card {
+    align-items: flex-start;
+  }
+
+  .person-card-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
   }
 
   .feature-grid {
@@ -1062,3 +1213,4 @@ video {
     height: 72vh;
   }
 }
+
