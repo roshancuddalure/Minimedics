@@ -274,6 +274,14 @@ function formatLocationLine(user) {
   return parts.join(', ');
 }
 
+function formatContactLine(user) {
+  if (!user) return '';
+  const code = typeof user.contact_country_code === 'string' ? user.contact_country_code.trim() : '';
+  const number = typeof user.contact_number === 'string' ? user.contact_number.trim() : '';
+  if (!code || !number) return '';
+  return `${code} ${number}`;
+}
+
 function getLevelXpProgress(level, xp) {
   const safeLevel = Math.max(1, Number(level) || 1);
   const safeXp = Math.max(0, Number(xp) || 0);
@@ -1689,6 +1697,8 @@ async function loadProfileEditor() {
   const countryEl = document.getElementById('profileEditCountry');
   const stateEl = document.getElementById('profileEditState');
   const pincodeEl = document.getElementById('profileEditPincode');
+  const contactCountryCodeEl = document.getElementById('profileEditContactCountryCode');
+  const contactNumberEl = document.getElementById('profileEditContactNumber');
   const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
   const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
   const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
@@ -1708,6 +1718,8 @@ async function loadProfileEditor() {
   if (countryEl) countryEl.value = res.user.country || '';
   if (stateEl) stateEl.value = res.user.state || '';
   if (pincodeEl) pincodeEl.value = res.user.pincode || '';
+  if (contactCountryCodeEl) contactCountryCodeEl.value = res.user.contact_country_code || '';
+  if (contactNumberEl) contactNumberEl.value = res.user.contact_number || '';
   if (privacyShowOnlineEl) privacyShowOnlineEl.value = res.user.privacy_show_online || 'connections';
   if (privacyDiscoverabilityEl) privacyDiscoverabilityEl.value = res.user.privacy_discoverability || 'everyone';
   if (privacyInSuggestionsEl) privacyInSuggestionsEl.value = res.user.privacy_in_suggestions || 'everyone';
@@ -1732,6 +1744,8 @@ async function handleProfileEditSubmit(e) {
   const countryEl = document.getElementById('profileEditCountry');
   const stateEl = document.getElementById('profileEditState');
   const pincodeEl = document.getElementById('profileEditPincode');
+  const contactCountryCodeEl = document.getElementById('profileEditContactCountryCode');
+  const contactNumberEl = document.getElementById('profileEditContactNumber');
   const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
   const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
   const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
@@ -1751,6 +1765,8 @@ async function handleProfileEditSubmit(e) {
   const country = countryEl ? countryEl.value.trim() : '';
   const state = stateEl ? stateEl.value.trim() : '';
   const pincode = pincodeEl ? pincodeEl.value.trim() : '';
+  const contactCountryCode = contactCountryCodeEl ? contactCountryCodeEl.value.trim() : '';
+  const contactNumber = contactNumberEl ? contactNumberEl.value.trim() : '';
   const privacyShowOnline = privacyShowOnlineEl ? privacyShowOnlineEl.value.trim() : 'connections';
   const privacyDiscoverability = privacyDiscoverabilityEl ? privacyDiscoverabilityEl.value.trim() : 'everyone';
   const privacyInSuggestions = privacyInSuggestionsEl ? privacyInSuggestionsEl.value.trim() : 'everyone';
@@ -1764,7 +1780,7 @@ async function handleProfileEditSubmit(e) {
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, placeFrom, country, state, pincode, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
+  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, placeFrom, country, state, pincode, contactCountryCode, contactNumber, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -2408,6 +2424,7 @@ async function loadPublicProfilePage() {
   const relation = u.relationship || {};
   const publicLocationRaw = formatLocationLine(u);
   const publicLocationLine = publicLocationRaw ? `${publicLocationRaw}${u.pincode ? ` | PIN: ${u.pincode}` : ''}` : (u.pincode ? `PIN: ${u.pincode}` : '');
+  const publicContactLine = formatContactLine(u);
   const publicBio = escapeHtml(u.bio || '');
   profileBox.innerHTML = `<div class="gamified-profile-card">
     <div class="profile-head">
@@ -2420,6 +2437,7 @@ async function loadPublicProfilePage() {
     <div class="profile-stat-grid">
       <div class="profile-stat"><span class="iconify" data-icon="lucide:cake"></span><span>${u.date_of_birth ? escapeHtml(u.date_of_birth) : 'Date not set'}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${escapeHtml(publicLocationLine || '-')}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:phone"></span><span>${escapeHtml(publicContactLine || '-')}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:activity"></span><span>${u.online_visible ? (u.online ? 'Online' : 'Offline') : 'Hidden'}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${u.connections_count || 0} connections</span></div>
     </div>
@@ -2619,7 +2637,7 @@ async function loadConnectionPanels() {
     connectionPresenceMap.set(Number(c.id), Boolean(c.online));
     return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
-      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'}, '${chatAvatar}')"></button>
+      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'}, '${chatAvatar}')">Chat</button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
@@ -2644,7 +2662,7 @@ async function loadConnectionPanels() {
   if (suggestionsBox) {
     suggestionsBox.innerHTML = suggestions.length ? suggestions.map((s) => renderPersonCard(s, `<button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(s.id)}}).then((x)=>{ if(x&&x.success){showToast('Request sent');loadConnectionPanels();} else {showToast((x&&x.error)||'Unable to send request','error');}})">Connect</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No suggestions right now.</div>';
   }
-  acceptedBox.querySelectorAll('.chat-open-btn').forEach((btn) => setActionButtonLabel(btn, 'Chat', 'chat'));
+  acceptedBox.querySelectorAll('.chat-open-btn').forEach((btn) => setButtonIconWithText(btn, 'chat'));
   applyIconifyAudit();
 }
 
@@ -3157,8 +3175,14 @@ async function loadNotificationsPanel() {
         location.href = '/dashboard';
         return;
       }
-      if ((type === 'story_reply' || refType === 'story') && refId) {
-        location.href = `/dashboard?story=${encodeURIComponent(refId)}`;
+      if ((type === 'story_reply' || refType === 'story')) {
+        const actorName = btn.querySelector('.notification-item-meta') ? btn.querySelector('.notification-item-meta').textContent : 'User';
+        if (actorId) {
+          setNotificationPanelOpen(false);
+          openChat(actorId, actorName || 'User');
+          return;
+        }
+        location.href = '/dashboard';
         return;
       }
       if ((type === 'connection_request' || refType === 'connection')) {
@@ -3449,6 +3473,47 @@ async function openChat(otherId, otherName, knownOnline = null, otherAvatar = ''
   refreshUnreadNotifications();
 }
 
+function ensureChatImageViewer() {
+  let backdrop = document.getElementById('chatImageViewer');
+  if (backdrop) return backdrop;
+  backdrop = document.createElement('div');
+  backdrop.id = 'chatImageViewer';
+  backdrop.className = 'modal-backdrop chat-image-viewer-backdrop hidden';
+  backdrop.innerHTML = `<div class="chat-image-viewer-card" role="dialog" aria-modal="true" aria-label="Chat image viewer">
+    <div class="chat-image-viewer-head">
+      <a id="chatImageDownloadBtn" class="btn tiny-btn" href="#" download="chat-image">Download</a>
+      <button id="chatImageCloseBtn" class="btn secondary tiny-btn" type="button">Close</button>
+    </div>
+    <div class="chat-image-viewer-body">
+      <img id="chatImageViewerImg" src="" alt="Chat image preview" />
+    </div>
+  </div>`;
+  document.body.appendChild(backdrop);
+  const closeBtn = document.getElementById('chatImageCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', () => backdrop.classList.add('hidden'));
+  backdrop.addEventListener('click', (evt) => {
+    if (evt.target === backdrop) backdrop.classList.add('hidden');
+  });
+  document.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape' && !backdrop.classList.contains('hidden')) {
+      backdrop.classList.add('hidden');
+    }
+  });
+  return backdrop;
+}
+
+function openChatImageViewer(src) {
+  const safeSrc = String(src || '').trim();
+  if (!safeSrc) return;
+  const backdrop = ensureChatImageViewer();
+  const img = document.getElementById('chatImageViewerImg');
+  const downloadBtn = document.getElementById('chatImageDownloadBtn');
+  if (!img || !downloadBtn) return;
+  img.src = safeSrc;
+  downloadBtn.href = safeSrc;
+  backdrop.classList.remove('hidden');
+}
+
 function appendMessage(m){
   const box = document.getElementById('messages');
   if (!box) return;
@@ -3493,6 +3558,8 @@ function appendMessage(m){
     image.src = m.image;
     image.alt = 'Chat attachment';
     image.loading = 'lazy';
+    image.style.cursor = 'zoom-in';
+    image.addEventListener('click', () => openChatImageViewer(m.image));
     msgContent.appendChild(image);
   }
   msgContent.appendChild(meta); if (m.content) msgContent.appendChild(content);
@@ -3874,6 +3941,7 @@ async function loadProfile() {
   const dobDisplay = res.user.date_of_birth ? escapeHtml(res.user.date_of_birth) : 'Date not set';
   const locationRaw = formatLocationLine(res.user);
   const locationDisplay = escapeHtml(locationRaw ? `${locationRaw}${res.user.pincode ? ` | PIN: ${res.user.pincode}` : ''}` : (res.user.pincode ? `PIN: ${res.user.pincode}` : '-'));
+  const contactDisplay = escapeHtml(formatContactLine(res.user) || '-');
   const bio = escapeHtml(res.user.bio || '');
   const level = Number(res.user.level) || 1;
   const xp = Number(res.user.xp) || 0;
@@ -3900,6 +3968,7 @@ async function loadProfile() {
     <div class="profile-stat-grid">
       <div class="profile-stat"><span class="iconify" data-icon="lucide:cake"></span><span>${dobDisplay}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${locationDisplay}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:phone"></span><span>${contactDisplay}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${res.user.connections_count || 0} connections</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:clock-3"></span><span>${last}</span></div>
     </div>

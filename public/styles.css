@@ -404,11 +404,26 @@ button {
 }
 
 .btn.icon-only-btn {
-  min-width: 2.05rem;
-  width: 2.05rem;
-  height: 2.05rem;
-  padding: 0;
-  border-radius: 10px;
+  min-width: 2rem;
+  height: 2rem;
+  width: auto;
+  padding: 0.1rem 0.28rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 999px;
+}
+
+.btn.icon-only-btn:hover {
+  transform: none;
+  border-color: transparent;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  box-shadow: none;
+}
+
+.btn.icon-only-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 2px;
 }
 
 .btn.icon-only-btn .btn-iconify {
@@ -1447,6 +1462,46 @@ button {
   border: 1px solid var(--line-soft);
 }
 
+.chat-image-viewer-backdrop {
+  z-index: 120;
+  padding: 1rem;
+}
+
+.chat-image-viewer-card {
+  width: min(960px, 94vw);
+  max-height: 92vh;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card-strong);
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.chat-image-viewer-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.chat-image-viewer-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 0.7rem;
+}
+
+#chatImageViewerImg {
+  max-width: 100%;
+  max-height: calc(92vh - 74px);
+  border-radius: 12px;
+  object-fit: contain;
+}
+
 #chatForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1830,6 +1885,27 @@ button {
 
   .person-card {
     align-items: flex-start;
+  }
+
+  .chat-image-viewer-backdrop {
+    padding: 0;
+  }
+
+  .chat-image-viewer-card {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .chat-image-viewer-head {
+    padding: 0.7rem;
+  }
+
+  #chatImageViewerImg {
+    max-height: calc(100vh - 74px);
+    border-radius: 0;
   }
 
   .person-card-actions {

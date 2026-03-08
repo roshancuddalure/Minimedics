@@ -517,6 +517,8 @@ async function initializeDatabase() {
 		country TEXT,
 		state TEXT,
 		pincode TEXT,
+		contact_country_code TEXT,
+		contact_number TEXT,
 		institute TEXT,
 		program_type TEXT,
 		degree TEXT,
@@ -551,6 +553,8 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS state TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pincode TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_country_code TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_number TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_type TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
@@ -1131,7 +1135,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -1201,7 +1205,7 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		res.json({ user });
 	} catch (e) {
@@ -1222,6 +1226,8 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	const country = typeof req.body.country === 'string' ? req.body.country.trim() : '';
 	const state = typeof req.body.state === 'string' ? req.body.state.trim() : '';
 	const pincode = typeof req.body.pincode === 'string' ? req.body.pincode.trim() : '';
+	const contactCountryCode = typeof req.body.contactCountryCode === 'string' ? req.body.contactCountryCode.trim() : '';
+	const contactNumber = typeof req.body.contactNumber === 'string' ? req.body.contactNumber.trim() : '';
 	const privacyShowOnline = typeof req.body.privacyShowOnline === 'string' ? req.body.privacyShowOnline.trim() : '';
 	const privacyDiscoverability = typeof req.body.privacyDiscoverability === 'string' ? req.body.privacyDiscoverability.trim() : '';
 	const privacyInSuggestions = typeof req.body.privacyInSuggestions === 'string' ? req.body.privacyInSuggestions.trim() : '';
@@ -1254,8 +1260,15 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	if (state.length > 80) return res.status(400).json({ error: 'State is too long' });
 	if (pincode.length > 20) return res.status(400).json({ error: 'Pincode is too long' });
 	if (pincode && !/^[A-Za-z0-9\- ]{3,20}$/.test(pincode)) return res.status(400).json({ error: 'Invalid pincode format' });
+	if (contactCountryCode.length > 6) return res.status(400).json({ error: 'Country code is too long' });
+	if (contactCountryCode && !/^\+\d{1,5}$/.test(contactCountryCode)) return res.status(400).json({ error: 'Invalid country code format' });
+	if (contactNumber.length > 20) return res.status(400).json({ error: 'Contact number is too long' });
+	if (contactNumber && !/^\d{6,20}$/.test(contactNumber)) return res.status(400).json({ error: 'Invalid contact number format' });
+	if ((contactCountryCode && !contactNumber) || (!contactCountryCode && contactNumber)) {
+		return res.status(400).json({ error: 'Add both country code and contact number' });
+	}
 	try {
-		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, pincode || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, contact_country_code = ?, contact_number = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, pincode || null, contactCountryCode || null, contactNumber || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1649,7 +1662,7 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		if (user.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
 			return res.status(404).json({ error: 'User not found' });
@@ -2383,19 +2396,23 @@ app.post('/api/stories/:id/reply', requireAuth, async (req, res) => {
 	if (!content) return res.status(400).json({ error: 'Reply is required' });
 	if (content.length > 500) return res.status(400).json({ error: 'Reply is too long' });
 	try {
-		const row = await getAsync('SELECT id, user_id, expires_at FROM stories WHERE id = ?', [storyId]);
+		const row = await getAsync('SELECT id, user_id, content, expires_at FROM stories WHERE id = ?', [storyId]);
 		if (!row || Number(row.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
 		const toUserId = Number(row.user_id);
 		if (!toUserId) return res.status(400).json({ error: 'Invalid story owner' });
 		const ts = Date.now();
 		await runAsync('INSERT INTO story_replies (story_id, from_user_id, to_user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [storyId, userId, toUserId, content, ts]);
 		if (toUserId !== userId) {
-			await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUserId, `Reply on story #${storyId}: ${content}`, ts]);
+			const storyTextRaw = typeof row.content === 'string' ? row.content.trim() : '';
+			const storySnippet = storyTextRaw ? storyTextRaw.slice(0, 120) : '';
+			const storyQuote = storySnippet ? `"${storySnippet}${storyTextRaw.length > 120 ? '...' : ''}"` : `story #${storyId}`;
+			const chatMessage = `Story reply on ${storyQuote}\nReply: ${content}`;
+			await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUserId, chatMessage, ts]);
 			await createUserNotification(toUserId, {
 				actorId: userId,
 				type: 'story_reply',
 				title: 'New story reply',
-				message: 'You received a reply on your story.',
+				message: 'You received a reply on your story. Tap to open chat.',
 				refType: 'story',
 				refId: storyId
 			});
@@ -2623,6 +2640,7 @@ app.get('/api/leaderboard', async (req, res) => {
 			 LIMIT 1) AS clan_name
 			FROM users u
 			WHERE u.username <> ?
+			AND COALESCE(u.email_verified, 0) = 1
 			ORDER BY u.xp DESC, u.id ASC
 			LIMIT 20`, [SUPERADMIN_USERNAME]);
 		res.json({ users: rows });
