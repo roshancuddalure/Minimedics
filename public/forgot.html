@@ -17,19 +17,19 @@
     <section class="auth-intro">
       <span class="eyebrow">Account Recovery</span>
       <h1>Reset your password</h1>
-      <p class="muted">Enter your username and new password. If your account has a full name saved, enter it exactly to verify ownership.</p>
+      <p class="muted">Request a reset link by email. Then open the link and set a new password.</p>
       <a class="btn secondary" href="/login.html">Back to Login</a>
     </section>
 
     <section class="card auth-card">
       <h2>Forgot password</h2>
       <form id="forgotForm" class="form">
-        <input id="forgotUser" placeholder="Username" required />
-        <input id="forgotName" placeholder="Full name (if set on account)" />
-        <input id="forgotNewPass" type="password" placeholder="New password (min 6 chars)" required />
-        <input id="forgotConfirmPass" type="password" placeholder="Confirm new password" required />
+        <input id="forgotUser" placeholder="Username or email" />
+        <input id="forgotToken" type="text" placeholder="Reset token from email link" class="hidden" />
+        <input id="forgotNewPass" type="password" placeholder="New password (1 uppercase, 1 special, min 6)" class="hidden" />
+        <input id="forgotConfirmPass" type="password" placeholder="Confirm new password" class="hidden" />
         <div class="row">
-          <button class="btn primary" type="submit">Reset Password</button>
+          <button id="forgotSubmitBtn" class="btn primary" type="submit">Send Reset Link</button>
         </div>
       </form>
       <p class="muted auth-link">Remembered it? <a href="/login.html">Log in</a></p>

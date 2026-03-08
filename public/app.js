@@ -209,6 +209,14 @@ function formatDateTimeShort(value, fallback = 'Never') {
   });
 }
 
+function getPasswordPolicyMessage(password) {
+  const value = String(password || '');
+  if (value.length < 6) return 'Password must be at least 6 characters';
+  if (!/[A-Z]/.test(value)) return 'Password must include at least one uppercase letter';
+  if (!/[^A-Za-z0-9]/.test(value)) return 'Password must include at least one special character';
+  return '';
+}
+
 function formatLocationLine(user) {
   if (!user) return '';
   const parts = [user.place_from, user.state, user.country].map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
@@ -2832,8 +2840,9 @@ async function handleChangePassword(e) {
     showToast('Please fill all password fields', 'error');
     return;
   }
-  if (newPassword.length < 6) {
-    showToast('New password must be at least 6 characters', 'error');
+  const pwdPolicyError = getPasswordPolicyMessage(newPassword);
+  if (pwdPolicyError) {
+    showToast(pwdPolicyError, 'error');
     return;
   }
   if (newPassword !== confirmPassword) {
@@ -2843,7 +2852,7 @@ async function handleChangePassword(e) {
   const submitBtn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (submitBtn) submitBtn.textContent = 'Updating...';
-  const res = await api('/api/change-password', 'POST', { currentPassword, newPassword });
+  const res = await api('/api/change-password', 'POST', { currentPassword, newPassword, confirmNewPassword: confirmPassword });
   setLoading(form, false);
   if (submitBtn) submitBtn.textContent = 'Update Password';
   if (res && res.success) {
@@ -3380,41 +3389,91 @@ async function handleLogin(e){
 async function handleForgotPassword(e) {
   e.preventDefault();
   const form = e.target;
-  const submitBtn = form.querySelector('button[type="submit"]');
+  const submitBtn = document.getElementById('forgotSubmitBtn') || form.querySelector('button[type="submit"]');
   const usernameEl = document.getElementById('forgotUser');
-  const nameEl = document.getElementById('forgotName');
+  const tokenEl = document.getElementById('forgotToken');
   const passEl = document.getElementById('forgotNewPass');
   const confirmEl = document.getElementById('forgotConfirmPass');
-  const username = usernameEl ? usernameEl.value.trim() : '';
-  const name = nameEl ? nameEl.value.trim() : '';
+  const identifier = usernameEl ? usernameEl.value.trim() : '';
+  const token = tokenEl ? tokenEl.value.trim() : '';
   const newPassword = passEl ? passEl.value.trim() : '';
   const confirmPassword = confirmEl ? confirmEl.value.trim() : '';
-
-  if (!username || !newPassword || !confirmPassword) {
-    showToast('Username and password fields are required', 'error');
-    return;
-  }
-  if (newPassword.length < 6) {
-    showToast('Password must be at least 6 characters', 'error');
-    return;
-  }
-  if (newPassword !== confirmPassword) {
-    showToast('Passwords do not match', 'error');
-    return;
-  }
+  const isResetStep = Boolean(token);
 
   setLoading(form, true);
-  if (submitBtn) submitBtn.textContent = 'Resetting...';
-  const res = await api('/api/forgot-password', 'POST', { username, name, newPassword });
+  if (submitBtn) submitBtn.textContent = isResetStep ? 'Resetting...' : 'Sending...';
+  let res;
+  if (isResetStep) {
+    if (!newPassword || !confirmPassword) {
+      setLoading(form, false);
+      if (submitBtn) submitBtn.textContent = 'Reset Password';
+      showToast('Enter and confirm your new password', 'error');
+      return;
+    }
+    const pwdPolicyError = getPasswordPolicyMessage(newPassword);
+    if (pwdPolicyError) {
+      setLoading(form, false);
+      if (submitBtn) submitBtn.textContent = 'Reset Password';
+      showToast(pwdPolicyError, 'error');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setLoading(form, false);
+      if (submitBtn) submitBtn.textContent = 'Reset Password';
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+    res = await api('/api/forgot-password/confirm', 'POST', { token, newPassword, confirmNewPassword: confirmPassword });
+  } else {
+    if (!identifier) {
+      setLoading(form, false);
+      if (submitBtn) submitBtn.textContent = 'Send Reset Link';
+      showToast('Username or email is required', 'error');
+      return;
+    }
+    res = await api('/api/forgot-password/request', 'POST', { identifier });
+  }
   setLoading(form, false);
-  if (submitBtn) submitBtn.textContent = 'Reset Password';
+  if (submitBtn) submitBtn.textContent = isResetStep ? 'Reset Password' : 'Send Reset Link';
 
   if (res && res.success) {
-    showToast('Password reset successful. Redirecting to login...');
-    setTimeout(() => { location.href = '/login.html'; }, 900);
+    if (isResetStep) {
+      showToast('Password reset successful. Redirecting to login...');
+      setTimeout(() => { location.href = '/login.html'; }, 900);
+    } else {
+      showToast(res.message || 'If your account exists, reset link has been sent');
+    }
   } else {
     showToast(res.error || 'Unable to reset password', 'error');
   }
+}
+
+async function initForgotPasswordPage() {
+  const form = document.getElementById('forgotForm');
+  if (!form) return;
+  const tokenFromUrl = new URLSearchParams(window.location.search).get('token');
+  const tokenEl = document.getElementById('forgotToken');
+  const passEl = document.getElementById('forgotNewPass');
+  const confirmEl = document.getElementById('forgotConfirmPass');
+  const submitBtn = document.getElementById('forgotSubmitBtn');
+  if (!tokenFromUrl) {
+    if (submitBtn) submitBtn.textContent = 'Send Reset Link';
+    return;
+  }
+  const validateRes = await api(`/api/forgot-password/validate?token=${encodeURIComponent(tokenFromUrl)}`);
+  if (!validateRes || validateRes.error) {
+    showToast(validateRes && validateRes.error ? validateRes.error : 'Invalid reset link', 'error');
+    if (submitBtn) submitBtn.textContent = 'Send Reset Link';
+    return;
+  }
+  if (tokenEl) {
+    tokenEl.value = tokenFromUrl;
+    tokenEl.classList.remove('hidden');
+    tokenEl.readOnly = true;
+  }
+  if (passEl) passEl.classList.remove('hidden');
+  if (confirmEl) confirmEl.classList.remove('hidden');
+  if (submitBtn) submitBtn.textContent = 'Reset Password';
 }
 
 async function loadMySupportTickets() {
@@ -3785,7 +3844,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Auth forms
   if (document.getElementById('regForm')) document.getElementById('regForm').addEventListener('submit', handleRegister);
   if (document.getElementById('loginForm')) document.getElementById('loginForm').addEventListener('submit', handleLogin);
-  if (document.getElementById('forgotForm')) document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
+  if (document.getElementById('forgotForm')) {
+    document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
+    initForgotPasswordPage();
+  }
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
     loadProfileEditor();

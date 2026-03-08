@@ -99,6 +99,18 @@ function createVerificationToken() {
 	return crypto.randomBytes(32).toString('hex');
 }
 
+function hashToken(rawToken) {
+	return crypto.createHash('sha256').update(String(rawToken || '')).digest('hex');
+}
+
+function getPasswordPolicyError(password) {
+	const pwd = typeof password === 'string' ? password : '';
+	if (pwd.length < 6) return 'Password must be at least 6 characters';
+	if (!/[A-Z]/.test(pwd)) return 'Password must include at least one uppercase letter';
+	if (!/[^A-Za-z0-9]/.test(pwd)) return 'Password must include at least one special character';
+	return '';
+}
+
 async function sendVerificationEmail(toEmail, verifyUrl) {
 	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
 	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
@@ -140,6 +152,58 @@ async function sendVerificationEmail(toEmail, verifyUrl) {
 				} catch (e) {
 					json = null;
 				}
+				resolve({ statusCode: res.statusCode || 0, json, raw });
+			});
+		});
+		req.on('error', reject);
+		req.write(body);
+		req.end();
+	});
+	if (result.statusCode < 200 || result.statusCode >= 300) {
+		const details = result.json && (result.json.message || result.json.error)
+			? `${result.json.message || result.json.error}`
+			: (result.raw || '').slice(0, 300);
+		throw new Error(`Resend API error (${result.statusCode})${details ? ` - ${details}` : ''}`);
+	}
+}
+
+async function sendPasswordResetEmail(toEmail, resetUrl) {
+	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
+	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
+	if (!toEmail) throw new Error('Recipient email is missing');
+	if (!resetUrl) throw new Error('Reset URL is missing');
+	const html = `
+			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
+				<h2 style="margin:0 0 10px">${APP_NAME} password reset</h2>
+				<p style="margin:0 0 12px">We received a request to reset your password.</p>
+				<p style="margin:0 0 16px">
+					<a href="${resetUrl}" style="display:inline-block;padding:10px 16px;background:#0f9f9a;color:#ffffff;text-decoration:none;border-radius:8px">Reset Password</a>
+				</p>
+				<p style="margin:0 0 8px">Or copy this link into your browser:</p>
+				<p style="margin:0 0 16px;word-break:break-all">${resetUrl}</p>
+				<p style="margin:0;color:#475569">This link expires in 15 minutes. If you did not request this, ignore this email.</p>
+			</div>
+		`;
+	const body = JSON.stringify({
+		from: EMAIL_FROM,
+		to: [toEmail],
+		subject: `Reset your ${APP_NAME} password`,
+		html
+	});
+	const result = await new Promise((resolve, reject) => {
+		const req = https.request('https://api.resend.com/emails', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${apiKey}`,
+				'Content-Type': 'application/json',
+				'Content-Length': Buffer.byteLength(body)
+			}
+		}, (res) => {
+			let raw = '';
+			res.on('data', (chunk) => { raw += chunk; });
+			res.on('end', () => {
+				let json = null;
+				try { json = raw ? JSON.parse(raw) : null; } catch (e) { json = null; }
 				resolve({ statusCode: res.statusCode || 0, json, raw });
 			});
 		});
@@ -410,6 +474,8 @@ async function initializeDatabase() {
 		speciality TEXT,
 		email_verified INTEGER DEFAULT 0,
 		email_verify_token TEXT,
+		password_reset_token_hash TEXT,
+		password_reset_expires_at BIGINT,
 		last_login BIGINT,
 		profile_picture TEXT,
 		privacy_show_online TEXT DEFAULT 'connections',
@@ -442,6 +508,8 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_show_online TEXT DEFAULT 'connections'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_discoverability TEXT DEFAULT 'everyone'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_in_suggestions TEXT DEFAULT 'everyone'`);
@@ -799,6 +867,8 @@ app.post('/api/register', async (req, res) => {
 	if (safeProgramType === 'student' && (!safeDegree || !safeAcademicYear)) {
 		return res.status(400).json({ error: 'Degree and academic year are required for students' });
 	}
+	const passwordPolicyError = getPasswordPolicyError(String(password || ''));
+	if (passwordPolicyError) return res.status(400).json({ error: passwordPolicyError });
 	
 	try {
 		const countRow = await getAsync('SELECT COUNT(*) as cnt FROM users');
@@ -902,8 +972,11 @@ app.post('/api/login', (req, res) => {
 app.post('/api/change-password', requireAuth, async (req, res) => {
 	const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword.trim() : '';
 	const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
-	if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
-	if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+	const confirmNewPassword = typeof req.body.confirmNewPassword === 'string' ? req.body.confirmNewPassword.trim() : '';
+	if (!currentPassword || !newPassword || !confirmNewPassword) return res.status(400).json({ error: 'Current, new, and confirm password are required' });
+	if (newPassword !== confirmNewPassword) return res.status(400).json({ error: 'New password and confirm password do not match' });
+	const passwordPolicyError = getPasswordPolicyError(newPassword);
+	if (passwordPolicyError) return res.status(400).json({ error: passwordPolicyError });
 	try {
 		const user = await getAsync('SELECT id, password FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
@@ -918,23 +991,66 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
 	}
 });
 
-app.post('/api/forgot-password', async (req, res) => {
-	const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
-	const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-	const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
-	if (!username || !newPassword) return res.status(400).json({ error: 'Username and new password are required' });
-	if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+app.post('/api/forgot-password/request', async (req, res) => {
+	const identifier = typeof req.body.identifier === 'string' ? req.body.identifier.trim() : '';
+	if (!identifier) return res.status(400).json({ error: 'Username or email is required' });
 	try {
-		const user = await getAsync('SELECT id, name FROM users WHERE username = ?', [username]);
-		if (!user) return res.status(400).json({ error: 'Unable to verify account details' });
-		const savedName = String(user.name || '').trim().toLowerCase();
-		const providedName = name.toLowerCase();
-		if (savedName && savedName !== providedName) return res.status(400).json({ error: 'Unable to verify account details' });
+		const user = await getAsync('SELECT id, email, email_verified FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
+		// Avoid account enumeration: return success even when user is not found.
+		if (!user) return res.json({ success: true, message: 'If an account exists, a password reset email has been sent.' });
+		if (!Number(user.email_verified) || !user.email) return res.json({ success: true, message: 'If an account exists, a password reset email has been sent.' });
+		const rawToken = createVerificationToken();
+		const tokenHash = hashToken(rawToken);
+		const expiresAt = Date.now() + (15 * 60 * 1000);
+		await runAsync('UPDATE users SET password_reset_token_hash = ?, password_reset_expires_at = ? WHERE id = ?', [tokenHash, expiresAt, user.id]);
+		const resetUrl = `${getPublicBaseUrl(req)}/forgot.html?token=${encodeURIComponent(rawToken)}`;
+		await sendPasswordResetEmail(user.email, resetUrl);
+		const payload = { success: true, message: 'If an account exists, a password reset email has been sent.' };
+		if (!isProduction) payload.resetUrl = resetUrl;
+		return res.json(payload);
+	} catch (e) {
+		console.error('Forgot password request error:', e);
+		return res.status(500).json({ error: 'Unable to process reset request right now' });
+	}
+});
+
+app.get('/api/forgot-password/validate', async (req, res) => {
+	const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+	if (!token) return res.status(400).json({ error: 'Invalid reset token' });
+	try {
+		const tokenHash = hashToken(token);
+		const row = await getAsync('SELECT id, password_reset_expires_at FROM users WHERE password_reset_token_hash = ?', [tokenHash]);
+		if (!row) return res.status(400).json({ error: 'Invalid or expired reset link' });
+		if (!row.password_reset_expires_at || Number(row.password_reset_expires_at) < Date.now()) {
+			return res.status(400).json({ error: 'Invalid or expired reset link' });
+		}
+		return res.json({ success: true, valid: true });
+	} catch (e) {
+		console.error('Forgot password validate error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/forgot-password/confirm', async (req, res) => {
+	const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
+	const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
+	const confirmNewPassword = typeof req.body.confirmNewPassword === 'string' ? req.body.confirmNewPassword.trim() : '';
+	if (!token || !newPassword || !confirmNewPassword) return res.status(400).json({ error: 'Token, new password, and confirm password are required' });
+	if (newPassword !== confirmNewPassword) return res.status(400).json({ error: 'Passwords do not match' });
+	const passwordPolicyError = getPasswordPolicyError(newPassword);
+	if (passwordPolicyError) return res.status(400).json({ error: passwordPolicyError });
+	try {
+		const tokenHash = hashToken(token);
+		const user = await getAsync('SELECT id, password_reset_expires_at FROM users WHERE password_reset_token_hash = ?', [tokenHash]);
+		if (!user) return res.status(400).json({ error: 'Invalid or expired reset link' });
+		if (!user.password_reset_expires_at || Number(user.password_reset_expires_at) < Date.now()) {
+			return res.status(400).json({ error: 'Invalid or expired reset link' });
+		}
 		const hash = await bcrypt.hash(newPassword, 10);
-		await runAsync('UPDATE users SET password = ? WHERE id = ?', [hash, user.id]);
+		await runAsync('UPDATE users SET password = ?, password_reset_token_hash = NULL, password_reset_expires_at = NULL WHERE id = ?', [hash, user.id]);
 		return res.json({ success: true });
 	} catch (e) {
-		console.error('Forgot password error:', e);
+		console.error('Forgot password confirm error:', e);
 		return res.status(500).json({ error: 'Server error' });
 	}
 });
