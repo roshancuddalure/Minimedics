@@ -287,7 +287,7 @@ function getProfilePictureUrl(userLike) {
 
 function getActionIconName(actionKey) {
   const iconMap = {
-    like: 'lucide:heart',
+    like: 'material-symbols:favorite-outline',
     comment: 'lucide:message-circle',
     share: 'lucide:share-2',
     close: 'lucide:x',
@@ -296,7 +296,7 @@ function getActionIconName(actionKey) {
     verify: 'lucide:badge-check',
     block: 'lucide:user-x',
     unblock: 'lucide:user-check',
-    save: 'lucide:bookmark',
+    save: 'material-symbols:bookmark-outline',
     send: 'lucide:send',
     chat: 'lucide:message-square',
     home: 'lucide:house',
@@ -310,6 +310,7 @@ function getActionIconName(actionKey) {
     approve: 'lucide:check',
     reject: 'lucide:x',
     connect: 'lucide:user-plus',
+    disconnect: 'lucide:user-minus',
     follow: 'lucide:user-plus',
     unfollow: 'lucide:user-minus',
     open: 'lucide:external-link',
@@ -349,6 +350,7 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('approve')) return 'approve';
   if (normalized.startsWith('reject')) return 'reject';
   if (normalized.startsWith('connect')) return 'connect';
+  if (normalized.startsWith('disconnect')) return 'disconnect';
   if (normalized.startsWith('follow')) return 'follow';
   if (normalized.startsWith('unfollow')) return 'unfollow';
   if (normalized.startsWith('open')) return 'open';
@@ -370,7 +372,13 @@ function extractCountFromLabel(label) {
 function setActionButtonLabel(btn, label, forcedActionKey = '') {
   if (!btn) return;
   const actionKey = forcedActionKey || getActionKeyFromLabel(label);
-  const iconName = getActionIconName(actionKey);
+  const normalized = String(label || '').trim().toLowerCase();
+  let iconName = getActionIconName(actionKey);
+  if (actionKey === 'like') {
+    iconName = normalized.startsWith('unlike') ? 'material-symbols:favorite' : 'material-symbols:favorite-outline';
+  } else if (actionKey === 'save') {
+    iconName = normalized.startsWith('saved') ? 'material-symbols:bookmark' : 'material-symbols:bookmark-outline';
+  }
   if (!iconName) {
     btn.textContent = label;
     return;
@@ -589,7 +597,7 @@ async function toggleSave(postId, btn) {
   const res = await api(`/api/post/${postId}/save`, 'POST', { listName });
   setLoading(btn, false);
   if (res && res.success) {
-    btn.textContent = `${res.saved ? 'Saved' : 'Save'} (${res.count || 0})`;
+    setActionButtonLabel(btn, `${res.saved ? 'Saved' : 'Save'} (${res.count || 0})`, 'save');
     if (res.saved && res.listName) showToast(`Saved to "${res.listName}"`);
     if (document.getElementById('savedPostsBox')) loadSavedPosts();
   } else {
