@@ -141,6 +141,35 @@ let postMode = null;
 let currentSavedListFilter = 'General';
 let clanLoungeInterval = null;
 const STORY_VIEW_DURATION_MS = 30000;
+let notificationPanelOpen = false;
+let unreadNotificationCount = 0;
+let audioContext = null;
+let notificationRefreshInterval = null;
+
+function playNotificationSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!audioContext) audioContext = new Ctx();
+    const ctx = audioContext;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(860, ctx.currentTime);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.19);
+  } catch (e) {
+    // ignore sound failures
+  }
+}
 
 async function api(path, method='GET', data) {
   const opts = { method, headers: {}, cache: 'no-store' };
@@ -327,7 +356,8 @@ function getActionIconName(actionKey) {
     minimize: 'lucide:minus',
     dark: 'lucide:moon',
     light: 'lucide:sun',
-    list: 'lucide:list'
+    list: 'lucide:list',
+    notification: 'lucide:bell'
   };
   return iconMap[actionKey] || '';
 }
@@ -368,6 +398,7 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('dark')) return 'dark';
   if (normalized.startsWith('light')) return 'light';
   if (normalized.includes('list')) return 'list';
+  if (normalized.startsWith('notification')) return 'notification';
   return '';
 }
 
@@ -2955,6 +2986,13 @@ function upsertSavedListsTopButton(user) {
   const isAuthenticated = Boolean(user && user.id);
   if (!isAuthenticated) {
     if (existing) existing.remove();
+    if (notificationRefreshInterval) {
+      window.clearInterval(notificationRefreshInterval);
+      notificationRefreshInterval = null;
+    }
+    notificationPanelOpen = false;
+    const panel = document.getElementById('notificationPanel');
+    if (panel) panel.classList.add('hidden');
     return;
   }
   if (existing) return;
@@ -2968,6 +3006,162 @@ function upsertSavedListsTopButton(user) {
     themeToggle.insertAdjacentElement('afterend', anchor);
   } else {
     actions.prepend(anchor);
+  }
+}
+
+function ensureNotificationPanel() {
+  let panel = document.getElementById('notificationPanel');
+  if (panel) return panel;
+  panel = document.createElement('section');
+  panel.id = 'notificationPanel';
+  panel.className = 'notification-panel hidden';
+  panel.innerHTML = `<div class="notification-panel-head">
+    <h4>Notifications</h4>
+    <button id="notificationMarkAllBtn" class="btn secondary tiny-btn" type="button">Mark all read</button>
+  </div>
+  <div id="notificationPanelBody" class="notification-panel-body"></div>`;
+  document.body.appendChild(panel);
+  const markAllBtn = document.getElementById('notificationMarkAllBtn');
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', async () => {
+      const res = await api('/api/notifications/mark-all-read', 'POST', {});
+      if (res && res.success) {
+        unreadNotificationCount = 0;
+        updateNotificationBadge();
+        loadNotificationsPanel();
+      }
+    });
+  }
+  document.addEventListener('click', (evt) => {
+    if (!notificationPanelOpen) return;
+    const btn = document.getElementById('notificationsMenuBtn');
+    const clickedInside = panel.contains(evt.target) || (btn && btn.contains(evt.target));
+    if (!clickedInside) setNotificationPanelOpen(false);
+  });
+  return panel;
+}
+
+function updateNotificationBadge() {
+  const btn = document.getElementById('notificationsMenuBtn');
+  if (!btn) return;
+  let badge = btn.querySelector('.notification-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'notification-badge hidden';
+    btn.appendChild(badge);
+  }
+  const unread = Math.max(0, Number(unreadNotificationCount) || 0);
+  badge.textContent = unread > 99 ? '99+' : String(unread);
+  badge.classList.toggle('hidden', unread < 1);
+}
+
+async function refreshUnreadNotifications() {
+  const res = await api('/api/notifications/unread-count');
+  if (res && !res.error) {
+    unreadNotificationCount = Number(res.unread) || 0;
+    updateNotificationBadge();
+  }
+}
+
+async function loadNotificationsPanel() {
+  const body = document.getElementById('notificationPanelBody');
+  if (!body) return;
+  body.innerHTML = '<div class="muted">Loading notifications...</div>';
+  const res = await api('/api/notifications?limit=50');
+  if (res.error) {
+    body.innerHTML = `<div class="muted">Unable to load notifications. ${escapeHtml(res.error || '')}</div>`;
+    return;
+  }
+  const items = Array.isArray(res.notifications) ? res.notifications : [];
+  if (!items.length) {
+    body.innerHTML = '<div class="muted">No notifications yet.</div>';
+    return;
+  }
+  body.innerHTML = items.map((n) => {
+    const actor = escapeHtml(n.actor_name || n.actor_username || '');
+    const title = escapeHtml(n.title || 'Notification');
+    const msg = escapeHtml(n.message || '');
+    return `<button class="notification-item ${Number(n.is_read) ? '' : 'is-unread'}" data-id="${n.id}" data-type="${escapeHtml(n.type || '')}" data-ref-type="${escapeHtml(n.ref_type || '')}" data-ref-id="${Number(n.ref_id) || 0}" data-actor-id="${Number(n.actor_id) || 0}" type="button">
+      <div class="notification-item-title">${title}</div>
+      ${actor ? `<div class="notification-item-meta">${actor}</div>` : ''}
+      ${msg ? `<div class="notification-item-text">${msg}</div>` : ''}
+      <div class="notification-item-time muted">${formatDateTimeShort(n.created_at, '')}</div>
+    </button>`;
+  }).join('');
+  Array.from(body.querySelectorAll('.notification-item')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.getAttribute('data-id'));
+      const type = String(btn.getAttribute('data-type') || '');
+      const refType = String(btn.getAttribute('data-ref-type') || '');
+      const refId = Number(btn.getAttribute('data-ref-id') || 0);
+      const actorId = Number(btn.getAttribute('data-actor-id') || 0);
+      if (id) await api('/api/notifications/mark-read', 'POST', { id });
+      if (unreadNotificationCount > 0) {
+        unreadNotificationCount -= 1;
+        updateNotificationBadge();
+      }
+      if (type === 'chat_message' && actorId) {
+        const actorName = btn.querySelector('.notification-item-meta') ? btn.querySelector('.notification-item-meta').textContent : 'User';
+        setNotificationPanelOpen(false);
+        openChat(actorId, actorName || 'User');
+        return;
+      }
+      if ((type === 'post_shared' || refType === 'post') && refId) {
+        location.href = '/dashboard';
+        return;
+      }
+      if ((type === 'story_reply' || refType === 'story') && refId) {
+        location.href = `/dashboard?story=${encodeURIComponent(refId)}`;
+        return;
+      }
+      if ((type === 'connection_request' || refType === 'connection')) {
+        location.href = '/dashboard';
+      }
+    });
+  });
+}
+
+function setNotificationPanelOpen(open) {
+  const panel = ensureNotificationPanel();
+  notificationPanelOpen = Boolean(open);
+  panel.classList.toggle('hidden', !notificationPanelOpen);
+  if (notificationPanelOpen) loadNotificationsPanel();
+}
+
+function upsertNotificationsTopButton(user) {
+  const actions = document.querySelector('.actions');
+  if (!actions) return;
+  const existing = document.getElementById('notificationsMenuBtn');
+  const isAuthenticated = Boolean(user && user.id);
+  if (!isAuthenticated) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (!existing) {
+    const btn = document.createElement('button');
+    btn.id = 'notificationsMenuBtn';
+    btn.className = 'btn';
+    btn.type = 'button';
+    btn.textContent = 'Notifications';
+    setButtonIconWithText(btn, 'notification');
+    btn.addEventListener('click', async () => {
+      if (!notificationPanelOpen) await refreshUnreadNotifications();
+      setNotificationPanelOpen(!notificationPanelOpen);
+    });
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn && logoutBtn.parentElement === actions) {
+      logoutBtn.insertAdjacentElement('beforebegin', btn);
+    } else {
+      actions.appendChild(btn);
+    }
+  }
+  ensureNotificationPanel();
+  refreshUnreadNotifications();
+  updateNotificationBadge();
+  if (!notificationRefreshInterval) {
+    notificationRefreshInterval = window.setInterval(() => {
+      refreshUnreadNotifications();
+    }, 20000);
   }
 }
 
@@ -2992,18 +3186,58 @@ function ensureSocket(userId) {
     const current = currentChatUser ? Number(currentChatUser) : 0;
     const from = Number(m && (m.from ?? m.from_user));
     const to = Number(m && (m.to ?? m.to_user));
-    if (!meId || !current) return;
+    if (!meId) return;
+    if (to !== meId && from !== meId) return;
+    const isIncoming = from !== meId;
     const isCurrentThread = (from === meId && to === current) || (from === current && to === meId);
-    if (!isCurrentThread) return;
-    appendMessage(m);
+    if (isCurrentThread) {
+      appendMessage(m);
+      if (isIncoming && current) {
+        api(`/api/messages/${current}/mark-seen`, 'POST', {}).then(() => refreshUnreadNotifications());
+      }
+      return;
+    }
+    if (isIncoming) {
+      showToast(`New message from ${m.from_username || 'a connection'}`);
+      playNotificationSound();
+      refreshUnreadNotifications();
+    }
+  });
+  socket.on('incomingMessage', (m) => {
+    const meId = window.__me ? Number(window.__me.id) : 0;
+    if (!meId) return;
+    const from = Number(m && (m.from ?? m.from_user));
+    const to = Number(m && (m.to ?? m.to_user));
+    if (to !== meId || !from) return;
+    const current = currentChatUser ? Number(currentChatUser) : 0;
+    const isCurrentThread = current && from === current;
+    if (isCurrentThread) return;
+    showToast(`New message from ${m.from_username || 'a connection'}`);
+    playNotificationSound();
+    refreshUnreadNotifications();
   });
   socket.on('connectionRequest', (data)=>{
     // new request received
     console.log('new connection request:', data);
+    showToast('You have a new connection request');
+    playNotificationSound();
+    refreshUnreadNotifications();
     loadRequests(); // reload requests
   });
   socket.on('postShared', ()=>{
     showToast('A connection shared a post with you');
+    playNotificationSound();
+    refreshUnreadNotifications();
+  });
+  socket.on('notification:new', (n) => {
+    if (n && n.type && n.type !== 'chat_message') {
+      showToast(n.title || 'New notification');
+      playNotificationSound();
+    }
+    refreshUnreadNotifications();
+  });
+  socket.on('chatSeen', () => {
+    refreshUnreadNotifications();
   });
   socket.on('presenceUpdate', (payload) => {
     const userIdNum = Number(payload && payload.userId);
@@ -3106,6 +3340,7 @@ function initChatControls() {
     closeBtn.dataset.bound = '1';
     closeBtn.addEventListener('click', () => {
       panel.style.display = 'none';
+      if (socket) socket.emit('chatViewing', { peerId: 0 });
       currentChatUser = null;
       setChatMinimized(false);
       clearChatAttachment();
@@ -3126,6 +3361,7 @@ async function openChat(otherId, otherName, knownOnline = null, otherAvatar = ''
   const chatPanel = document.getElementById('chatPanel');
   chatPanel.style.display='grid';
   setChatMinimized(false);
+  ensureSocket(me.id).emit('chatViewing', { peerId: Number(otherId) });
   const titleEl = document.getElementById('chatTitle');
   const avatarEl = document.getElementById('chatTitleAvatar');
   if (titleEl) {
@@ -3151,6 +3387,8 @@ async function openChat(otherId, otherName, knownOnline = null, otherAvatar = ''
     return;
   }
   (hist.messages||[]).forEach(m=>appendMessage(m));
+  await api(`/api/messages/${encodeURIComponent(otherId)}/mark-seen`, 'POST', {});
+  refreshUnreadNotifications();
 }
 
 function appendMessage(m){
@@ -3557,6 +3795,7 @@ async function loadProfile() {
   cachedMe = res.user || null;
   window.__me = cachedMe;
   upsertSavedListsTopButton(cachedMe);
+  upsertNotificationsTopButton(cachedMe);
   holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
@@ -3701,6 +3940,7 @@ async function handlePostImageSelection(e) {
 
 document.addEventListener('DOMContentLoaded', ()=>{
   upsertSavedListsTopButton(null);
+  upsertNotificationsTopButton(null);
   initBrandMasthead();
   // Initialize theme toggle
   initThemeToggle();
@@ -3872,6 +4112,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.__me = cachedMe;
     if (document.getElementById('storiesBar')) loadStories();
     upsertSavedListsTopButton(cachedMe);
+    upsertNotificationsTopButton(cachedMe);
     const isAdmin = cachedMe && cachedMe.role === 'admin';
     const dashboardAdmin = document.getElementById('dashboardAdminSection');
     if (dashboardAdmin) dashboardAdmin.classList.toggle('hidden', !isAdmin);

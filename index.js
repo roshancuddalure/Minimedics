@@ -366,6 +366,56 @@ async function getAcceptedConnectionIds(userId) {
 	return rows.map((r) => Number(r.id)).filter((v) => !Number.isNaN(v));
 }
 
+async function ensureNotificationsReady() {
+	await runAsync(`CREATE TABLE IF NOT EXISTS notifications (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		actor_id BIGINT,
+		type TEXT NOT NULL,
+		title TEXT,
+		message TEXT,
+		ref_type TEXT,
+		ref_id BIGINT,
+		is_read INTEGER DEFAULT 0,
+		created_at BIGINT NOT NULL
+	)`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_id BIGINT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS ref_type TEXT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS ref_id BIGINT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_read INTEGER DEFAULT 0`);
+	await runAsync(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS seen_at BIGINT`);
+}
+
+async function createUserNotification(userId, payload = {}) {
+	await ensureNotificationsReady();
+	const toUserId = Number(userId);
+	if (!toUserId) return null;
+	const actorId = Number(payload.actorId || 0) || null;
+	const type = typeof payload.type === 'string' ? payload.type.trim() : 'general';
+	const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+	const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+	const refType = typeof payload.refType === 'string' ? payload.refType.trim() : null;
+	const refId = Number(payload.refId || 0) || null;
+	const ts = Date.now();
+	const created = await runAsync(`INSERT INTO notifications
+		(user_id, actor_id, type, title, message, ref_type, ref_id, is_read, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [toUserId, actorId, type || 'general', title || null, message || null, refType || null, refId, 0, ts]);
+	const notification = {
+		id: created.lastID,
+		user_id: toUserId,
+		actor_id: actorId,
+		type: type || 'general',
+		title: title || '',
+		message: message || '',
+		ref_type: refType || null,
+		ref_id: refId,
+		is_read: 0,
+		created_at: ts
+	};
+	io.to(`user:${toUserId}`).emit('notification:new', notification);
+	return notification;
+}
+
 async function getGroupRole(groupId, userId) {
 	const row = await getAsync('SELECT role, status FROM group_memberships WHERE group_id = ? AND user_id = ?', [groupId, userId]);
 	return row || null;
@@ -605,9 +655,27 @@ async function initializeDatabase() {
 		to_user BIGINT,
 		content TEXT,
 		image TEXT,
+		seen_at BIGINT,
 		created_at BIGINT
 	)`);
 	await runAsync(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS image TEXT`);
+	await runAsync(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS seen_at BIGINT`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS notifications (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		actor_id BIGINT,
+		type TEXT NOT NULL,
+		title TEXT,
+		message TEXT,
+		ref_type TEXT,
+		ref_id BIGINT,
+		is_read INTEGER DEFAULT 0,
+		created_at BIGINT NOT NULL
+	)`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_id BIGINT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS ref_type TEXT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS ref_id BIGINT`);
+	await runAsync(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_read INTEGER DEFAULT 0`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS post_likes (
 		id BIGSERIAL PRIMARY KEY,
 		post_id BIGINT NOT NULL,
@@ -1291,6 +1359,7 @@ async function deleteUserAndRelatedData(userId) {
 	await runAsync('DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?', [userId, userId]);
 	await runAsync('DELETE FROM user_reports WHERE reporter_id = ? OR target_user_id = ?', [userId, userId]);
 	await runAsync('DELETE FROM clan_reports WHERE reporter_id = ?', [userId]);
+	await runAsync('DELETE FROM notifications WHERE user_id = ? OR actor_id = ?', [userId, userId]);
 	await runAsync('DELETE FROM messages WHERE from_user = ? OR to_user = ?', [userId, userId]);
 	await runAsync('DELETE FROM xp_events WHERE user_id = ?', [userId]);
 	await runAsync('DELETE FROM story_likes WHERE user_id = ?', [userId]);
@@ -1753,6 +1822,14 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 			db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], function (err) {
 				if (err) return res.status(400).json({ error: 'Unable to create request' });
 				io.to(`user:${b}`).emit('connectionRequest', { from: a, to: b });
+				createUserNotification(b, {
+					actorId: a,
+					type: 'connection_request',
+					title: 'New connection request',
+					message: 'Someone sent you a connection request.',
+					refType: 'connection',
+					refId: this && this.lastID ? Number(this.lastID) : null
+				}).catch((notifyErr) => console.error('Connection notification error:', notifyErr));
 				res.json({ success: true });
 			});
 		});
@@ -2018,6 +2095,81 @@ app.get('/api/messages/:otherId', requireAuth, (req, res) => {
 	});
 });
 
+app.post('/api/messages/:otherId/mark-seen', requireAuth, async (req, res) => {
+	const uid = Number(req.session.userId);
+	const other = Number(req.params.otherId);
+	if (!uid || !other || uid === other) return res.status(400).json({ error: 'Invalid user' });
+	try {
+		await ensureNotificationsReady();
+		const allowed = await getAsync(`SELECT id FROM connections
+			WHERE status = 'accepted'
+			AND ((user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?))
+			LIMIT 1`, [uid, other, other, uid]);
+		if (!allowed) return res.status(403).json({ error: 'Chat is available only with accepted connections' });
+		const ts = Date.now();
+		const updated = await runAsync('UPDATE messages SET seen_at = ? WHERE to_user = ? AND from_user = ? AND seen_at IS NULL', [ts, uid, other]);
+		await runAsync(`UPDATE notifications
+			SET is_read = 1
+			WHERE user_id = ? AND type = 'chat_message' AND actor_id = ? AND is_read = 0`, [uid, other]);
+		io.to(`user:${other}`).emit('chatSeen', { by: uid, other, seenAt: ts });
+		res.json({ success: true, updated: Number(updated.changes) || 0 });
+	} catch (e) {
+		console.error('Mark seen error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/notifications', requireAuth, async (req, res) => {
+	const limitRaw = Number(req.query.limit);
+	const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 40;
+	try {
+		await ensureNotificationsReady();
+		const rows = await allAsync(`SELECT n.id, n.user_id, n.actor_id, n.type, n.title, n.message, n.ref_type, n.ref_id, n.is_read, n.created_at,
+			u.username AS actor_username, u.name AS actor_name, u.profile_picture AS actor_picture
+			FROM notifications n
+			LEFT JOIN users u ON u.id = n.actor_id
+			WHERE n.user_id = ?
+			ORDER BY n.created_at DESC
+			LIMIT ?`, [req.session.userId, limit]);
+		res.json({ notifications: rows });
+	} catch (e) {
+		console.error('Notifications load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+	try {
+		await ensureNotificationsReady();
+		const row = await getAsync('SELECT COUNT(*)::int AS cnt FROM notifications WHERE user_id = ? AND COALESCE(is_read, 0) = 0', [req.session.userId]);
+		res.json({ unread: Number(row && row.cnt) || 0 });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/notifications/mark-read', requireAuth, async (req, res) => {
+	const id = Number(req.body.id);
+	if (!id) return res.status(400).json({ error: 'Invalid notification id' });
+	try {
+		await ensureNotificationsReady();
+		await runAsync('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.session.userId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/notifications/mark-all-read', requireAuth, async (req, res) => {
+	try {
+		await ensureNotificationsReady();
+		await runAsync('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND COALESCE(is_read, 0) = 0', [req.session.userId]);
+		res.json({ success: true });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/post/:id/comments', (req, res) => {
 	const postId = Number(req.params.id);
 	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
@@ -2237,6 +2389,14 @@ app.post('/api/stories/:id/reply', requireAuth, async (req, res) => {
 		await runAsync('INSERT INTO story_replies (story_id, from_user_id, to_user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [storyId, userId, toUserId, content, ts]);
 		if (toUserId !== userId) {
 			await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUserId, `Reply on story #${storyId}: ${content}`, ts]);
+			await createUserNotification(toUserId, {
+				actorId: userId,
+				type: 'story_reply',
+				title: 'New story reply',
+				message: 'You received a reply on your story.',
+				refType: 'story',
+				refId: storyId
+			});
 			io.to(`user:${toUserId}`).emit('storyReply', { storyId, from: userId, to: toUserId, content, created_at: ts });
 		}
 		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_replies WHERE story_id = ?', [storyId]);
@@ -2339,6 +2499,14 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 			try {
 				await runAsync('INSERT INTO post_shares (post_id, from_user, to_user, created_at) VALUES (?, ?, ?, ?)', [postId, userId, toUser, ts]);
 				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, `Shared a post (#${postId})`, ts]);
+				await createUserNotification(toUser, {
+					actorId: userId,
+					type: 'post_shared',
+					title: 'Post shared with you',
+					message: `A connection shared post #${postId} with you.`,
+					refType: 'post',
+					refId: postId
+				});
 				io.to(`user:${toUser}`).emit('postShared', { postId, from: userId, to: toUser });
 			} catch (shareErr) {
 				// ignore duplicate share for same target
@@ -3073,6 +3241,8 @@ async function emitPresence(userId, online) {
 }
 
 io.on('connection', (socket) => {
+	socket.activeChatPeer = 0;
+
 	socket.on('identify', (userId) => {
 		socket.userId = userId;
 		markUserOnline(userId, socket.id);
@@ -3082,6 +3252,11 @@ io.on('connection', (socket) => {
 
 	socket.on('joinRoom', (room) => {
 		socket.join(room);
+	});
+
+	socket.on('chatViewing', (payload) => {
+		const peerId = Number(payload && payload.peerId);
+		socket.activeChatPeer = Number.isFinite(peerId) && peerId > 0 ? peerId : 0;
 	});
 
 	socket.on('chatMessage', async (data) => {
@@ -3113,7 +3288,14 @@ io.on('connection', (socket) => {
 			return;
 		}
 		const created_at = Date.now();
-		db.run('INSERT INTO messages (from_user,to_user,content,image,created_at) VALUES (?,?,?,?,?)', [from, to, content || null, hasImage ? image : null, created_at], function (err) {
+		let seenAt = null;
+		for (const s of io.sockets.sockets.values()) {
+			if (Number(s.userId) === to && Number(s.activeChatPeer || 0) === from) {
+				seenAt = created_at;
+				break;
+			}
+		}
+		db.run('INSERT INTO messages (from_user,to_user,content,image,seen_at,created_at) VALUES (?,?,?,?,?,?)', [from, to, content || null, hasImage ? image : null, seenAt, created_at], function (err) {
 			if (err) {
 				socket.emit('chatError', { error: 'Unable to send message right now' });
 				return;
@@ -3126,6 +3308,7 @@ io.on('connection', (socket) => {
 					to,
 					content,
 					image: hasImage ? image : null,
+					seen_at: seenAt,
 					created_at,
 					from_username: sender && sender.username ? sender.username : null,
 					from_picture: sender && sender.profile_picture ? sender.profile_picture : null
@@ -3134,6 +3317,19 @@ io.on('connection', (socket) => {
 				const a = Number(from), b = Number(to);
 				const room = `chat:${Math.min(a,b)}:${Math.max(a,b)}`;
 				io.to(room).emit('message', msg);
+				io.to(`user:${to}`).emit('incomingMessage', msg);
+				if (seenAt) {
+					io.to(`user:${from}`).emit('chatSeen', { by: to, other: from, seenAt });
+				} else {
+					createUserNotification(to, {
+						actorId: from,
+						type: 'chat_message',
+						title: sender && sender.username ? `Message from ${sender.username}` : 'New message',
+						message: content ? content.slice(0, 180) : 'Image message',
+						refType: 'chat_user',
+						refId: from
+					}).catch((notifyErr) => console.error('Chat notification error:', notifyErr));
+				}
 			});
 		});
 	});
