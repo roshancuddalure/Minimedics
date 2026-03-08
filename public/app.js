@@ -145,6 +145,28 @@ let notificationPanelOpen = false;
 let unreadNotificationCount = 0;
 let audioContext = null;
 let notificationRefreshInterval = null;
+let notificationAudioUnlocked = false;
+
+function initNotificationAudioUnlock() {
+  if (notificationAudioUnlocked) return;
+  const unlock = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioContext) audioContext = new Ctx();
+      if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+      notificationAudioUnlocked = true;
+      document.removeEventListener('click', unlock, true);
+      document.removeEventListener('touchstart', unlock, true);
+      document.removeEventListener('keydown', unlock, true);
+    } catch (e) {
+      // ignore
+    }
+  };
+  document.addEventListener('click', unlock, true);
+  document.addEventListener('touchstart', unlock, true);
+  document.addEventListener('keydown', unlock, true);
+}
 
 function playNotificationSound() {
   try {
@@ -516,7 +538,9 @@ function renderQuizBlock(post) {
   const correctIndex = Number(post.quiz_correct_index);
   const hasCorrectAnswer = !Number.isNaN(correctIndex) && correctIndex >= 0 && correctIndex < quizOptions.length;
   if (!hasCorrectAnswer) return null;
-  if (Number(post.my_quiz_attempted) > 0) return null;
+  const attempted = Number(post.my_quiz_attempted) > 0;
+  const selectedIndex = Number(post.my_quiz_selected_index);
+  const hasSelected = attempted && !Number.isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < quizOptions.length;
 
   const quizWrap = document.createElement('div');
   quizWrap.className = 'quiz-box';
@@ -539,11 +563,20 @@ function renderQuizBlock(post) {
     input.name = name;
     input.id = optionId;
     input.value = String(idx);
+    input.disabled = attempted;
 
     const text = document.createElement('span');
     text.textContent = opt;
     row.appendChild(input);
     row.appendChild(text);
+    if (attempted) {
+      row.classList.add('is-review');
+      if (idx === correctIndex) row.classList.add('is-correct');
+      if (hasSelected && idx === selectedIndex) {
+        input.checked = true;
+        row.classList.add('is-selected');
+      }
+    }
     row.addEventListener('click', async () => {
       const alreadyAnswered = quizWrap.dataset.answered === '1';
       if (alreadyAnswered) return;
@@ -568,7 +601,16 @@ function renderQuizBlock(post) {
   quizWrap.appendChild(optionsWrap);
   const feedback = document.createElement('div');
   feedback.className = 'quiz-answer';
-  feedback.textContent = '';
+  if (attempted) {
+    const attemptedCorrect = Number(post.my_quiz_is_correct) === 1;
+    feedback.textContent = attemptedCorrect
+      ? 'You already attempted this quiz. Your answer was correct.'
+      : `You already attempted this quiz. Correct answer: ${quizOptions[correctIndex]}`;
+    feedback.classList.add(attemptedCorrect ? 'quiz-correct' : 'quiz-incorrect');
+    quizWrap.dataset.answered = '1';
+  } else {
+    feedback.textContent = '';
+  }
   quizWrap.appendChild(feedback);
   return quizWrap;
 }
@@ -3941,6 +3983,7 @@ async function handlePostImageSelection(e) {
 document.addEventListener('DOMContentLoaded', ()=>{
   upsertSavedListsTopButton(null);
   upsertNotificationsTopButton(null);
+  initNotificationAudioUnlock();
   initBrandMasthead();
   // Initialize theme toggle
   initThemeToggle();

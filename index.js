@@ -1706,7 +1706,9 @@ app.get('/api/feed', requireAuth, (req, res) => {
 		(SELECT COUNT(*) FROM post_shares ps WHERE ps.post_id = p.id) as share_count,
 		(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id AND pl2.user_id = ${uid}) as my_liked,
 		(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ${uid}) as my_saved,
-		(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ${uid}) as my_quiz_attempted
+		(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ${uid}) as my_quiz_attempted,
+		(SELECT qa2.selected_index FROM quiz_attempts qa2 WHERE qa2.post_id = p.id AND qa2.user_id = ${uid} ORDER BY qa2.created_at DESC LIMIT 1) as my_quiz_selected_index,
+		(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ${uid} ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct
 		FROM posts p JOIN users u ON p.user_id = u.id
 		WHERE (
 			p.visibility IS NULL OR p.visibility = 'public'
