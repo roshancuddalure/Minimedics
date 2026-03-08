@@ -1,4 +1,4 @@
-﻿// Debounce helper
+// Debounce helper
 function debounce(func, ms) {
   let timeout;
   return function(...args) {
@@ -856,6 +856,7 @@ async function loadFeed() {
   }
   box.innerHTML = '';
   const meId = me ? me.id : null;
+  const canInteract = Boolean(meId) && !isPublicHomePage();
   posts.forEach(p => {
     const el = document.createElement('div'); el.className='post';
     const head = document.createElement('div');
@@ -900,7 +901,7 @@ async function loadFeed() {
 
     const actionsRow = document.createElement('div');
     actionsRow.className = 'post-actions';
-    if (meId) {
+    if (canInteract) {
       const likeBtn = createActionButton(`${Number(p.my_liked) ? 'Unlike' : 'Like'} (${p.like_count || 0})`, () => {});
       likeBtn.addEventListener('click', () => toggleLike(p.id, likeBtn));
       const saveBtn = createActionButton(`${Number(p.my_saved) ? 'Saved' : 'Save'} (${p.save_count || 0})`, () => {});
@@ -923,7 +924,7 @@ async function loadFeed() {
     }
 
     // show connect button if not self
-    if (meId && p.user_id && Number(p.user_id) !== Number(meId)) {
+    if (canInteract && p.user_id && Number(p.user_id) !== Number(meId)) {
       const connect = createActionButton('Connect', null, 'btn tiny-btn');
       connect.addEventListener('click', async () => {
         setLoading(connect, true);
@@ -946,7 +947,7 @@ async function loadFeed() {
     const commentsList = document.createElement('div');
     commentsList.className = 'comments-list';
     commentsWrap.appendChild(commentsList);
-    if (meId) {
+    if (canInteract) {
       const composer = document.createElement('div');
       composer.className = 'comment-composer';
       const input = document.createElement('input');
@@ -3025,6 +3026,10 @@ function upsertSavedListsTopButton(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('savedListsMenuBtn');
+  if (isPublicHomePage()) {
+    if (existing) existing.remove();
+    return;
+  }
   const isAuthenticated = Boolean(user && user.id);
   if (!isAuthenticated) {
     if (existing) existing.remove();
@@ -3174,6 +3179,17 @@ function upsertNotificationsTopButton(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('notificationsMenuBtn');
+  if (isPublicHomePage()) {
+    if (existing) existing.remove();
+    if (notificationRefreshInterval) {
+      window.clearInterval(notificationRefreshInterval);
+      notificationRefreshInterval = null;
+    }
+    notificationPanelOpen = false;
+    const panel = document.getElementById('notificationPanel');
+    if (panel) panel.classList.add('hidden');
+    return;
+  }
   const isAuthenticated = Boolean(user && user.id);
   if (!isAuthenticated) {
     if (existing) existing.remove();
@@ -4174,5 +4190,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     applyIconifyAudit();
   })();
 });
+
 
 
