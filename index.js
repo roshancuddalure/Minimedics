@@ -510,6 +510,21 @@ async function initializeDatabase() {
 		status TEXT DEFAULT 'open',
 		created_at BIGINT
 	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS support_tickets (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		subject TEXT NOT NULL,
+		category TEXT,
+		message TEXT NOT NULL,
+		status TEXT DEFAULT 'waiting',
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`);
+	await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS category TEXT`);
+	await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'waiting'`);
+	await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS updated_at BIGINT`);
+	await runAsync(`UPDATE support_tickets SET status = 'waiting' WHERE status IS NULL OR TRIM(status) = ''`);
+	await runAsync(`UPDATE support_tickets SET updated_at = COALESCE(updated_at, created_at, ?)`, [Date.now()]);
 	await runAsync(`CREATE TABLE IF NOT EXISTS messages (
 		id BIGSERIAL PRIMARY KEY,
 		from_user BIGINT,
@@ -1327,6 +1342,84 @@ app.get('/api/admin/clans', requireAdmin, async (req, res) => {
 		});
 		res.json({ clans: sorted });
 	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/support/tickets', requireAuth, async (req, res) => {
+	const subject = typeof req.body.subject === 'string' ? req.body.subject.trim() : '';
+	const category = typeof req.body.category === 'string' ? req.body.category.trim() : 'general';
+	const message = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+	if (!subject) return res.status(400).json({ error: 'Subject is required' });
+	if (!message) return res.status(400).json({ error: 'Message is required' });
+	if (subject.length > 140) return res.status(400).json({ error: 'Subject is too long' });
+	if (message.length > 5000) return res.status(400).json({ error: 'Message is too long' });
+	try {
+		const now = Date.now();
+		const created = await runAsync(`INSERT INTO support_tickets (user_id, subject, category, message, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, [req.session.userId, subject, category || 'general', message, 'waiting', now, now]);
+		res.json({ success: true, id: created.lastID, status: 'waiting' });
+	} catch (e) {
+		console.error('Support ticket create error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/support/tickets/mine', requireAuth, async (req, res) => {
+	try {
+		const rows = await allAsync(`SELECT id, subject, category, message, status, created_at, updated_at
+			FROM support_tickets
+			WHERE user_id = ?
+			ORDER BY created_at DESC
+			LIMIT 100`, [req.session.userId]);
+		res.json({ tickets: rows });
+	} catch (e) {
+		console.error('Support ticket mine error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/tickets', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+	try {
+		const rows = await allAsync(`SELECT
+			t.id,
+			t.user_id,
+			t.subject,
+			t.category,
+			t.message,
+			t.status,
+			t.created_at,
+			t.updated_at,
+			u.username,
+			u.name
+			FROM support_tickets t
+			LEFT JOIN users u ON u.id = t.user_id
+			WHERE (? = '' OR t.status = ?)
+			AND (? = '' OR LOWER(COALESCE(t.subject, '')) LIKE LOWER(?) OR LOWER(COALESCE(t.message, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?))
+			ORDER BY t.created_at DESC
+			LIMIT 600`, [status, status, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+		res.json({ tickets: rows });
+	} catch (e) {
+		console.error('Admin tickets load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/tickets/:id/status', requireAdmin, async (req, res) => {
+	const id = Number(req.params.id);
+	const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : '';
+	if (!id) return res.status(400).json({ error: 'Invalid ticket id' });
+	if (!['waiting', 'open', 'progress', 'resolved'].includes(status)) {
+		return res.status(400).json({ error: 'Invalid status' });
+	}
+	try {
+		const updated = await runAsync('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?', [status, Date.now(), id]);
+		if (!updated.changes) return res.status(404).json({ error: 'Ticket not found' });
+		res.json({ success: true, status });
+	} catch (e) {
+		console.error('Admin ticket status update error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });

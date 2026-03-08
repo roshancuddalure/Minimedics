@@ -1498,3 +1498,26 @@ button {
   }
 }
 
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.help-item {
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--card) 84%, transparent);
+}
+
+.help-item h4 {
+  margin: 0 0 0.45rem;
+}
+
+.help-item ol,
+.help-item ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+

@@ -1001,6 +1001,78 @@ async function loadAdminReports() {
   </div>`;
 }
 
+async function loadAdminTickets() {
+  const box = document.getElementById('adminTickets');
+  if (!box) return;
+  const qEl = document.getElementById('adminTicketsSearch');
+  const q = qEl ? qEl.value.trim() : '';
+  const statusEl = document.getElementById('adminTicketsStatus');
+  const status = statusEl ? statusEl.value.trim() : '';
+  const res = await api(`/api/admin/tickets?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`);
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load tickets.</div>';
+    return;
+  }
+  const tickets = Array.isArray(res.tickets) ? res.tickets : [];
+  if (!tickets.length) {
+    box.innerHTML = '<div class="muted">No support tickets found.</div>';
+    return;
+  }
+  const rows = tickets.map((t) => `<tr data-ticket-id="${t.id}">
+      <td>${t.id}</td>
+      <td>${escapeHtml(t.username || t.name || String(t.user_id || ''))}</td>
+      <td>${escapeHtml(t.subject || '')}</td>
+      <td>${escapeHtml(t.category || 'general')}</td>
+      <td>${escapeHtml(t.message || '')}</td>
+      <td>${formatDateTime(t.created_at)}</td>
+      <td>
+        <select class="admin-ticket-status">
+          <option value="waiting" ${t.status === 'waiting' ? 'selected' : ''}>waiting</option>
+          <option value="open" ${t.status === 'open' ? 'selected' : ''}>open</option>
+          <option value="progress" ${t.status === 'progress' ? 'selected' : ''}>progress</option>
+          <option value="resolved" ${t.status === 'resolved' ? 'selected' : ''}>resolved</option>
+        </select>
+      </td>
+      <td><button class="btn secondary tiny-btn admin-ticket-update-btn" type="button">Update</button></td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Subject</th>
+          <th>Category</th>
+          <th>Message</th>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-ticket-update-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const ticketId = Number(row.getAttribute('data-ticket-id'));
+      const select = row.querySelector('.admin-ticket-status');
+      const nextStatus = select ? String(select.value || '') : '';
+      if (!ticketId || !nextStatus) return;
+      btn.disabled = true;
+      const updateRes = await api(`/api/admin/tickets/${ticketId}/status`, 'POST', { status: nextStatus });
+      btn.disabled = false;
+      if (updateRes && updateRes.success) {
+        showToast('Ticket status updated');
+        loadAdminTickets();
+      } else {
+        showToast(updateRes.error || 'Unable to update ticket status', 'error');
+      }
+    });
+  });
+}
+
 async function loadAdminClans() {
   const box = document.getElementById('adminClans');
   if (!box) return;
@@ -1051,7 +1123,8 @@ function initAdminTabs() {
   const sections = {
     users: 'adminTabUsers',
     clans: 'adminTabClans',
-    reports: 'adminTabReports'
+    reports: 'adminTabReports',
+    tickets: 'adminTabTickets'
   };
   const activate = (tab) => {
     tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -1060,6 +1133,12 @@ function initAdminTabs() {
       if (!panel) return;
       panel.classList.toggle('hidden', key !== tab);
     });
+    const isAdminUser = cachedMe && cachedMe.role === 'admin';
+    if (!isAdminUser) return;
+    if (tab === 'users') loadAdminUsers();
+    if (tab === 'clans') loadAdminClans();
+    if (tab === 'reports') loadAdminReports();
+    if (tab === 'tickets') loadAdminTickets();
   };
   tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
   activate('users');
@@ -3260,6 +3339,75 @@ async function handleForgotPassword(e) {
   }
 }
 
+async function loadMySupportTickets() {
+  const box = document.getElementById('mySupportTickets');
+  if (!box) return;
+  box.innerHTML = '<div class="muted">Loading your tickets...</div>';
+  const res = await api('/api/support/tickets/mine');
+  if (res.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(res.error || 'Unable to load tickets')}</div>`;
+    return;
+  }
+  const tickets = Array.isArray(res.tickets) ? res.tickets : [];
+  if (!tickets.length) {
+    box.innerHTML = '<div class="muted">No tickets yet.</div>';
+    return;
+  }
+  const rows = tickets.map((t) => `<tr>
+      <td>${t.id}</td>
+      <td>${escapeHtml(t.subject || '')}</td>
+      <td>${escapeHtml(t.category || 'general')}</td>
+      <td>${escapeHtml(t.message || '')}</td>
+      <td>${escapeHtml(t.status || 'waiting')}</td>
+      <td>${formatDateTime(t.created_at)}</td>
+      <td>${formatDateTime(t.updated_at)}</td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Subject</th>
+          <th>Category</th>
+          <th>Message</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function handleSupportTicketSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const subjectEl = document.getElementById('supportTicketSubject');
+  const categoryEl = document.getElementById('supportTicketCategory');
+  const messageEl = document.getElementById('supportTicketMessage');
+  const subject = subjectEl ? subjectEl.value.trim() : '';
+  const category = categoryEl ? categoryEl.value.trim() : 'general';
+  const message = messageEl ? messageEl.value.trim() : '';
+  if (!subject || !message) {
+    showToast('Subject and message are required', 'error');
+    return;
+  }
+  setLoading(form, true);
+  if (submitBtn) submitBtn.textContent = 'Submitting...';
+  const res = await api('/api/support/tickets', 'POST', { subject, category, message });
+  setLoading(form, false);
+  if (submitBtn) submitBtn.textContent = 'Submit Ticket';
+  if (res && res.success) {
+    showToast('Ticket submitted');
+    form.reset();
+    loadMySupportTickets();
+  } else {
+    showToast(res.error || 'Unable to submit ticket', 'error');
+  }
+}
+
 async function loadProfile() {
   const holder = document.getElementById('profileBox');
   if (!holder) return;
@@ -3547,6 +3695,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   if (document.getElementById('verifyEmailStatus')) handleVerifyEmailPage();
   if (document.getElementById('publicProfileBox')) loadPublicProfilePage();
+  if (document.getElementById('supportTicketForm')) {
+    document.getElementById('supportTicketForm').addEventListener('submit', handleSupportTicketSubmit);
+    loadMySupportTickets();
+  }
   
   // Profile display
   loadProfile();
@@ -3562,12 +3714,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (isAdmin && document.getElementById('adminUsers')) loadAdminUsers();
     if (isAdmin && document.getElementById('adminReports')) loadAdminReports();
     if (isAdmin && document.getElementById('adminClans')) loadAdminClans();
+    if (isAdmin && document.getElementById('adminTickets')) loadAdminTickets();
     const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
     if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
     const clansSearchBtn = document.getElementById('adminClansSearchBtn');
     if (clansSearchBtn) clansSearchBtn.onclick = () => loadAdminClans();
     const reportsSearchBtn = document.getElementById('adminReportsSearchBtn');
     if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
+    const ticketsSearchBtn = document.getElementById('adminTicketsSearchBtn');
+    if (ticketsSearchBtn) ticketsSearchBtn.onclick = () => loadAdminTickets();
     applyIconifyAudit();
   })();
 });

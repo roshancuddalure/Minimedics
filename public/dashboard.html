@@ -27,6 +27,8 @@
       <div class="actions">
         <button id="themeToggle" class="btn secondary">Dark</button>
         <a class="btn" href="/dashboard">Home</a>
+        <a class="btn" href="/help-center.html">Help Center</a>
+        <a class="btn" href="/reach-us.html">Reach Us</a>
         <button id="logoutBtn" class="btn">Logout</button>
       </div>
     </header>
@@ -171,6 +173,7 @@
             <button class="btn tiny-btn admin-tab-btn active" data-tab="users" type="button">Users</button>
             <button class="btn tiny-btn admin-tab-btn" data-tab="clans" type="button">Clans</button>
             <button class="btn tiny-btn admin-tab-btn" data-tab="reports" type="button">Reports</button>
+            <button class="btn tiny-btn admin-tab-btn" data-tab="tickets" type="button">Tickets</button>
           </div>
           <section id="adminTabUsers" class="section-gap">
             <h4 id="adminUsersTitle">Registered Users</h4>
@@ -207,6 +210,21 @@
               <button id="adminReportsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
             </div>
             <div id="adminReports" class="section-gap"></div>
+          </section>
+          <section id="adminTabTickets" class="section-gap hidden">
+            <h4>Support Tickets</h4>
+            <div class="row" style="justify-content:flex-start">
+              <input id="adminTicketsSearch" type="text" placeholder="Search tickets..." />
+              <select id="adminTicketsStatus">
+                <option value="">All status</option>
+                <option value="waiting">Waiting</option>
+                <option value="open">Open</option>
+                <option value="progress">Progress</option>
+                <option value="resolved">Resolved</option>
+              </select>
+              <button id="adminTicketsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+            </div>
+            <div id="adminTickets" class="section-gap"></div>
           </section>
         </section>
 

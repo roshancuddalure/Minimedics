@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Help Center - Mednecta</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+  <link rel="shortcut icon" href="/favicon.ico?v=2" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Manual and FAQ</span>
+        <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
+        <p class="muted">Basic instructions for all regular users.</p>
+      </div>
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/reach-us.html">Reach Us</a>
+      </div>
+    </header>
+
+    <main class="stack" style="margin-top:1rem">
+      <section class="card">
+        <h3>Getting Started</h3>
+        <div class="help-grid section-gap">
+          <article class="help-item">
+            <h4>Register</h4>
+            <ol>
+              <li>Open <a href="/register.html">Register</a>.</li>
+              <li>Enter username, full name, and password.</li>
+              <li>Submit the form and log in from the login page.</li>
+            </ol>
+          </article>
+          <article class="help-item">
+            <h4>Login</h4>
+            <ol>
+              <li>Open <a href="/login.html">Login</a>.</li>
+              <li>Enter your username and password.</li>
+              <li>Use “Remember me” if you want a longer session.</li>
+            </ol>
+          </article>
+          <article class="help-item">
+            <h4>Forgot Password</h4>
+            <ol>
+              <li>Open <a href="/forgot.html">Forgot Password</a>.</li>
+              <li>Enter username, your saved name (if present), and new password.</li>
+              <li>Reset and log in with the new password.</li>
+            </ol>
+          </article>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Posting and Feed</h3>
+        <article class="help-item section-gap">
+          <h4>How to Post a Feed</h4>
+          <ol>
+            <li>Go to dashboard and use “Share Something”.</li>
+            <li>Add text, optional image, and choose post privacy.</li>
+            <li>Optional: switch to reminder mode or quiz mode.</li>
+            <li>Click “Post”.</li>
+          </ol>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Stories</h4>
+          <ul>
+            <li>Stories are short updates that auto-expire in 24 hours.</li>
+            <li>Use “Add Story”, add text/image, and post.</li>
+            <li>Users can like, share, and reply to stories.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="card">
+        <h3>Connections, Clan, and Community</h3>
+        <article class="help-item section-gap">
+          <h4>Connections: How it Works</h4>
+          <ul>
+            <li>Send requests from suggestions or user profile.</li>
+            <li>Accept or decline requests in your connections panel.</li>
+            <li>Accepted connections can chat and share posts directly.</li>
+          </ul>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Clan: Regular User Rules and Workflow</h4>
+          <ul>
+            <li>You can have one active clan membership at a time.</li>
+            <li>Public clans can be joined directly; private clans require approval.</li>
+            <li>Follow clan role permissions for posting, requests, and moderation features.</li>
+            <li>Respect medical professionalism and avoid harmful, abusive, or misleading content.</li>
+            <li>Repeated violations may lead to removal or account action.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="card">
+        <h3>Progress and Personalization</h3>
+        <article class="help-item section-gap">
+          <h4>XP Points, Levels, and Titles</h4>
+          <ul>
+            <li>XP is earned from product activity such as posting and engagement.</li>
+            <li>As XP increases, your level and title update automatically.</li>
+            <li>Your current level/title are shown on your profile card.</li>
+          </ul>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Edit Profile Details</h4>
+          <ol>
+            <li>Open “Edit Profile Details” from dashboard profile card.</li>
+            <li>Update bio, institute, privacy options, and other fields.</li>
+            <li>Save changes from the profile page.</li>
+          </ol>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Top Medics Leaderboard</h4>
+          <ul>
+            <li>Leaderboard ranks users by XP.</li>
+            <li>Use it to discover active contributors.</li>
+          </ul>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Saved Lists</h4>
+          <ul>
+            <li>Save useful posts from feed cards.</li>
+            <li>Create custom saved lists from profile page.</li>
+            <li>Move saved posts between lists as needed.</li>
+          </ul>
+        </article>
+        <article class="help-item section-gap">
+          <h4>Theme Toggle</h4>
+          <ul>
+            <li>Use the “Dark/Light” button in the top action bar.</li>
+            <li>Your preference is saved in the browser for future visits.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

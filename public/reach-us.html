@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reach Us - Mednecta</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+  <link rel="shortcut icon" href="/favicon.ico?v=2" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">Support Center</span>
+        <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
+        <p class="muted">Report issues to admin by creating a ticket.</p>
+      </div>
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/help-center.html">Help Center</a>
+      </div>
+    </header>
+
+    <main class="stack" style="margin-top:1rem">
+      <section class="card">
+        <h3>Create Ticket</h3>
+        <p class="muted">Tickets are visible to admin panel under a separate Tickets tab.</p>
+        <form id="supportTicketForm" class="form section-gap">
+          <input id="supportTicketSubject" type="text" maxlength="140" placeholder="Subject (required)" required />
+          <select id="supportTicketCategory">
+            <option value="general">General</option>
+            <option value="account">Account</option>
+            <option value="login">Login</option>
+            <option value="feed">Feed/Post</option>
+            <option value="connections">Connections</option>
+            <option value="stories">Stories</option>
+            <option value="clan">Clan</option>
+            <option value="profile">Profile</option>
+            <option value="theme">Theme/UI</option>
+            <option value="bug">Bug</option>
+          </select>
+          <textarea id="supportTicketMessage" maxlength="5000" placeholder="Describe the issue clearly (required)" required></textarea>
+          <div class="row">
+            <button class="btn primary" type="submit">Submit Ticket</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h3>My Tickets</h3>
+        <div id="mySupportTickets" class="section-gap"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
