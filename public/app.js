@@ -56,6 +56,31 @@ function updateThemeButton() {
   setButtonIconWithText(btn, isDark ? 'light' : 'dark');
 }
 
+function initBrandMasthead() {
+  const brands = Array.from(document.querySelectorAll('.brand'));
+  if (!brands.length) return;
+  brands.forEach((brand) => {
+    if (brand.querySelector('.brand-logo')) return;
+    const h1 = brand.querySelector('.brand-wordmark');
+    if (!h1) return;
+    const logo = document.createElement('img');
+    logo.className = 'brand-logo';
+    logo.src = '/logo-mednecta.png';
+    logo.alt = 'Mednecta';
+    logo.decoding = 'async';
+    logo.loading = 'eager';
+    logo.addEventListener('load', () => {
+      logo.classList.add('is-visible');
+      brand.classList.add('has-logo');
+    });
+    logo.addEventListener('error', () => {
+      logo.remove();
+      brand.classList.remove('has-logo');
+    });
+    h1.insertAdjacentElement('beforebegin', logo);
+  });
+}
+
 // Search functionality
 async function handleSearch(query) {
   const resultsBox = document.getElementById('searchResults');
@@ -168,6 +193,38 @@ function formatDateTime(value, fallback = 'Invalid date') {
   if (ts === null) return fallback;
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? fallback : d.toLocaleString();
+}
+
+function formatDateTimeShort(value, fallback = 'Never') {
+  const ts = toTimestamp(value);
+  if (ts === null) return fallback;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatLocationLine(user) {
+  if (!user) return '';
+  const parts = [user.place_from, user.state, user.country].map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
+  return parts.join(', ');
+}
+
+function getLevelXpProgress(level, xp) {
+  const safeLevel = Math.max(1, Number(level) || 1);
+  const safeXp = Math.max(0, Number(xp) || 0);
+  const currentLevelMin = Math.pow(safeLevel - 1, 2) * 100;
+  const nextLevelMin = Math.pow(safeLevel, 2) * 100;
+  const segment = Math.max(1, nextLevelMin - currentLevelMin);
+  const gainedInLevel = Math.max(0, safeXp - currentLevelMin);
+  const percent = Math.max(0, Math.min(100, Math.round((gainedInLevel / segment) * 100)));
+  const remaining = Math.max(0, nextLevelMin - safeXp);
+  return { percent, remaining };
 }
 
 function formatGenderLabel(value) {
@@ -1539,8 +1596,9 @@ async function loadProfileEditor() {
   const genderEl = document.getElementById('profileEditGender');
   const dobEl = document.getElementById('profileEditDob');
   const placeFromEl = document.getElementById('profileEditPlaceFrom');
-  const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
-  const achievementsEl = document.getElementById('profileEditAchievements');
+  const countryEl = document.getElementById('profileEditCountry');
+  const stateEl = document.getElementById('profileEditState');
+  const pincodeEl = document.getElementById('profileEditPincode');
   const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
   const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
   const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
@@ -1557,8 +1615,9 @@ async function loadProfileEditor() {
   if (genderEl) genderEl.value = res.user.gender || '';
   if (dobEl) dobEl.value = res.user.date_of_birth || '';
   if (placeFromEl) placeFromEl.value = res.user.place_from || '';
-  if (statusDescriptionEl) statusDescriptionEl.value = res.user.status_description || '';
-  if (achievementsEl) achievementsEl.value = res.user.achievements || '';
+  if (countryEl) countryEl.value = res.user.country || '';
+  if (stateEl) stateEl.value = res.user.state || '';
+  if (pincodeEl) pincodeEl.value = res.user.pincode || '';
   if (privacyShowOnlineEl) privacyShowOnlineEl.value = res.user.privacy_show_online || 'connections';
   if (privacyDiscoverabilityEl) privacyDiscoverabilityEl.value = res.user.privacy_discoverability || 'everyone';
   if (privacyInSuggestionsEl) privacyInSuggestionsEl.value = res.user.privacy_in_suggestions || 'everyone';
@@ -1580,8 +1639,9 @@ async function handleProfileEditSubmit(e) {
   const genderEl = document.getElementById('profileEditGender');
   const dobEl = document.getElementById('profileEditDob');
   const placeFromEl = document.getElementById('profileEditPlaceFrom');
-  const statusDescriptionEl = document.getElementById('profileEditStatusDescription');
-  const achievementsEl = document.getElementById('profileEditAchievements');
+  const countryEl = document.getElementById('profileEditCountry');
+  const stateEl = document.getElementById('profileEditState');
+  const pincodeEl = document.getElementById('profileEditPincode');
   const privacyShowOnlineEl = document.getElementById('privacyShowOnline');
   const privacyDiscoverabilityEl = document.getElementById('privacyDiscoverability');
   const privacyInSuggestionsEl = document.getElementById('privacyInSuggestions');
@@ -1598,8 +1658,9 @@ async function handleProfileEditSubmit(e) {
   const gender = genderEl ? genderEl.value.trim() : '';
   const dateOfBirth = dobEl ? dobEl.value.trim() : '';
   const placeFrom = placeFromEl ? placeFromEl.value.trim() : '';
-  const statusDescription = statusDescriptionEl ? statusDescriptionEl.value.trim() : '';
-  const achievements = achievementsEl ? achievementsEl.value.trim() : '';
+  const country = countryEl ? countryEl.value.trim() : '';
+  const state = stateEl ? stateEl.value.trim() : '';
+  const pincode = pincodeEl ? pincodeEl.value.trim() : '';
   const privacyShowOnline = privacyShowOnlineEl ? privacyShowOnlineEl.value.trim() : 'connections';
   const privacyDiscoverability = privacyDiscoverabilityEl ? privacyDiscoverabilityEl.value.trim() : 'everyone';
   const privacyInSuggestions = privacyInSuggestionsEl ? privacyInSuggestionsEl.value.trim() : 'everyone';
@@ -1613,7 +1674,7 @@ async function handleProfileEditSubmit(e) {
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, statusDescription, achievements, placeFrom, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
+  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, placeFrom, country, state, pincode, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -2255,18 +2316,27 @@ async function loadPublicProfilePage() {
   }
   const u = userRes.user;
   const relation = u.relationship || {};
-  profileBox.innerHTML = `<img src="${getProfilePictureUrl(u)}" class="profile-picture" />
-    <h3>${escapeHtml(u.name || u.username)}${u.nickname ? ` <span class="muted">(${escapeHtml(u.nickname)})</span>` : ''}</h3>
-    <p class="muted">@${escapeHtml(u.username || '')}</p>
-    <p class="muted">${escapeHtml(formatGenderLabel(u.gender))}${u.date_of_birth ? ` | DOB: ${escapeHtml(u.date_of_birth)}` : ''}</p>
-    <p class="muted">Status: ${u.online_visible ? (u.online ? 'Online' : 'Offline') : 'Hidden'}</p>
-    <p class="muted">${escapeHtml(u.place_from || '')}</p>
-    <p class="muted">${escapeHtml(u.status_description || '')}</p>
-    <p class="muted">${escapeHtml(u.achievements || '')}</p>
-    <p class="muted">${escapeHtml(u.bio || '')}</p>
-    <p class="muted">${escapeHtml(u.speciality || '')}</p>
-    <p class="muted">${escapeHtml(u.institute || '')}</p>
-    <p class="muted">Connections: ${u.connections_count || 0}</p>`;
+  const publicLocationRaw = formatLocationLine(u);
+  const publicLocationLine = publicLocationRaw ? `${publicLocationRaw}${u.pincode ? ` | PIN: ${u.pincode}` : ''}` : (u.pincode ? `PIN: ${u.pincode}` : '');
+  const publicBio = escapeHtml(u.bio || '');
+  profileBox.innerHTML = `<div class="gamified-profile-card">
+    <div class="profile-head">
+      <img src="${getProfilePictureUrl(u)}" class="profile-picture" />
+      <div>
+        <h3>${escapeHtml(u.name || u.username)}${u.nickname ? ` <span class="muted">(${escapeHtml(u.nickname)})</span>` : ''}</h3>
+        <p class="muted">@${escapeHtml(u.username || '')}</p>
+      </div>
+    </div>
+    <div class="profile-stat-grid">
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:cake"></span><span>${u.date_of_birth ? escapeHtml(u.date_of_birth) : 'Date not set'}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${escapeHtml(publicLocationLine || '-')}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:activity"></span><span>${u.online_visible ? (u.online ? 'Online' : 'Offline') : 'Hidden'}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${u.connections_count || 0} connections</span></div>
+    </div>
+    ${publicBio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${publicBio}</p></div>` : ''}
+    ${u.speciality ? `<p class="muted">${escapeHtml(u.speciality)}</p>` : ''}
+    ${u.institute ? `<p class="muted">${escapeHtml(u.institute)}</p>` : ''}
+  </div>`;
   if (actionsBox) {
     actionsBox.innerHTML = '';
     const isSelf = me && Number(me.id) === Number(u.id);
@@ -3432,21 +3502,44 @@ async function loadProfile() {
     </div>`;
     return;
   }
-  const last = res.user.last_login ? formatDateTime(res.user.last_login, 'Never') : 'Never';
+  const last = res.user.last_login ? formatDateTimeShort(res.user.last_login, 'Never') : 'Never';
   const picUrl = getProfilePictureUrl(res.user);
+  const displayName = escapeHtml(res.user.name || res.user.username);
+  const nickname = res.user.nickname ? ` <span class="muted">(${escapeHtml(res.user.nickname)})</span>` : '';
+  const title = escapeHtml(res.user.title || 'Rookie Medic');
+  const dobDisplay = res.user.date_of_birth ? escapeHtml(res.user.date_of_birth) : 'Date not set';
+  const locationRaw = formatLocationLine(res.user);
+  const locationDisplay = escapeHtml(locationRaw ? `${locationRaw}${res.user.pincode ? ` | PIN: ${res.user.pincode}` : ''}` : (res.user.pincode ? `PIN: ${res.user.pincode}` : '-'));
+  const bio = escapeHtml(res.user.bio || '');
+  const level = Number(res.user.level) || 1;
+  const xp = Number(res.user.xp) || 0;
+  const progress = getLevelXpProgress(level, xp);
   const adminActions = res.user.role === 'admin' ? '<div class="row" style="justify-content:flex-start;margin-top:0.6rem"><a class="btn tiny-btn" href="/admin">Open Admin Management</a></div>' : '';
-  holder.innerHTML = `<div class="profile card">
-    <img id="profilePic" src="${picUrl}" class="profile-picture" />
-    <h3>${escapeHtml(res.user.name || res.user.username)}${res.user.nickname ? ` <span class="muted">(${escapeHtml(res.user.nickname)})</span>` : ''}</h3>
-    <p class="muted">Title: ${escapeHtml(res.user.title || 'Rookie Medic')}</p>
-    <p class="muted">${escapeHtml(formatGenderLabel(res.user.gender))}${res.user.date_of_birth ? ` | DOB: ${escapeHtml(res.user.date_of_birth)}` : ''}</p>
-    <p class="muted">${escapeHtml(res.user.place_from || '')}</p>
-    <p class="muted">${escapeHtml(res.user.status_description || '')}</p>
-    <p class="muted">${escapeHtml(res.user.achievements || '')}</p>
-    <p class="muted">${escapeHtml(res.user.bio || '')}</p>
-    <p class="muted">Level ${res.user.level || 1} | XP ${res.user.xp || 0}</p>
-    <p class="muted">Connections: ${res.user.connections_count || 0}</p>
-    <p class="muted">Last login: ${last}</p>
+  holder.innerHTML = `<div class="profile card gamified-profile-card">
+    <div class="profile-head">
+      <img id="profilePic" src="${picUrl}" class="profile-picture" />
+      <div>
+        <h3>${displayName}${nickname}</h3>
+        <p class="muted profile-title-line"><span class="iconify" data-icon="lucide:badge-check"></span> ${title}</p>
+      </div>
+    </div>
+    <div class="xp-hero">
+      <div class="xp-hero-metrics">
+        <div class="xp-chip"><span class="iconify" data-icon="lucide:sword"></span> Level ${level}</div>
+        <div class="xp-chip"><span class="iconify" data-icon="lucide:zap"></span> ${xp} XP</div>
+      </div>
+      <div class="xp-track" role="progressbar" aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100">
+        <div class="xp-track-fill" style="width:${progress.percent}%"></div>
+      </div>
+      <div class="muted xp-next-line">${progress.remaining} XP to next level</div>
+    </div>
+    <div class="profile-stat-grid">
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:cake"></span><span>${dobDisplay}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${locationDisplay}</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${res.user.connections_count || 0} connections</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:clock-3"></span><span>${last}</span></div>
+    </div>
+    ${bio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${bio}</p></div>` : ''}
     <div class="row" style="justify-content:flex-start;margin-top:0.4rem">
       <a class="btn tiny-btn" href="/profile">Edit Profile Details</a>
       <button id="openSettingsBtn" class="btn secondary tiny-btn" type="button" title="Settings">Settings</button>
@@ -3541,6 +3634,7 @@ async function handlePostImageSelection(e) {
 
 document.addEventListener('DOMContentLoaded', ()=>{
   upsertSavedListsTopButton(null);
+  initBrandMasthead();
   // Initialize theme toggle
   initThemeToggle();
   initFileUploadControls();

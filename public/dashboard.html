@@ -13,23 +13,24 @@
   <div class="bg-orb orb-b"></div>
 
   <div class="container">
-    <header class="hero">
+    <header class="hero dashboard-hero">
       <div class="brand">
         <span class="eyebrow">Your Space</span>
         <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
         <p class="muted">Manage your profile, feed, requests, and conversations.</p>
       </div>
 
-      <div class="search-wrap">
-        <input id="searchInput" type="text" placeholder="Search people or posts..." />
-      </div>
-
-      <div class="actions">
-        <button id="themeToggle" class="btn secondary">Dark</button>
-        <a class="btn" href="/dashboard">Home</a>
-        <a class="btn" href="/help-center.html">Help Center</a>
-        <a class="btn" href="/reach-us.html">Reach Us</a>
-        <button id="logoutBtn" class="btn">Logout</button>
+      <div class="dashboard-hero-right">
+        <div class="search-wrap dashboard-search-wrap">
+          <input id="searchInput" type="text" placeholder="Search people or posts..." />
+        </div>
+        <div class="actions">
+          <button id="themeToggle" class="btn secondary">Dark</button>
+          <a class="btn" href="/dashboard">Home</a>
+          <a class="btn" href="/help-center.html">Help Center</a>
+          <a class="btn" href="/reach-us.html">Reach Us</a>
+          <button id="logoutBtn" class="btn">Logout</button>
+        </div>
       </div>
     </header>
 
@@ -58,7 +59,7 @@
           <form id="groupCreateForm" class="form">
             <input id="groupName" type="text" maxlength="80" placeholder="Create a new clan name" />
             <input id="groupDescription" type="text" maxlength="180" placeholder="Short description" />
-            <label class="inline-check"><input id="groupPrivate" type="checkbox" checked /> Private clan (approval required)</label>
+            <label class="inline-check"><input id="groupPrivate" type="checkbox" checked /> <span class="inline-check-text">Private clan (approval required)</span></label>
             <div class="row">
               <button class="btn primary" type="submit">Create Clan</button>
             </div>

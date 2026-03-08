@@ -400,6 +400,9 @@ async function initializeDatabase() {
 		status_description TEXT,
 		achievements TEXT,
 		place_from TEXT,
+		country TEXT,
+		state TEXT,
+		pincode TEXT,
 		institute TEXT,
 		program_type TEXT,
 		degree TEXT,
@@ -429,6 +432,9 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_description TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS achievements TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS place_from TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS state TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pincode TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_type TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
@@ -941,7 +947,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		// get connections count
@@ -1011,7 +1017,7 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		res.json({ user });
 	} catch (e) {
@@ -1029,6 +1035,9 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	const statusDescription = typeof req.body.statusDescription === 'string' ? req.body.statusDescription.trim() : '';
 	const achievements = typeof req.body.achievements === 'string' ? req.body.achievements.trim() : '';
 	const placeFrom = typeof req.body.placeFrom === 'string' ? req.body.placeFrom.trim() : '';
+	const country = typeof req.body.country === 'string' ? req.body.country.trim() : '';
+	const state = typeof req.body.state === 'string' ? req.body.state.trim() : '';
+	const pincode = typeof req.body.pincode === 'string' ? req.body.pincode.trim() : '';
 	const privacyShowOnline = typeof req.body.privacyShowOnline === 'string' ? req.body.privacyShowOnline.trim() : '';
 	const privacyDiscoverability = typeof req.body.privacyDiscoverability === 'string' ? req.body.privacyDiscoverability.trim() : '';
 	const privacyInSuggestions = typeof req.body.privacyInSuggestions === 'string' ? req.body.privacyInSuggestions.trim() : '';
@@ -1057,8 +1066,12 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	if (statusDescription.length > 180) return res.status(400).json({ error: 'Status description is too long' });
 	if (achievements.length > 300) return res.status(400).json({ error: 'Achievements are too long' });
 	if (placeFrom.length > 120) return res.status(400).json({ error: 'Place is too long' });
+	if (country.length > 80) return res.status(400).json({ error: 'Country is too long' });
+	if (state.length > 80) return res.status(400).json({ error: 'State is too long' });
+	if (pincode.length > 20) return res.status(400).json({ error: 'Pincode is too long' });
+	if (pincode && !/^[A-Za-z0-9\- ]{3,20}$/.test(pincode)) return res.status(400).json({ error: 'Invalid pincode format' });
 	try {
-		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, pincode || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1451,7 +1464,7 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		if (user.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
 			return res.status(404).json({ error: 'User not found' });
