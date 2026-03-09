@@ -511,6 +511,125 @@ function createInviteToken() {
 	return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function normalizeSuggestionValue(value) {
+	return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function pushSuggestionReason(reasons, message) {
+	const text = typeof message === 'string' ? message.trim() : '';
+	if (!text || reasons.includes(text)) return;
+	reasons.push(text);
+}
+
+function buildUserSuggestionScore(me, candidate, mutualCount) {
+	const reasons = [];
+	let score = 0;
+	const sameSpeciality = normalizeSuggestionValue(me.speciality) && normalizeSuggestionValue(me.speciality) === normalizeSuggestionValue(candidate.speciality);
+	const sameInstitute = normalizeSuggestionValue(me.institute) && normalizeSuggestionValue(me.institute) === normalizeSuggestionValue(candidate.institute);
+	const sameProgram = normalizeSuggestionValue(me.program_type) && normalizeSuggestionValue(me.program_type) === normalizeSuggestionValue(candidate.program_type);
+	const sameDegree = normalizeSuggestionValue(me.degree) && normalizeSuggestionValue(me.degree) === normalizeSuggestionValue(candidate.degree);
+	const sameYear = normalizeSuggestionValue(me.academic_year) && normalizeSuggestionValue(me.academic_year) === normalizeSuggestionValue(candidate.academic_year);
+	const sameState = normalizeSuggestionValue(me.state) && normalizeSuggestionValue(me.state) === normalizeSuggestionValue(candidate.state);
+	const sameCountry = normalizeSuggestionValue(me.country) && normalizeSuggestionValue(me.country) === normalizeSuggestionValue(candidate.country);
+	if (mutualCount > 0) {
+		score += Math.min(48, mutualCount * 12);
+		pushSuggestionReason(reasons, `${mutualCount} mutual connection${mutualCount === 1 ? '' : 's'}`);
+	}
+	if (sameSpeciality) {
+		score += 34;
+		pushSuggestionReason(reasons, `Same speciality: ${candidate.speciality}`);
+	}
+	if (sameInstitute) {
+		score += 24;
+		pushSuggestionReason(reasons, `Same institute: ${candidate.institute}`);
+	}
+	if (sameProgram) {
+		score += 14;
+		pushSuggestionReason(reasons, 'Same program type');
+	}
+	if (sameDegree) {
+		score += 10;
+		pushSuggestionReason(reasons, 'Same degree');
+	}
+	if (sameYear) {
+		score += 8;
+		pushSuggestionReason(reasons, 'Same academic year');
+	}
+	if (sameState) {
+		score += 7;
+		pushSuggestionReason(reasons, 'Same state');
+	} else if (sameCountry) {
+		score += 4;
+		pushSuggestionReason(reasons, 'Same country');
+	}
+	score += Math.min(8, Number(candidate.level || 0));
+	if (!reasons.length) pushSuggestionReason(reasons, 'Active member you may know');
+	return { score, reasons: reasons.slice(0, 3) };
+}
+
+async function getMutualConnectionCount(userId, otherUserId) {
+	const row = await getAsync(`SELECT COUNT(*)::int AS cnt
+		FROM users u
+		WHERE u.id IN (
+			SELECT CASE WHEN c.user_a = ? THEN c.user_b ELSE c.user_a END
+			FROM connections c
+			WHERE c.status = 'accepted' AND (c.user_a = ? OR c.user_b = ?)
+		)
+		AND u.id IN (
+			SELECT CASE WHEN c.user_a = ? THEN c.user_b ELSE c.user_a END
+			FROM connections c
+			WHERE c.status = 'accepted' AND (c.user_a = ? OR c.user_b = ?)
+		)`, [userId, userId, userId, otherUserId, otherUserId, otherUserId]);
+	return Number(row && row.cnt) || 0;
+}
+
+async function getGroupSuggestionMetrics(groupId, me, connectionIds) {
+	const reasons = [];
+	let score = 0;
+	const memberRow = await getAsync(`SELECT COUNT(*)::int AS cnt
+		FROM group_memberships
+		WHERE group_id = ? AND status = 'active'`, [groupId]);
+	const memberCount = Number(memberRow && memberRow.cnt) || 0;
+	if (memberCount > 0) score += Math.min(12, Math.ceil(memberCount / 3));
+	let mutualMemberCount = 0;
+	if (Array.isArray(connectionIds) && connectionIds.length) {
+		const placeholders = connectionIds.map(() => '?').join(',');
+		const mutualRow = await getAsync(`SELECT COUNT(*)::int AS cnt
+			FROM group_memberships gm
+			WHERE gm.group_id = ? AND gm.status = 'active' AND gm.user_id IN (${placeholders})`, [groupId, ...connectionIds]);
+		mutualMemberCount = Number(mutualRow && mutualRow.cnt) || 0;
+		if (mutualMemberCount > 0) {
+			score += Math.min(64, mutualMemberCount * 16);
+			pushSuggestionReason(reasons, `${mutualMemberCount} of your connections joined`);
+		}
+	}
+	if (normalizeSuggestionValue(me.speciality)) {
+		const specialityRow = await getAsync(`SELECT COUNT(*)::int AS cnt
+			FROM group_memberships gm
+			JOIN users u ON u.id = gm.user_id
+			WHERE gm.group_id = ? AND gm.status = 'active' AND LOWER(TRIM(COALESCE(u.speciality, ''))) = ?`, [groupId, normalizeSuggestionValue(me.speciality)]);
+		const specialityCount = Number(specialityRow && specialityRow.cnt) || 0;
+		if (specialityCount > 0) {
+			score += Math.min(30, specialityCount * 10);
+			pushSuggestionReason(reasons, `${specialityCount} member${specialityCount === 1 ? '' : 's'} share your speciality`);
+		}
+	}
+	if (normalizeSuggestionValue(me.institute)) {
+		const instituteRow = await getAsync(`SELECT COUNT(*)::int AS cnt
+			FROM group_memberships gm
+			JOIN users u ON u.id = gm.user_id
+			WHERE gm.group_id = ? AND gm.status = 'active' AND LOWER(TRIM(COALESCE(u.institute, ''))) = ?`, [groupId, normalizeSuggestionValue(me.institute)]);
+		const instituteCount = Number(instituteRow && instituteRow.cnt) || 0;
+		if (instituteCount > 0) {
+			score += Math.min(24, instituteCount * 8);
+			pushSuggestionReason(reasons, `${instituteCount} member${instituteCount === 1 ? '' : 's'} from your institute`);
+		}
+	}
+	if (memberCount >= 8) pushSuggestionReason(reasons, `Active clan with ${memberCount} members`);
+	if (!reasons.length) pushSuggestionReason(reasons, 'Public clan you can explore');
+	return { score, reasons: reasons.slice(0, 3), memberCount, mutualMemberCount };
+}
+
 function createShareToken() {
 	return crypto.randomBytes(18).toString('hex');
 }
@@ -642,6 +761,8 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'public'`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_at BIGINT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_note TEXT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_at BIGINT`);
+	await runAsync(`UPDATE posts SET publish_at = created_at WHERE publish_at IS NULL`);
 
 	await runAsync(`CREATE TABLE IF NOT EXISTS connections (
 		id BIGSERIAL PRIMARY KEY,
@@ -1766,7 +1887,8 @@ app.get('/api/user/:id', (req, res) => {
 
 app.get('/api/feed', requireAuth, (req, res) => {
 	const uid = Number(req.session.userId || 0);
-	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture,
+	const now = Date.now();
+	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at, p.publish_at, u.id as user_id, u.username, u.name, u.profile_picture,
 		(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
 		(SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) as comment_count,
 		(SELECT COUNT(*) FROM saved_posts sp WHERE sp.post_id = p.id) as save_count,
@@ -1775,9 +1897,21 @@ app.get('/api/feed', requireAuth, (req, res) => {
 		(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ${uid}) as my_saved,
 		(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ${uid}) as my_quiz_attempted,
 		(SELECT qa2.selected_index FROM quiz_attempts qa2 WHERE qa2.post_id = p.id AND qa2.user_id = ${uid} ORDER BY qa2.created_at DESC LIMIT 1) as my_quiz_selected_index,
-		(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ${uid} ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct
+		(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ${uid} ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct,
+		(SELECT c.status FROM connections c
+			WHERE ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ${uid}))
+			ORDER BY c.created_at DESC LIMIT 1) as relation_status,
+		(SELECT c.id FROM connections c
+			WHERE ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ${uid}))
+			ORDER BY c.created_at DESC LIMIT 1) as relation_id,
+		(SELECT c.user_a FROM connections c
+			WHERE ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ${uid}))
+			ORDER BY c.created_at DESC LIMIT 1) as relation_requested_by
 		FROM posts p JOIN users u ON p.user_id = u.id
 		WHERE (
+			p.user_id = ${uid}
+			OR COALESCE(p.publish_at, p.created_at) <= ${now}
+		) AND (
 			p.visibility IS NULL OR p.visibility = 'public'
 			OR p.user_id = ${uid}
 			OR (
@@ -1788,7 +1922,7 @@ app.get('/api/feed', requireAuth, (req, res) => {
 				)
 			)
 		) AND u.username <> '${SUPERADMIN_USERNAME}'
-		ORDER BY p.created_at DESC LIMIT 50`;
+		ORDER BY COALESCE(p.publish_at, p.created_at) DESC LIMIT 50`;
 	db.all(q, [], (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		res.json({ posts: rows });
@@ -1796,7 +1930,7 @@ app.get('/api/feed', requireAuth, (req, res) => {
 });
 
 app.post('/api/post', requireAuth, (req, res) => {
-	const { content, image, visibility, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex } = req.body;
+	const { content, image, visibility, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex, publishAt } = req.body;
 	const safeContent = typeof content === 'string' ? content.trim() : '';
 	const safeVisibility = ['public', 'connections', 'private'].includes(String(visibility || '').trim()) ? String(visibility).trim() : 'public';
 	const safeReminderNote = typeof reminderNote === 'string' ? reminderNote.trim() : '';
@@ -1830,9 +1964,17 @@ app.post('/api/post', requireAuth, (req, res) => {
 	if (safeContent.length > 5000) return res.status(400).json({ error: 'Post too long' });
 	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Image is too large' });
 	if (safeReminderNote.length > 240) return res.status(400).json({ error: 'Reminder note is too long' });
+	let publishAtTs = Date.now();
+	if (publishAt !== undefined && publishAt !== null && publishAt !== '') {
+		const parsedPublishAt = Number(publishAt);
+		if (Number.isNaN(parsedPublishAt) || parsedPublishAt <= Date.now()) {
+			return res.status(400).json({ error: 'Scheduled publish date/time must be in the future' });
+		}
+		publishAtTs = parsedPublishAt;
+	}
 	const ts = Date.now();
-	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, visibility, reminder_at, reminder_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, safeVisibility, reminderAtTs, safeReminderNote || null, ts], 
+	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, visibility, reminder_at, reminder_note, created_at, publish_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, safeVisibility, reminderAtTs, safeReminderNote || null, ts, publishAtTs], 
 		async function (err) {
 			if (err) {
 				console.error('Post insert error:', err);
@@ -1840,7 +1982,7 @@ app.post('/api/post', requireAuth, (req, res) => {
 			}
 			console.log(`Post created: ${this.lastID}`);
 			try { await addXp(req.session.userId, 'POST_CREATE', 'post', this.lastID); } catch (xpErr) { console.error('POST_CREATE XP error:', xpErr); }
-			res.json({ success: true, id: this.lastID });
+			res.json({ success: true, id: this.lastID, scheduled: publishAtTs > ts, publishAt: publishAtTs });
 		});
 });
 
@@ -2091,6 +2233,8 @@ app.get('/api/requests', requireAuth, (req, res) => {
 app.get('/api/connections/overview', requireAuth, async (req, res) => {
 	const uid = Number(req.session.userId);
 	try {
+		const me = await getAsync(`SELECT id, institute, program_type, degree, academic_year, speciality, country, state
+			FROM users WHERE id = ?`, [uid]);
 		const acceptedRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture, u.privacy_show_online
 			FROM users u
 			JOIN connections c ON ((c.user_a = ? AND c.user_b = u.id) OR (c.user_b = ? AND c.user_a = u.id))
@@ -2111,7 +2255,8 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 			JOIN users u ON u.id = c.user_a
 			WHERE c.user_b = ? AND c.status = 'ignored' AND u.username <> ?
 			ORDER BY c.created_at DESC`, [uid, SUPERADMIN_USERNAME]);
-		const suggestionRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture
+		const rawSuggestionRows = await allAsync(`SELECT u.id, u.username, u.name, u.profile_picture,
+			u.institute, u.program_type, u.degree, u.academic_year, u.speciality, u.country, u.state, u.level, u.xp
 			FROM users u
 			WHERE u.id <> ?
 			AND u.username <> ?
@@ -2126,8 +2271,25 @@ app.get('/api/connections/overview', requireAuth, async (req, res) => {
 				SELECT 1 FROM user_blocks b
 				WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?)
 			)
-			ORDER BY u.username ASC
-			LIMIT 40`, [uid, SUPERADMIN_USERNAME, uid, uid, uid, uid]);
+			ORDER BY COALESCE(u.last_login, 0) DESC, u.username ASC
+			LIMIT 80`, [uid, SUPERADMIN_USERNAME, uid, uid, uid, uid]);
+		const suggestionRows = (await Promise.all(rawSuggestionRows.map(async (candidate) => {
+			const mutualCount = await getMutualConnectionCount(uid, Number(candidate.id));
+			const ranking = buildUserSuggestionScore(me || {}, candidate, mutualCount);
+			return {
+				id: candidate.id,
+				username: candidate.username,
+				name: candidate.name,
+				profile_picture: candidate.profile_picture,
+				mutual_connection_count: mutualCount,
+				suggestion_score: ranking.score,
+				suggestion_reason: ranking.reasons.join(' • ')
+			};
+		}))).sort((a, b) => {
+			if (Number(b.suggestion_score) !== Number(a.suggestion_score)) return Number(b.suggestion_score) - Number(a.suggestion_score);
+			if (Number(b.mutual_connection_count) !== Number(a.mutual_connection_count)) return Number(b.mutual_connection_count) - Number(a.mutual_connection_count);
+			return String(a.username || '').localeCompare(String(b.username || ''));
+		}).slice(0, 20);
 		const accepted = acceptedRows.map((r) => {
 			const canSee = r.privacy_show_online === 'everyone' || r.privacy_show_online === 'connections';
 			return { ...r, online_visible: canSee, online: canSee ? isUserOnline(r.id) : false };
@@ -2662,14 +2824,15 @@ app.get('/api/share-link/:token', requireAuth, async (req, res) => {
 app.get('/api/saved-posts', requireAuth, async (req, res) => {
 	try {
 		const listName = typeof req.query.list === 'string' ? req.query.list.trim() : '';
-		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture
+		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.reminder_at, p.reminder_note, p.created_at, p.publish_at, u.id as user_id, u.username, u.name, u.profile_picture
 			FROM saved_posts sp
 			JOIN posts p ON p.id = sp.post_id
 			JOIN users u ON u.id = p.user_id
 			WHERE sp.user_id = ?
 			AND u.username <> ?
+			AND COALESCE(p.publish_at, p.created_at) <= ?
 			AND (? = '' OR sp.list_name = ?)
-			ORDER BY sp.created_at DESC`, [req.session.userId, SUPERADMIN_USERNAME, listName, listName]);
+			ORDER BY sp.created_at DESC`, [req.session.userId, SUPERADMIN_USERNAME, Date.now(), listName, listName]);
 		res.json({ posts: rows });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -2802,7 +2965,9 @@ app.get('/api/groups', requireAuth, async (req, res) => {
 				WHERE mine.group_id = g.id AND mine.user_id = ? AND mine.status IN ('active', 'pending')
 			)
 			ORDER BY g.created_at DESC`, [req.session.userId, req.session.userId, req.session.userId]);
-		const suggestions = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
+		const me = await getAsync(`SELECT id, institute, speciality FROM users WHERE id = ?`, [req.session.userId]);
+		const connectionIds = await getAcceptedConnectionIds(Number(req.session.userId));
+		const rawSuggestions = await allAsync(`SELECT g.id, g.name, g.description, g.profile_picture, g.is_private, g.clan_xp, g.clan_level, g.created_by, g.created_at,
 			(SELECT COUNT(*) FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
 			NULL as my_role,
 			NULL as my_status
@@ -2812,8 +2977,22 @@ app.get('/api/groups', requireAuth, async (req, res) => {
 				SELECT 1 FROM group_memberships mine
 				WHERE mine.group_id = g.id AND mine.user_id = ?
 			)
-			ORDER BY g.created_at DESC
-			LIMIT 8`, [req.session.userId]);
+			ORDER BY COALESCE(g.clan_level, 1) DESC, COALESCE(g.clan_xp, 0) DESC, g.created_at DESC
+			LIMIT 24`, [req.session.userId]);
+		const suggestions = (await Promise.all(rawSuggestions.map(async (group) => {
+			const metrics = await getGroupSuggestionMetrics(Number(group.id), me || {}, connectionIds);
+			return {
+				...group,
+				member_count: metrics.memberCount || Number(group.member_count) || 0,
+				mutual_member_count: metrics.mutualMemberCount || 0,
+				suggestion_score: metrics.score,
+				suggestion_reason: metrics.reasons.join(' • ')
+			};
+		}))).sort((a, b) => {
+			if (Number(b.suggestion_score) !== Number(a.suggestion_score)) return Number(b.suggestion_score) - Number(a.suggestion_score);
+			if (Number(b.member_count) !== Number(a.member_count)) return Number(b.member_count) - Number(a.member_count);
+			return Number(b.created_at || 0) - Number(a.created_at || 0);
+		}).slice(0, 8);
 		const my = myGroups.map((g) => ({ ...g, is_suggested: 0 }));
 		const suggested = suggestions.map((g) => ({ ...g, is_suggested: 1 }));
 		res.json({ groups: [...my, ...suggested], myGroups: my, suggestions: suggested });
@@ -3305,14 +3484,17 @@ app.get('/api/search', (req, res) => {
 		LIMIT 8`;
 	
 	// Search posts
-	const postQuery = `SELECT p.id, p.content, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture, 'post' as type FROM posts p JOIN users u ON p.user_id = u.id WHERE p.content LIKE ? AND u.username <> ? ORDER BY p.created_at DESC LIMIT 8`;
+	const postQuery = `SELECT p.id, p.content, p.created_at, u.id as user_id, u.username, u.name, u.profile_picture, 'post' as type
+		FROM posts p JOIN users u ON p.user_id = u.id
+		WHERE p.content LIKE ? AND u.username <> ? AND COALESCE(p.publish_at, p.created_at) <= ?
+		ORDER BY COALESCE(p.publish_at, p.created_at) DESC LIMIT 8`;
 	
 	const allResults = [];
 	
 	db.all(userQuery, [searchTerm, searchTerm, SUPERADMIN_USERNAME], (err, users) => {
 		if (users) allResults.push(...users);
 		
-		db.all(postQuery, [searchTerm, SUPERADMIN_USERNAME], (err2, posts) => {
+		db.all(postQuery, [searchTerm, SUPERADMIN_USERNAME, Date.now()], (err2, posts) => {
 			if (posts) allResults.push(...posts);
 			
 			// Sort: users first, then posts
@@ -3343,6 +3525,10 @@ app.get('/admin', requireAdmin, (req, res) => {
 
 app.get('/profile', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+app.get('/saved', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'saved.html'));
 });
 
 app.get('/clan', requireAuth, (req, res) => {

@@ -148,6 +148,7 @@ let notificationRefreshInterval = null;
 let notificationAudioUnlocked = false;
 let shareDialogState = null;
 let cachedShareConnections = null;
+let saveListDialogState = null;
 let pendingPostLinkId = null;
 let pendingStoryLinkId = null;
 let pendingShareToken = null;
@@ -687,6 +688,14 @@ function getProfilePictureUrl(userLike) {
   return getDefaultAvatarDataUri(userLike ? userLike.gender : '');
 }
 
+async function resolveChatAvatar(otherId, fallbackAvatar = '') {
+  const direct = String(fallbackAvatar || '').trim();
+  if (direct) return direct;
+  const userRes = await api(`/api/user/${encodeURIComponent(otherId)}`);
+  if (userRes && userRes.user) return getProfilePictureUrl(userRes.user);
+  return getDefaultAvatarDataUri('');
+}
+
 function getActionIconName(actionKey) {
   const iconMap = {
     like: 'material-symbols:favorite-outline',
@@ -821,6 +830,16 @@ function createActionButton(label, onClick, className = 'btn secondary tiny-btn'
   btn.type = 'button';
   btn.className = className;
   setActionButtonLabel(btn, label);
+  if (typeof onClick === 'function') btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function createLabeledActionButton(label, onClick, className = 'btn secondary tiny-btn') {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+  btn.textContent = label;
+  setButtonIconWithText(btn, getActionKeyFromLabel(label));
   if (typeof onClick === 'function') btn.addEventListener('click', onClick);
   return btn;
 }
@@ -1029,18 +1048,137 @@ async function toggleSave(postId, btn) {
   }
 }
 
+function ensureSaveListDialog() {
+  let modal = document.getElementById('saveListDialogModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'saveListDialogModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML = `<section class="modal-card save-list-dialog-card" role="dialog" aria-modal="true" aria-labelledby="saveListDialogTitle">
+    <div class="modal-head">
+      <h3 id="saveListDialogTitle">Save post</h3>
+      <button id="closeSaveListDialogBtn" class="btn secondary tiny-btn" type="button">Close</button>
+    </div>
+    <p class="muted save-list-dialog-subtitle">Choose a saved list, or create a fresh one without leaving this post.</p>
+    <div class="save-list-dialog-body">
+      <label class="tool-label">Saved list</label>
+      <div id="saveListDialogChoices" class="save-list-dialog-choices"></div>
+      <div id="saveListCreateWrap" class="save-list-create-wrap hidden">
+        <label class="tool-label" for="saveListCreateInput">New list name</label>
+        <input id="saveListCreateInput" type="text" maxlength="40" placeholder="Examples: Exams, Cases, Protocols" />
+      </div>
+    </div>
+    <div class="row save-list-dialog-actions">
+      <button id="saveListDialogCancelBtn" class="btn secondary" type="button">Cancel</button>
+      <button id="saveListDialogSaveBtn" class="btn primary" type="button">Save post</button>
+    </div>
+  </section>`;
+  document.body.appendChild(modal);
+  const close = () => closeSaveListDialog(null);
+  const closeBtn = document.getElementById('closeSaveListDialogBtn');
+  const cancelBtn = document.getElementById('saveListDialogCancelBtn');
+  const saveBtn = document.getElementById('saveListDialogSaveBtn');
+  const createInput = document.getElementById('saveListCreateInput');
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  if (saveBtn) saveBtn.addEventListener('click', submitSaveListDialog);
+  if (createInput) {
+    createInput.addEventListener('input', updateSaveListDialogUi);
+    createInput.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Enter') {
+        evt.preventDefault();
+        submitSaveListDialog();
+      }
+    });
+  }
+  modal.addEventListener('click', (evt) => {
+    if (evt.target === modal) close();
+  });
+  return modal;
+}
+
+function renderSaveListChoices() {
+  const box = document.getElementById('saveListDialogChoices');
+  if (!box || !saveListDialogState) return;
+  const options = Array.isArray(saveListDialogState.options) ? saveListDialogState.options : [];
+  const selected = String(saveListDialogState.selected || '');
+  box.innerHTML = options.map((name) => {
+    const isSelected = selected === name;
+    return `<button class="save-list-choice${isSelected ? ' is-selected' : ''}" data-value="${escapeHtml(name)}" type="button">${escapeHtml(name)}</button>`;
+  }).join('') + `<button class="save-list-choice save-list-choice-create${selected === '__create__' ? ' is-selected' : ''}" data-value="__create__" type="button">+ Create new list</button>`;
+  Array.from(box.querySelectorAll('.save-list-choice')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!saveListDialogState) return;
+      saveListDialogState.selected = String(btn.getAttribute('data-value') || '');
+      renderSaveListChoices();
+      updateSaveListDialogUi();
+    });
+  });
+}
+
+function updateSaveListDialogUi() {
+  const createWrap = document.getElementById('saveListCreateWrap');
+  const createInput = document.getElementById('saveListCreateInput');
+  const saveBtn = document.getElementById('saveListDialogSaveBtn');
+  const createMode = Boolean(saveListDialogState && saveListDialogState.selected === '__create__');
+  if (createWrap) createWrap.classList.toggle('hidden', !createMode);
+  if (saveBtn) {
+    const name = createMode ? String(createInput ? createInput.value : '').trim() : String(saveListDialogState ? saveListDialogState.selected : '').trim();
+    saveBtn.disabled = !name;
+  }
+  if (createMode && createInput) createInput.focus();
+}
+
+function closeSaveListDialog(value) {
+  const modal = document.getElementById('saveListDialogModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  const resolver = saveListDialogState ? saveListDialogState.resolve : null;
+  saveListDialogState = null;
+  if (resolver) resolver(value);
+}
+
+async function submitSaveListDialog() {
+  if (!saveListDialogState) return;
+  const createInput = document.getElementById('saveListCreateInput');
+  const saveBtn = document.getElementById('saveListDialogSaveBtn');
+  const createMode = Boolean(saveListDialogState.selected === '__create__');
+  const chosen = createMode ? String(createInput ? createInput.value : '').trim() : String(saveListDialogState.selected || '').trim();
+  if (!chosen) return;
+  setLoading(saveBtn, true);
+  if (createMode) {
+    const createRes = await api('/api/saved-lists', 'POST', { name: chosen });
+    if (!createRes || createRes.error) {
+      setLoading(saveBtn, false);
+      showToast((createRes && createRes.error) || 'Unable to create list', 'error');
+      return;
+    }
+  }
+  setLoading(saveBtn, false);
+  currentSavedListFilter = chosen;
+  closeSaveListDialog(chosen);
+}
+
 async function promptSaveListSelection() {
   const res = await api('/api/saved-lists');
   const lists = Array.isArray(res && res.lists ? res.lists : []) ? res.lists : [];
   const names = lists.map((l) => String(l.name || '').trim()).filter(Boolean);
   if (!names.includes('General')) names.unshift('General');
-  const hint = names.length ? `Existing: ${names.join(', ')}` : 'Default list: General';
-  const input = window.prompt(`Save to which list?\n${hint}\nYou can type a new list name too.`, currentSavedListFilter || 'General');
-  if (input === null) return null;
-  const chosen = input.trim();
-  if (!chosen) return 'General';
-  currentSavedListFilter = chosen;
-  return chosen;
+  const modal = ensureSaveListDialog();
+  const createInput = document.getElementById('saveListCreateInput');
+  const preferred = names.includes(currentSavedListFilter) ? currentSavedListFilter : 'General';
+  saveListDialogState = { options: names, selected: preferred, resolve: null };
+  if (createInput) createInput.value = '';
+  renderSaveListChoices();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  updateSaveListDialogUi();
+  return new Promise((resolve) => {
+    if (saveListDialogState) saveListDialogState.resolve = resolve;
+  });
 }
 
 async function sharePost(postId, btn) {
@@ -1214,8 +1352,9 @@ async function loadFeed() {
     pic.loading='lazy';
     pic.onerror=()=>{pic.style.display='none'};
     const meta = document.createElement('div'); meta.className='meta';
-    const date = formatDateTime(p.created_at);
-    meta.textContent = `${p.name || p.username} - ${date}`;
+    const isScheduled = Number(p.publish_at || 0) > Date.now();
+    const date = formatDateTime(p.publish_at || p.created_at);
+    meta.textContent = `${p.name || p.username} - ${isScheduled ? `Scheduled for ${date}` : date}`;
     head.appendChild(pic);
     head.appendChild(meta);
     el.appendChild(head);
@@ -1244,11 +1383,12 @@ async function loadFeed() {
     }
 
     const quizBlock = renderQuizBlock(p);
-    if (quizBlock) el.appendChild(quizBlock);
+    if (quizBlock && !isScheduled) el.appendChild(quizBlock);
 
     const actionsRow = document.createElement('div');
     actionsRow.className = 'post-actions';
-    if (canInteract) {
+    const canInteractWithPost = canInteract && !isScheduled;
+    if (canInteractWithPost) {
       const likeBtn = createActionButton(`${Number(p.my_liked) ? 'Unlike' : 'Like'} (${p.like_count || 0})`, () => {});
       likeBtn.addEventListener('click', () => toggleLike(p.id, likeBtn));
       const saveBtn = createActionButton(`${Number(p.my_saved) ? 'Saved' : 'Save'} (${p.save_count || 0})`, () => {});
@@ -1268,24 +1408,47 @@ async function loadFeed() {
         deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
         actionsRow.appendChild(deleteBtn);
       }
+    } else if (canInteract && isScheduled && Number(p.user_id) === Number(meId)) {
+      const scheduledTag = document.createElement('div');
+      scheduledTag.className = 'muted';
+      scheduledTag.textContent = 'This scheduled post is waiting to go live.';
+      actionsRow.appendChild(scheduledTag);
+      const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+      deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
+      actionsRow.appendChild(deleteBtn);
     }
 
     // show connect button if not self
-    if (canInteract && p.user_id && Number(p.user_id) !== Number(meId)) {
-      const connect = createActionButton('Connect', null, 'btn tiny-btn');
-      connect.addEventListener('click', async () => {
-        setLoading(connect, true);
-        const r = await api('/api/connect/request','POST',{to:p.user_id});
-        setLoading(connect, false);
-        if (r && r.success) {
-          connect.textContent='Requested';
-          connect.disabled=true;
-          showToast('Connection request sent!');
+    if (canInteractWithPost && p.user_id && Number(p.user_id) !== Number(meId)) {
+      const relationStatus = String(p.relation_status || 'none');
+      const relationRequestedByMe = Number(p.relation_requested_by) === Number(meId);
+      if (relationStatus !== 'accepted') {
+        const connectLabel = relationStatus === 'pending'
+          ? (relationRequestedByMe ? 'Cancel Request' : 'Pending')
+          : 'Connect';
+        const connect = createActionButton(connectLabel, null, 'btn tiny-btn');
+        if (relationStatus === 'pending' && !relationRequestedByMe) {
+          connect.disabled = true;
         } else {
-          showToast(r.error||'Unable to send request', 'error');
+          connect.addEventListener('click', async () => {
+            setLoading(connect, true);
+            let r;
+            if (relationStatus === 'pending' && relationRequestedByMe && Number(p.relation_id)) {
+              r = await api('/api/connect/cancel', 'POST', { id: Number(p.relation_id) });
+            } else {
+              r = await api('/api/connect/request','POST',{to:p.user_id});
+            }
+            setLoading(connect, false);
+            if (r && r.success) {
+              showToast(relationStatus === 'pending' ? 'Request cancelled' : 'Connection request sent!');
+              loadFeed();
+            } else {
+              showToast(r.error||'Unable to update request', 'error');
+            }
+          });
         }
-      });
-      actionsRow.appendChild(connect);
+        actionsRow.appendChild(connect);
+      }
     }
     if (actionsRow.children.length) el.appendChild(actionsRow);
 
@@ -2202,11 +2365,15 @@ async function loadSavedPosts() {
   box.innerHTML = '';
   res.posts.forEach((p) => {
     const card = document.createElement('div');
-    card.className = 'post';
+    card.className = 'post saved-post-card';
     const options = listNames.map((n) => `<option value="${escapeHtml(n)}"${n === listName ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
-    card.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div>
-      <div>${escapeHtml(p.content || '')}</div>
-      <div class="row" style="justify-content:flex-start;margin-top:0.6rem">
+    const publishMeta = Number(p.publish_at || 0) > Number(p.created_at || 0) ? `Scheduled live: ${formatDateTime(p.publish_at)}` : `Published: ${formatDateTime(p.publish_at || p.created_at)}`;
+    card.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${publishMeta}</div>
+      ${p.content ? `<div>${escapeHtml(p.content || '')}</div>` : ''}
+      ${p.image ? `<img class="post-image" src="${p.image}" alt="Saved post attachment" loading="lazy" />` : ''}
+      ${p.reminder_note || p.reminder_at ? `<div class="reminder-chip"><strong>Reminder</strong>${p.reminder_at ? `: ${escapeHtml(formatReminder(p.reminder_at) || '')}` : ''}${p.reminder_note ? ` - ${escapeHtml(p.reminder_note)}` : ''}</div>` : ''}
+      <div class="row" style="justify-content:flex-start;margin-top:0.6rem;gap:0.5rem;flex-wrap:wrap">
+        <a class="btn tiny-btn" href="/dashboard?post=${encodeURIComponent(p.id)}">Open Post</a>
         <select data-post-id="${p.id}" class="saved-move-select">${options}</select>
         <button class="btn secondary tiny-btn" data-remove-post-id="${p.id}" type="button">Remove</button>
       </div>`;
@@ -2784,6 +2951,7 @@ async function loadPublicProfilePage() {
   </div>`;
   if (actionsBox) {
     actionsBox.innerHTML = '';
+    actionsBox.classList.remove('hidden');
     const isSelf = me && Number(me.id) === Number(u.id);
     if (!isSelf) {
       const connectLabel = relation.connectionStatus === 'accepted'
@@ -2791,7 +2959,7 @@ async function loadPublicProfilePage() {
         : (relation.connectionStatus === 'pending'
           ? (relation.connectionRequestedByMe ? 'Cancel Request' : 'Pending')
           : 'Connect');
-      const connectBtn = createActionButton(connectLabel, async () => {
+      const connectBtn = createLabeledActionButton(connectLabel, async () => {
         setLoading(connectBtn, true);
         let actionRes;
         if (relation.connectionStatus === 'accepted') actionRes = await api('/api/connect/disconnect', 'POST', { userId: u.id });
@@ -2803,13 +2971,13 @@ async function loadPublicProfilePage() {
       }, 'btn tiny-btn');
       if (relation.connectionStatus === 'pending' && !relation.connectionRequestedByMe) connectBtn.disabled = true;
 
-      const followBtn = createActionButton(relation.following ? 'Unfollow' : 'Follow', async () => {
+      const followBtn = createLabeledActionButton(relation.following ? 'Unfollow' : 'Follow', async () => {
         const r = await api('/api/follow/toggle', 'POST', { userId: u.id });
         if (r && r.success) loadPublicProfilePage();
         else showToast(r.error || 'Unable to update follow', 'error');
       }, 'btn tiny-btn');
 
-      const shareBtn = createActionButton('Share', async () => {
+      const shareBtn = createLabeledActionButton('Share', async () => {
         const profileUrl = `${location.origin}/user-profile.html?id=${encodeURIComponent(u.id)}`;
         try {
           await navigator.clipboard.writeText(profileUrl);
@@ -2819,7 +2987,7 @@ async function loadPublicProfilePage() {
         }
       }, 'btn tiny-btn');
 
-      const blockBtn = createActionButton(relation.blockedByMe ? 'Unblock' : 'Block', async () => {
+      const blockBtn = createLabeledActionButton(relation.blockedByMe ? 'Unblock' : 'Block', async () => {
         const r = await api('/api/block/toggle', 'POST', { userId: u.id, reason: relation.blockedByMe ? '' : 'user action' });
         if (r && r.success) loadPublicProfilePage();
         else showToast(r.error || 'Unable to update block', 'error');
@@ -2927,15 +3095,24 @@ async function unignoreRequest(id) {
   }
 }
 
+function getPersonProfileHref(person) {
+  const id = Number(person && (person.id || person.user_id)) || 0;
+  return id ? `/user-profile.html?id=${encodeURIComponent(id)}` : '';
+}
+
 function renderPersonCard(person, actionsHtml) {
+  const profileHref = getPersonProfileHref(person);
+  const mainOpen = profileHref ? `<a class="person-card-main person-card-link" href="${profileHref}">` : '<div class="person-card-main">';
+  const mainClose = profileHref ? '</a>' : '</div>';
   return `<div class="person-card">
-    <div class="person-card-main">
+    ${mainOpen}
       <img src="${getProfilePictureUrl(person)}" class="person-card-avatar" loading="lazy" />
       <div class="person-card-meta">
         <div class="person-card-name">${escapeHtml(person.name || person.username || 'Unknown')}</div>
         <div class="muted person-card-handle">@${escapeHtml(person.username || '')}</div>
+        ${person.suggestion_reason ? `<div class="muted person-card-reason">${escapeHtml(person.suggestion_reason)}</div>` : ''}
       </div>
-    </div>
+    ${mainClose}
     <div class="person-card-actions">${actionsHtml}</div>
   </div>`;
 }
@@ -2969,12 +3146,10 @@ async function loadConnectionPanels() {
   acceptedBox.innerHTML = accepted.length ? accepted.map((c) => {
     const statusText = c.online_visible ? (c.online ? 'Online' : 'Offline') : 'Hidden';
     const statusClass = c.online_visible ? (c.online ? 'status-online' : 'status-offline') : 'status-offline';
-    const chatLabel = (c.name || c.username || '').replace(/'/g, "\\'");
-    const chatAvatar = (c.profile_picture || '').replace(/'/g, "\\'");
     connectionPresenceMap.set(Number(c.id), Boolean(c.online));
     return renderPersonCard(c, `<div class="post-actions">
       <div class="connection-status ${statusClass}">${statusText}</div>
-      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" onclick="openChat(${c.id}, '${chatLabel}', ${c.online ? 'true' : 'false'}, '${chatAvatar}')">Chat</button>
+      <button class="btn primary chat-open-btn" style="font-size:12px;padding:8px 12px" data-chat-user-id="${Number(c.id)}" data-chat-name="${escapeHtml(c.name || c.username || '')}" data-chat-online="${c.online ? '1' : '0'}" data-chat-avatar="${escapeHtml(c.profile_picture || '')}" type="button">Chat</button>
     </div>`);
   }).join('') : '<div class="muted" style="text-align:center;padding:16px">No connections yet.</div>';
 
@@ -2999,7 +3174,17 @@ async function loadConnectionPanels() {
   if (suggestionsBox) {
     suggestionsBox.innerHTML = suggestions.length ? suggestions.map((s) => renderPersonCard(s, `<button class="btn" style="font-size:12px;padding:8px 12px" onclick="api('/api/connect/request','POST',{to:${Number(s.id)}}).then((x)=>{ if(x&&x.success){showToast('Request sent');loadConnectionPanels();} else {showToast((x&&x.error)||'Unable to send request','error');}})">Connect</button>`)).join('') : '<div class="muted" style="text-align:center;padding:16px">No suggestions right now.</div>';
   }
-  acceptedBox.querySelectorAll('.chat-open-btn').forEach((btn) => setButtonIconWithText(btn, 'chat'));
+  acceptedBox.querySelectorAll('.chat-open-btn').forEach((btn) => {
+    setButtonIconWithText(btn, 'chat');
+    btn.addEventListener('click', () => {
+      const userId = Number(btn.getAttribute('data-chat-user-id') || 0);
+      const name = String(btn.getAttribute('data-chat-name') || 'User');
+      const online = btn.getAttribute('data-chat-online') === '1';
+      const avatar = String(btn.getAttribute('data-chat-avatar') || '');
+      if (!userId) return;
+      openChat(userId, name, online, avatar);
+    });
+  });
   applyIconifyAudit();
 }
 
@@ -3067,6 +3252,7 @@ async function loadGroups() {
     const myState = g.my_status === 'active' ? 'Joined' : (g.my_status === 'pending' ? 'Requested' : 'Not joined');
     card.innerHTML = `<div class="group-top"><strong>${escapeHtml(g.name)}</strong><span class="muted">${privacy}</span></div>
       <div class="muted">${escapeHtml(g.description || '')}</div>
+      ${g.suggestion_reason ? `<div class="muted" style="margin-top:0.25rem">${escapeHtml(g.suggestion_reason)}</div>` : ''}
       <div class="muted">Members: ${g.member_count || 0} | Clan Level: ${g.clan_level || 1} | Clan XP: ${g.clan_xp || 0}</div>
       <div class="muted">${myState}${g.my_role ? ` | ${g.my_role}` : ''}</div>`;
     const actions = document.createElement('div');
@@ -3401,7 +3587,7 @@ function upsertSavedListsTopButton(user) {
   const anchor = document.createElement('a');
   anchor.id = 'savedListsMenuBtn';
   anchor.className = 'btn';
-  anchor.href = '/profile#savedPostsSection';
+  anchor.href = '/saved';
   anchor.textContent = 'Saved Lists';
   const themeToggle = document.getElementById('themeToggle');
   if (themeToggle && themeToggle.parentElement === actions) {
@@ -3793,7 +3979,17 @@ async function openChat(otherId, otherName, knownOnline = null, otherAvatar = ''
     titleEl.title = `Open ${otherName}'s profile`;
     titleEl.onclick = () => { location.href = `/user-profile.html?id=${encodeURIComponent(otherId)}`; };
   }
-  if (avatarEl) avatarEl.src = otherAvatar || getDefaultAvatarDataUri('');
+  if (avatarEl) {
+    const initialAvatar = String(otherAvatar || '').trim() || getDefaultAvatarDataUri('');
+    avatarEl.src = initialAvatar;
+    avatarEl.onerror = () => { avatarEl.src = getDefaultAvatarDataUri(''); };
+  }
+  try {
+    currentChatAvatar = await resolveChatAvatar(otherId, otherAvatar);
+    if (avatarEl) avatarEl.src = currentChatAvatar || getDefaultAvatarDataUri('');
+  } catch (e) {
+    currentChatAvatar = String(otherAvatar || '').trim() || getDefaultAvatarDataUri('');
+  }
   if (knownOnline !== null && knownOnline !== undefined) setChatStatus(Boolean(knownOnline));
   else if (connectionPresenceMap.has(Number(otherId))) setChatStatus(Boolean(connectionPresenceMap.get(Number(otherId))));
   else setChatStatus(false);
@@ -3913,6 +4109,7 @@ async function submitPost(e) {
   e.preventDefault();
   const form = e.target;
   const ta = document.getElementById('postContent');
+  const publishAtInput = document.getElementById('postPublishAt');
   const reminderAtInput = document.getElementById('postReminderAt');
   const reminderNoteInput = document.getElementById('postReminderNote');
   const quizQuestionInput = document.getElementById('quizQuestion');
@@ -3922,11 +4119,13 @@ async function submitPost(e) {
   const reminderNote = reminderNoteInput ? reminderNoteInput.value.trim() : '';
   const visibilityInput = document.getElementById('postVisibility');
   const visibility = visibilityInput ? visibilityInput.value : 'public';
+  const publishAtRaw = publishAtInput ? publishAtInput.value : '';
   const quizQuestion = quizQuestionInput ? quizQuestionInput.value.trim() : '';
   const quizOptions = quizOptionEls.map((el) => el.value.trim()).filter(Boolean);
   const quizCorrectIndexRaw = quizCorrectIndexInput ? quizCorrectIndexInput.value : '';
   const quizCorrectIndex = quizCorrectIndexRaw === '' ? null : Number(quizCorrectIndexRaw);
   const reminderAtRaw = reminderAtInput ? reminderAtInput.value : '';
+  const publishAt = publishAtRaw ? new Date(publishAtRaw).getTime() : null;
   const reminderAt = reminderAtRaw ? new Date(reminderAtRaw).getTime() : null;
   const isReminderMode = postMode === 'reminder';
   const isQuizMode = postMode === 'quiz';
@@ -3947,6 +4146,10 @@ async function submitPost(e) {
   }
   if (isReminderMode && reminderAtRaw && Number.isNaN(reminderAt)) {
     showToast('Please choose a valid reminder date/time', 'error');
+    return;
+  }
+  if (publishAtRaw && (Number.isNaN(publishAt) || publishAt <= Date.now())) {
+    showToast('Please choose a future go-live date/time', 'error');
     return;
   }
   if (isQuizMode) {
@@ -3979,6 +4182,7 @@ async function submitPost(e) {
     content,
     image: selectedPostImageDataUrl,
     visibility,
+    publishAt,
     reminderAt: isReminderMode ? reminderAt : null,
     reminderNote: isReminderMode ? reminderNote : '',
     quizQuestion: isQuizMode ? quizQuestion : null,
@@ -3991,6 +4195,7 @@ async function submitPost(e) {
   
   if (res && res.success) { 
     ta.value='';
+    if (publishAtInput) publishAtInput.value = '';
     if (reminderAtInput) reminderAtInput.value = '';
     if (reminderNoteInput) reminderNoteInput.value = '';
     if (quizQuestionInput) quizQuestionInput.value = '';
@@ -3998,7 +4203,7 @@ async function submitPost(e) {
     quizOptionEls.forEach((el) => { el.value = ''; });
     setPostMode(null);
     clearPostImageSelection();
-    showToast('Post shared!');
+    showToast(res.scheduled && res.publishAt ? `Post scheduled for ${formatDateTime(res.publishAt)}` : 'Post shared!');
     loadFeed();
   } else {
     showToast(res.error || 'Unable to post', 'error');
@@ -4565,12 +4770,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
     loadProfileEditor();
-    loadSavedLists().then(() => loadSavedPosts());
-    const createListBtn = document.getElementById('createSavedListBtn');
-    if (createListBtn) createListBtn.addEventListener('click', createSavedList);
     const suggestBtn = document.getElementById('specialitySuggestBtn');
     if (suggestBtn) suggestBtn.addEventListener('click', suggestSpeciality);
   }
+  if (document.getElementById('savedPostsBox')) {
+    loadSavedLists().then(() => loadSavedPosts());
+  }
+  const createListBtn = document.getElementById('createSavedListBtn');
+  if (createListBtn) createListBtn.addEventListener('click', createSavedList);
   if (document.getElementById('verifyEmailStatus')) handleVerifyEmailPage();
   if (document.getElementById('publicProfileBox')) loadPublicProfilePage();
   if (document.getElementById('supportTicketForm')) {

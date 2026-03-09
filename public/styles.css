@@ -235,6 +235,30 @@ button {
   justify-content: flex-end;
 }
 
+.saved-page-main {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.saved-page-sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.saved-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.saved-post-card {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 52%, transparent);
+}
+
 #notificationsMenuBtn {
   position: relative;
 }
@@ -1336,6 +1360,74 @@ button {
   animation: shareDialogRise 0.18s ease-out;
 }
 
+.save-list-dialog-card {
+  width: min(460px, 100%);
+  padding: 1.05rem;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 10%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card-strong) 97%, white 3%), var(--card-strong));
+  animation: shareDialogRise 0.18s ease-out;
+}
+
+.save-list-dialog-subtitle {
+  margin: 0.45rem 0 0.95rem;
+  max-width: 34ch;
+}
+
+.save-list-dialog-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.save-list-dialog-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.save-list-choice {
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.save-list-choice:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  box-shadow: 0 10px 20px rgba(2, 8, 20, 0.08);
+}
+
+.save-list-choice.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  box-shadow: 0 10px 20px rgba(2, 8, 20, 0.1);
+}
+
+.save-list-choice-create {
+  border-style: dashed;
+}
+
+.save-list-create-wrap {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+}
+
+.save-list-dialog-actions {
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
 .share-dialog-intro {
   display: flex;
   align-items: center;
@@ -1779,6 +1871,17 @@ button {
   min-width: 0;
 }
 
+.person-card-link {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.person-card-link:hover .person-card-name,
+.person-card-link:focus-visible .person-card-name {
+  color: var(--accent);
+}
+
 .person-card-avatar {
   width: 36px;
   height: 36px;
@@ -1800,6 +1903,12 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.person-card-reason {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .person-card-actions {
@@ -1878,6 +1987,14 @@ button {
 
   .dashboard-hero .actions {
     justify-content: flex-start;
+  }
+
+  .saved-page-main {
+    grid-template-columns: 1fr;
+  }
+
+  .saved-page-sidebar {
+    position: static;
   }
 
   .notification-panel {
