@@ -146,6 +146,11 @@ let unreadNotificationCount = 0;
 let audioContext = null;
 let notificationRefreshInterval = null;
 let notificationAudioUnlocked = false;
+let shareDialogState = null;
+let cachedShareConnections = null;
+let pendingPostLinkId = null;
+let pendingStoryLinkId = null;
+let pendingShareToken = null;
 
 function initNotificationAudioUnlock() {
   if (notificationAudioUnlocked) return;
@@ -190,6 +195,336 @@ function playNotificationSound() {
     osc.stop(ctx.currentTime + 0.19);
   } catch (e) {
     // ignore sound failures
+  }
+}
+
+function ensureShareDialog() {
+  let modal = document.getElementById('shareDialogModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'shareDialogModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML = `<section class="modal-card share-dialog-card" role="dialog" aria-modal="true" aria-labelledby="shareDialogTitle">
+    <div class="modal-head">
+      <h3 id="shareDialogTitle">Share</h3>
+      <button id="closeShareDialogBtn" class="btn secondary tiny-btn" type="button">Close</button>
+    </div>
+    <div class="share-dialog-intro">
+      <p id="shareDialogSubtitle" class="muted share-dialog-subtitle">Choose who should receive this share.</p>
+      <div id="shareDialogSelectionMeta" class="share-dialog-selection-meta">0 selected</div>
+    </div>
+    <div class="share-dialog-search-wrap">
+      <input id="shareDialogSearch" class="share-dialog-search" type="text" placeholder="Search connections..." />
+    </div>
+    <div class="row share-dialog-toolbar">
+      <button id="shareSelectAllBtn" class="btn secondary tiny-btn" type="button">Select visible</button>
+      <button id="shareClearAllBtn" class="btn secondary tiny-btn" type="button">Clear</button>
+      <span id="shareDialogLinkHint" class="muted share-dialog-link-hint">Random secure link</span>
+    </div>
+    <div id="shareDialogConnections" class="share-dialog-list"></div>
+    <div class="row share-dialog-actions">
+      <button id="shareCopyLinkBtn" class="btn secondary" type="button">Copy link</button>
+      <button id="shareSubmitBtn" class="btn primary" type="button">Share selected</button>
+    </div>
+  </section>`;
+  document.body.appendChild(modal);
+  const closeBtn = document.getElementById('closeShareDialogBtn');
+  const searchInput = document.getElementById('shareDialogSearch');
+  const selectAllBtn = document.getElementById('shareSelectAllBtn');
+  const clearAllBtn = document.getElementById('shareClearAllBtn');
+  const copyLinkBtn = document.getElementById('shareCopyLinkBtn');
+  const submitBtn = document.getElementById('shareSubmitBtn');
+  if (closeBtn) closeBtn.addEventListener('click', closeShareDialog);
+  modal.addEventListener('click', (evt) => {
+    if (evt.target === modal) closeShareDialog();
+  });
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderShareConnectionList(searchInput.value);
+    });
+  }
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => {
+      if (!shareDialogState) return;
+      const filtered = getFilteredShareConnections();
+      filtered.forEach((conn) => shareDialogState.selected.add(Number(conn.id)));
+      renderShareConnectionList(searchInput ? searchInput.value : '');
+    });
+  }
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', () => {
+      if (!shareDialogState) return;
+      shareDialogState.selected.clear();
+      renderShareConnectionList(searchInput ? searchInput.value : '');
+    });
+  }
+  if (copyLinkBtn) copyLinkBtn.addEventListener('click', copyCurrentShareLink);
+  if (submitBtn) submitBtn.addEventListener('click', submitShareDialog);
+  return modal;
+}
+
+function closeShareDialog() {
+  const modal = document.getElementById('shareDialogModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  const searchInput = document.getElementById('shareDialogSearch');
+  if (searchInput) searchInput.value = '';
+  shareDialogState = null;
+}
+
+function updateShareDialogSelectionMeta() {
+  const meta = document.getElementById('shareDialogSelectionMeta');
+  const submitBtn = document.getElementById('shareSubmitBtn');
+  const count = shareDialogState ? shareDialogState.selected.size : 0;
+  if (meta) meta.textContent = `${count} selected`;
+  if (submitBtn) submitBtn.disabled = !shareDialogState || !count;
+}
+
+function updateShareDialogLinkState() {
+  const hint = document.getElementById('shareDialogLinkHint');
+  const copyBtn = document.getElementById('shareCopyLinkBtn');
+  if (!copyBtn) return;
+  const loading = Boolean(shareDialogState && shareDialogState.linkLoading);
+  const ready = Boolean(shareDialogState && shareDialogState.shareUrl);
+  copyBtn.disabled = loading;
+  copyBtn.textContent = loading ? 'Preparing link...' : 'Copy link';
+  if (hint) {
+    hint.textContent = ready ? 'Random secure link ready' : (loading ? 'Generating random secure link...' : 'Random secure link');
+  }
+}
+
+function getFilteredShareConnections() {
+  const list = Array.isArray(cachedShareConnections) ? cachedShareConnections : [];
+  const searchInput = document.getElementById('shareDialogSearch');
+  const query = String(searchInput ? searchInput.value : '').trim().toLowerCase();
+  if (!query) return list;
+  return list.filter((conn) => {
+    const name = String(conn.name || '').toLowerCase();
+    const username = String(conn.username || '').toLowerCase();
+    return name.includes(query) || username.includes(query);
+  });
+}
+
+function renderShareConnectionList(query = '') {
+  const box = document.getElementById('shareDialogConnections');
+  if (!box) return;
+  const state = shareDialogState;
+  if (!state) {
+    box.innerHTML = '<div class="muted">No share target selected.</div>';
+    return;
+  }
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const list = (Array.isArray(cachedShareConnections) ? cachedShareConnections : []).filter((conn) => {
+    if (!normalizedQuery) return true;
+    const name = String(conn.name || '').toLowerCase();
+    const username = String(conn.username || '').toLowerCase();
+    return name.includes(normalizedQuery) || username.includes(normalizedQuery);
+  });
+  if (!list.length) {
+    box.innerHTML = `<div class="muted" style="padding:14px;text-align:center">${normalizedQuery ? 'No matching connections.' : 'No connections available.'}</div>`;
+    return;
+  }
+  box.innerHTML = list.map((conn) => {
+    const id = Number(conn.id) || 0;
+    const checked = state.selected.has(id) ? 'checked' : '';
+    const avatar = conn.profile_picture || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E';
+    const name = escapeHtml(conn.name || conn.username || 'User');
+    const username = escapeHtml(conn.username || '');
+    const status = conn.online_visible ? (conn.online ? 'Online' : 'Offline') : 'Hidden';
+    return `<label class="share-dialog-person${checked ? ' is-selected' : ''}">
+      <input class="share-dialog-checkbox" type="checkbox" value="${id}" ${checked} />
+      <img class="share-dialog-avatar" src="${avatar}" alt="${name}" loading="lazy" />
+      <span class="share-dialog-person-meta">
+        <span class="share-dialog-person-name">${name}</span>
+        <span class="share-dialog-person-sub">@${username} • ${status}</span>
+      </span>
+    </label>`;
+  }).join('');
+  Array.from(box.querySelectorAll('.share-dialog-checkbox')).forEach((input) => {
+    input.addEventListener('change', () => {
+      if (!shareDialogState) return;
+      const id = Number(input.value) || 0;
+      if (!id) return;
+      const row = input.closest('.share-dialog-person');
+      if (input.checked) shareDialogState.selected.add(id);
+      else shareDialogState.selected.delete(id);
+      if (row) row.classList.toggle('is-selected', input.checked);
+      updateShareDialogSelectionMeta();
+    });
+  });
+  updateShareDialogSelectionMeta();
+}
+
+async function loadShareConnections() {
+  if (Array.isArray(cachedShareConnections)) return cachedShareConnections;
+  const res = await api('/api/connections');
+  if (res.error) throw new Error(res.error || 'Unable to load connections');
+  cachedShareConnections = Array.isArray(res.connections) ? res.connections.slice().sort((a, b) => {
+    const aName = String(a.name || a.username || '').toLowerCase();
+    const bName = String(b.name || b.username || '').toLowerCase();
+    return aName.localeCompare(bName);
+  }) : [];
+  return cachedShareConnections;
+}
+
+async function openShareDialog(config) {
+  const modal = ensureShareDialog();
+  shareDialogState = {
+    kind: config.kind,
+    itemId: Number(config.itemId) || 0,
+    submitPath: config.submitPath,
+    linkPath: config.linkPath,
+    onSuccess: typeof config.onSuccess === 'function' ? config.onSuccess : null,
+    selected: new Set(),
+    shareUrl: '',
+    linkLoading: false
+  };
+  const titleEl = document.getElementById('shareDialogTitle');
+  const subtitleEl = document.getElementById('shareDialogSubtitle');
+  const box = document.getElementById('shareDialogConnections');
+  const submitBtn = document.getElementById('shareSubmitBtn');
+  const searchInput = document.getElementById('shareDialogSearch');
+  if (titleEl) titleEl.textContent = config.title || 'Share';
+  if (subtitleEl) subtitleEl.textContent = config.subtitle || 'Choose who should receive this share.';
+  if (searchInput) searchInput.value = '';
+  if (box) box.innerHTML = '<div class="muted" style="padding:14px;text-align:center">Loading connections...</div>';
+  updateShareDialogSelectionMeta();
+  updateShareDialogLinkState();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  try {
+    const connections = await loadShareConnections();
+    if (!shareDialogState) return;
+    if (!connections.length) {
+      if (box) box.innerHTML = '<div class="muted" style="padding:14px;text-align:center">No accepted connections available.</div>';
+      if (submitBtn) submitBtn.disabled = true;
+    } else {
+      renderShareConnectionList('');
+      if (searchInput) searchInput.focus();
+    }
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="muted" style="padding:14px;text-align:center">${escapeHtml(e.message || 'Unable to load connections.')}</div>`;
+    if (submitBtn) submitBtn.disabled = true;
+  }
+  ensureCurrentShareLink().catch(() => {});
+}
+
+async function ensureCurrentShareLink() {
+  if (!shareDialogState || shareDialogState.shareUrl || shareDialogState.linkLoading || !shareDialogState.linkPath) {
+    updateShareDialogLinkState();
+    return shareDialogState ? shareDialogState.shareUrl : '';
+  }
+  shareDialogState.linkLoading = true;
+  updateShareDialogLinkState();
+  const res = await api(shareDialogState.linkPath, 'POST', {});
+  if (!shareDialogState) return '';
+  shareDialogState.linkLoading = false;
+  if (res && !res.error && res.shareUrl) {
+    shareDialogState.shareUrl = String(res.shareUrl);
+    updateShareDialogLinkState();
+    return shareDialogState.shareUrl;
+  }
+  updateShareDialogLinkState();
+  throw new Error((res && res.error) || 'Unable to generate share link');
+}
+
+async function copyCurrentShareLink() {
+  if (!shareDialogState) return;
+  try {
+    const shareUrl = await ensureCurrentShareLink();
+    if (!shareUrl) throw new Error('Unable to generate share link');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+    } else {
+      const input = document.createElement('input');
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    showToast(`${shareDialogState.kind === 'story' ? 'Story' : 'Post'} link copied`);
+  } catch (e) {
+    showToast(e.message || 'Unable to copy link', 'error');
+  }
+}
+
+async function submitShareDialog() {
+  if (!shareDialogState) return;
+  const targets = Array.from(shareDialogState.selected);
+  if (!targets.length) {
+    showToast('Select at least one connection', 'error');
+    return;
+  }
+  const submitBtn = document.getElementById('shareSubmitBtn');
+  setLoading(submitBtn, true);
+  const res = await api(shareDialogState.submitPath, 'POST', { targets });
+  setLoading(submitBtn, false);
+  if (!shareDialogState) return;
+  if (!res || res.error) {
+    showToast((res && res.error) || 'Unable to share', 'error');
+    return;
+  }
+  const onSuccess = shareDialogState.onSuccess;
+  closeShareDialog();
+  if (onSuccess) onSuccess(res, targets);
+}
+
+function parseDashboardShareTargetParams() {
+  const params = new URLSearchParams(window.location.search);
+  const shareToken = String(params.get('share') || '').trim();
+  const postId = Number(params.get('post') || 0);
+  const storyId = Number(params.get('story') || 0);
+  pendingShareToken = shareToken || null;
+  pendingPostLinkId = postId > 0 ? postId : null;
+  pendingStoryLinkId = storyId > 0 ? storyId : null;
+}
+
+async function resolveSharedTargetFromToken() {
+  if (!pendingShareToken) return;
+  const token = pendingShareToken;
+  pendingShareToken = null;
+  const res = await api(`/api/share-link/${encodeURIComponent(token)}`);
+  if (!res || res.error) {
+    showToast((res && res.error) || 'Share link is not available', 'error');
+    return;
+  }
+  if (String(res.itemType) === 'story') {
+    pendingStoryLinkId = Number(res.itemId) || null;
+    tryOpenSharedStoryFromUrl();
+    return;
+  }
+  pendingPostLinkId = Number(res.itemId) || null;
+  tryOpenSharedPostFromUrl();
+}
+
+function highlightAndScrollToPost(postId) {
+  const postEl = document.querySelector(`.post[data-post-id="${postId}"]`);
+  if (!postEl) return false;
+  postEl.classList.add('share-target-highlight');
+  postEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => postEl.classList.remove('share-target-highlight'), 2200);
+  return true;
+}
+
+function tryOpenSharedPostFromUrl() {
+  if (!pendingPostLinkId) return;
+  const found = highlightAndScrollToPost(pendingPostLinkId);
+  if (found) pendingPostLinkId = null;
+}
+
+function tryOpenSharedStoryFromUrl() {
+  if (!pendingStoryLinkId) return;
+  for (let groupIndex = 0; groupIndex < storyGroups.length; groupIndex += 1) {
+    const group = storyGroups[groupIndex];
+    const storyIndex = Array.isArray(group && group.stories) ? group.stories.findIndex((story) => Number(story.id) === Number(pendingStoryLinkId)) : -1;
+    if (storyIndex >= 0) {
+      openStoryViewer(groupIndex, storyIndex);
+      pendingStoryLinkId = null;
+      return;
+    }
   }
 }
 
@@ -709,15 +1044,18 @@ async function promptSaveListSelection() {
 }
 
 async function sharePost(postId, btn) {
-  setLoading(btn, true);
-  const res = await api(`/api/post/${postId}/share`, 'POST', {});
-  setLoading(btn, false);
-  if (res && res.success) {
-    setActionButtonLabel(btn, `Shared (${res.count || 0})`, 'share');
-    showToast(`Shared to ${res.sharedTo || 0} connection(s)`);
-  } else {
-    showToast(res.error || 'Unable to share post', 'error');
-  }
+  openShareDialog({
+    kind: 'post',
+    itemId: postId,
+    title: 'Share post',
+    subtitle: 'Choose which connections should receive this post.',
+    submitPath: `/api/post/${postId}/share`,
+    linkPath: `/api/post/${postId}/share-link`,
+    onSuccess: (res) => {
+      setActionButtonLabel(btn, `Shared (${res.count || 0})`, 'share');
+      showToast(`Shared to ${res.sharedTo || 0} connection(s)`);
+    }
+  });
 }
 
 async function deletePost(postId, postEl, btn) {
@@ -867,6 +1205,7 @@ async function loadFeed() {
   const canInteract = Boolean(meId) && !isPublicHomePage();
   posts.forEach(p => {
     const el = document.createElement('div'); el.className='post';
+    el.dataset.postId = String(Number(p.id) || 0);
     const head = document.createElement('div');
     head.className = 'post-head';
     const pic = document.createElement('img');
@@ -977,6 +1316,7 @@ async function loadFeed() {
     el.appendChild(commentsWrap);
     box.appendChild(el);
   });
+  tryOpenSharedPostFromUrl();
 }
 
 async function loadAdminUsers() {
@@ -1441,6 +1781,7 @@ async function loadStories() {
     btn.addEventListener('click', () => openStoryViewer(idx, 0));
     box.appendChild(btn);
   });
+  tryOpenSharedStoryFromUrl();
 }
 
 function getActiveStory() {
@@ -1595,23 +1936,19 @@ async function toggleStoryLike() {
 async function shareActiveStory() {
   const story = getActiveStory();
   if (!story) return;
-  const res = await api(`/api/stories/${story.id}/share`, 'POST', {});
-  if (res.error) return showToast(res.error || 'Unable to share story', 'error');
-  story.shares_count = Number(res.count) || 0;
-  updateStoryStats(story);
-  const shareText = `Check this story on Mednecta: ${res.shareUrl || location.href}`;
-  try {
-    if (navigator.share) {
-      await navigator.share({ text: shareText, url: res.shareUrl || location.href });
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(res.shareUrl || location.href);
-      showToast('Story link copied');
-    } else {
-      showToast('Story shared');
+  openShareDialog({
+    kind: 'story',
+    itemId: story.id,
+    title: 'Share story',
+    subtitle: 'Choose which connections should receive this story.',
+    submitPath: `/api/stories/${story.id}/share`,
+    linkPath: `/api/stories/${story.id}/share-link`,
+    onSuccess: (res) => {
+      story.shares_count = Number(res.count) || 0;
+      updateStoryStats(story);
+      showToast(`Shared to ${res.sharedTo || 0} connection(s)`);
     }
-  } catch (e) {
-    showToast('Share cancelled');
-  }
+  });
 }
 
 async function deleteActiveStory() {
@@ -3172,7 +3509,11 @@ async function loadNotificationsPanel() {
         return;
       }
       if ((type === 'post_shared' || refType === 'post') && refId) {
-        location.href = '/dashboard';
+        location.href = `/dashboard?post=${encodeURIComponent(refId)}`;
+        return;
+      }
+      if ((type === 'story_shared' || refType === 'story_shared') && refId) {
+        location.href = `/dashboard?story=${encodeURIComponent(refId)}`;
         return;
       }
       if ((type === 'story_reply' || refType === 'story')) {
@@ -3743,7 +4084,10 @@ async function handleLogin(e){
   
   if (res && res.success) { 
     showToast('Login successful.');
-    setTimeout(() => { location.href='/dashboard'; }, 800);
+    const params = new URLSearchParams(window.location.search);
+    const nextRaw = String(params.get('next') || '').trim();
+    const nextPath = nextRaw.startsWith('/') && !nextRaw.startsWith('//') ? nextRaw : '/dashboard';
+    setTimeout(() => { location.href = nextPath; }, 800);
   } else { 
     showToast(res.error||'Login failed', 'error');
   }
@@ -4098,6 +4442,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Initialize socket immediately
   ensureSocket();
   initChatControls();
+  parseDashboardShareTargetParams();
+  resolveSharedTargetFromToken().catch(() => {});
   
   // Dashboard-specific
   if (document.getElementById('connections')) loadConnectionPanels();

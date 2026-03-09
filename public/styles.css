@@ -1327,6 +1327,193 @@ button {
   gap: 0.6rem;
 }
 
+.share-dialog-card {
+  width: min(560px, 100%);
+  padding: 1.1rem;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card-strong) 96%, white 4%), var(--card-strong));
+  animation: shareDialogRise 0.18s ease-out;
+}
+
+.share-dialog-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin: 0.45rem 0 0.85rem;
+}
+
+.share-dialog-subtitle {
+  margin: 0;
+  max-width: 36ch;
+}
+
+.share-dialog-selection-meta {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.34rem 0.72rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.share-dialog-search-wrap {
+  position: relative;
+  margin-bottom: 0.7rem;
+}
+
+.share-dialog-search {
+  width: 100%;
+  margin-bottom: 0;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.share-dialog-search:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.share-dialog-toolbar,
+.share-dialog-actions {
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.share-dialog-toolbar {
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+
+.share-dialog-link-hint {
+  margin-left: auto;
+  font-size: 0.78rem;
+}
+
+.share-dialog-list {
+  display: grid;
+  gap: 0.55rem;
+  max-height: min(48vh, 340px);
+  overflow: auto;
+  padding: 0.1rem 0.25rem 0.15rem 0.05rem;
+  margin-bottom: 0.9rem;
+}
+
+.share-dialog-person {
+  display: grid;
+  grid-template-columns: auto 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.72rem 0.8rem;
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.share-dialog-person:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  box-shadow: 0 12px 24px rgba(2, 8, 20, 0.08);
+}
+
+.share-dialog-person.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  box-shadow: 0 10px 22px rgba(2, 8, 20, 0.12);
+}
+
+.share-dialog-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.share-dialog-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: var(--card);
+}
+
+.share-dialog-person-meta {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.share-dialog-person-name,
+.share-dialog-person-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-dialog-person-name {
+  font-weight: 700;
+}
+
+.share-dialog-person-sub {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.share-dialog-actions {
+  padding-top: 0.3rem;
+}
+
+.share-dialog-actions .btn[disabled] {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.share-target-highlight {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 72%, transparent), var(--shadow);
+  transition: box-shadow 0.22s ease;
+}
+
+@keyframes shareDialogRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 720px) {
+  .share-dialog-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .share-dialog-toolbar,
+  .share-dialog-actions {
+    flex-wrap: wrap;
+  }
+
+  .share-dialog-link-hint {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .share-dialog-person {
+    grid-template-columns: auto 40px minmax(0, 1fr);
+    padding: 0.7rem;
+  }
+}
+
 .pic-upload {
   margin-top: 1rem;
   border-top: 1px dashed var(--line);

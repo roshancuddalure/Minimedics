@@ -16,6 +16,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 const SUPERADMIN_USERNAME = 'elroshan';
 const SUPERADMIN_PASSWORD = 'medicalwizardry28';
 
+app.set('trust proxy', 1);
+
 function getDatabaseUrl() {
 	const candidateKeys = [
 		'DATABASE_URL',
@@ -86,6 +88,15 @@ function getPublicBaseUrl(req) {
 		return `${proto}://${req.headers.host}`;
 	}
 	return `http://localhost:${PORT}`;
+}
+
+function getRequestBaseUrl(req) {
+	if (req && req.headers && req.headers.host) {
+		const forwardedProto = typeof req.headers['x-forwarded-proto'] === 'string' ? req.headers['x-forwarded-proto'].split(',')[0].trim() : '';
+		const proto = forwardedProto || req.protocol || 'http';
+		return `${proto}://${req.headers.host}`.replace(/\/+$/, '');
+	}
+	return getPublicBaseUrl(req);
 }
 
 const EMAIL_FROM = typeof process.env.EMAIL_FROM === 'string' && process.env.EMAIL_FROM.trim()
@@ -500,6 +511,40 @@ function createInviteToken() {
 	return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function createShareToken() {
+	return crypto.randomBytes(18).toString('hex');
+}
+
+async function createShareLink(itemType, itemId, userId, req) {
+	for (let attempt = 0; attempt < 4; attempt += 1) {
+		const token = createShareToken();
+		try {
+			await runAsync(`INSERT INTO share_links (token, item_type, item_id, created_by, created_at)
+				VALUES (?, ?, ?, ?, ?)`, [token, itemType, itemId, userId, Date.now()]);
+			return { token, shareUrl: `${getRequestBaseUrl(req)}/dashboard?share=${encodeURIComponent(token)}` };
+		} catch (e) {
+			if (!String(e.message || '').toLowerCase().includes('unique')) throw e;
+		}
+	}
+	throw new Error('Unable to create share link');
+}
+
+async function resolveShareLink(token) {
+	const link = await getAsync('SELECT token, item_type, item_id FROM share_links WHERE token = ?', [token]);
+	if (!link) return null;
+	if (link.item_type === 'story') {
+		const story = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [link.item_id]);
+		if (!story || Number(story.expires_at) <= Date.now()) return null;
+	} else if (link.item_type === 'post') {
+		const post = await getAsync('SELECT id FROM posts WHERE id = ?', [link.item_id]);
+		if (!post) return null;
+	} else {
+		return null;
+	}
+	await runAsync('UPDATE share_links SET last_used_at = ? WHERE token = ?', [Date.now(), token]).catch(() => {});
+	return { itemType: link.item_type, itemId: Number(link.item_id) || 0 };
+}
+
 async function initializeDatabase() {
 	await runAsync(`CREATE TABLE IF NOT EXISTS users (
 		id BIGSERIAL PRIMARY KEY,
@@ -849,6 +894,15 @@ async function initializeDatabase() {
 		user_id BIGINT NOT NULL,
 		created_at BIGINT,
 		UNIQUE(story_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS share_links (
+		id BIGSERIAL PRIMARY KEY,
+		token TEXT UNIQUE NOT NULL,
+		item_type TEXT NOT NULL,
+		item_id BIGINT NOT NULL,
+		created_by BIGINT NOT NULL,
+		created_at BIGINT,
+		last_used_at BIGINT
 	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS quiz_attempts (
 		id BIGSERIAL PRIMARY KEY,
@@ -2433,14 +2487,50 @@ app.post('/api/stories/:id/share', requireAuth, async (req, res) => {
 	try {
 		const row = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
 		if (!row || Number(row.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		const connections = await getAcceptedConnectionIds(userId);
+		if (!connections.length) return res.status(400).json({ error: 'No accepted connections to share with' });
+		const requestedTargets = Array.isArray(req.body.targets) ? req.body.targets.map((v) => Number(v)).filter((v) => !Number.isNaN(v)) : [];
+		if (!requestedTargets.length) return res.status(400).json({ error: 'Select at least one connection to share with' });
+		const targets = connections.filter((id) => requestedTargets.includes(id));
+		if (!targets.length) return res.status(400).json({ error: 'No valid targets selected' });
+		const ts = Date.now();
 		await runAsync(`INSERT INTO story_shares (story_id, user_id, created_at)
 			VALUES (?, ?, ?)
-			ON CONFLICT (story_id, user_id) DO NOTHING`, [storyId, userId, Date.now()]);
+			ON CONFLICT (story_id, user_id) DO NOTHING`, [storyId, userId, ts]);
+		for (const toUser of targets) {
+			try {
+				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, `Shared a story (#${storyId})`, ts]);
+				await createUserNotification(toUser, {
+					actorId: userId,
+					type: 'story_shared',
+					title: 'Story shared with you',
+					message: `A connection shared story #${storyId} with you.`,
+					refType: 'story_shared',
+					refId: storyId
+				});
+			} catch (shareErr) {
+				console.error('Story share delivery error:', shareErr);
+			}
+		}
 		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_shares WHERE story_id = ?', [storyId]);
-		const shareUrl = `${getPublicBaseUrl(req)}/dashboard?story=${storyId}`;
-		return res.json({ success: true, count: Number(count && count.cnt) || 0, shareUrl });
+		const { shareUrl } = await createShareLink('story', storyId, userId, req);
+		return res.json({ success: true, count: Number(count && count.cnt) || 0, sharedTo: targets.length, shareUrl });
 	} catch (e) {
 		console.error('Story share error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories/:id/share-link', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const story = await getAsync('SELECT id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!story || Number(story.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		const link = await createShareLink('story', storyId, Number(req.session.userId), req);
+		return res.json({ success: true, token: link.token, shareUrl: link.shareUrl });
+	} catch (e) {
+		console.error('Story share-link error:', e);
 		return res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -2511,7 +2601,8 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 		const connections = await getAcceptedConnectionIds(userId);
 		if (!connections.length) return res.status(400).json({ error: 'No accepted connections to share with' });
 		const requestedTargets = Array.isArray(req.body.targets) ? req.body.targets.map((v) => Number(v)).filter((v) => !Number.isNaN(v)) : [];
-		const targets = requestedTargets.length ? connections.filter((id) => requestedTargets.includes(id)) : connections;
+		if (!requestedTargets.length) return res.status(400).json({ error: 'Select at least one connection to share with' });
+		const targets = connections.filter((id) => requestedTargets.includes(id));
 		if (!targets.length) return res.status(400).json({ error: 'No valid targets selected' });
 		const ts = Date.now();
 		for (const toUser of targets) {
@@ -2533,9 +2624,37 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 		}
 		await addXp(userId, 'POST_SHARE', 'post', postId);
 		const c = await getAsync('SELECT COUNT(*) as cnt FROM post_shares WHERE post_id = ?', [postId]);
-		return res.json({ success: true, sharedTo: targets.length, count: c.cnt || 0 });
+		const { shareUrl } = await createShareLink('post', postId, userId, req);
+		return res.json({ success: true, sharedTo: targets.length, count: c.cnt || 0, shareUrl });
 	} catch (e) {
 		console.error('Share API error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/post/:id/share-link', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	try {
+		const post = await getAsync('SELECT id FROM posts WHERE id = ?', [postId]);
+		if (!post) return res.status(404).json({ error: 'Post not found' });
+		const link = await createShareLink('post', postId, Number(req.session.userId), req);
+		return res.json({ success: true, token: link.token, shareUrl: link.shareUrl });
+	} catch (e) {
+		console.error('Post share-link error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/share-link/:token', requireAuth, async (req, res) => {
+	const token = String(req.params.token || '').trim();
+	if (!token) return res.status(400).json({ error: 'Invalid share token' });
+	try {
+		const resolved = await resolveShareLink(token);
+		if (!resolved) return res.status(404).json({ error: 'Share link not found or expired' });
+		return res.json({ success: true, itemType: resolved.itemType, itemId: resolved.itemId });
+	} catch (e) {
+		console.error('Share link resolve error:', e);
 		return res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -3208,8 +3327,14 @@ app.get('/api/search', (req, res) => {
 });
 
 app.get('/dashboard', (req, res) => {
-	if (!req.session.userId) return res.redirect('/login.html');
+	if (!req.session.userId) return res.redirect(`/login.html?next=${encodeURIComponent(req.originalUrl || '/dashboard')}`);
 	res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+app.get('/shared/:token', (req, res) => {
+	const token = String(req.params.token || '').trim();
+	if (!token) return res.redirect('/dashboard');
+	return res.redirect(`/dashboard?share=${encodeURIComponent(token)}`);
 });
 
 app.get('/admin', requireAdmin, (req, res) => {
