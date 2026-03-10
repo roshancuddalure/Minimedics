@@ -8,7 +8,7 @@
   <link rel="shortcut icon" href="/favicon.ico?v=2" />
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
+<body class="light-mode">
   <div class="bg-orb orb-a"></div>
   <div class="bg-orb orb-b"></div>
 
@@ -96,29 +96,40 @@
           <div id="storiesBar" class="stories-bar section-gap"></div>
         </section>
 
-        <section class="card composer">
-          <h3>Share Something</h3>
+        <section class="card composer composer-elevated">
+          <div class="composer-head">
+            <div>
+              <p class="eyebrow">Create Post</p>
+              <h3>Share Something</h3>
+              <p class="muted composer-subtitle">Publish an update, schedule a reminder, or turn knowledge into a quiz without leaving the feed.</p>
+            </div>
+          </div>
           <form id="postForm">
-            <textarea id="postContent" placeholder="What's on your mind?"></textarea>
-            <div class="post-mode-bar">
+            <div class="composer-input-shell">
+              <label class="composer-main-label" for="postContent">Post message</label>
+              <textarea id="postContent" placeholder="What's on your mind? Share a quick case pearl, update, or question."></textarea>
+            </div>
+            <div class="post-mode-bar post-mode-bar-rich">
               <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Mode</button>
               <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Mode</button>
             </div>
-            <div class="tool-group">
-              <label class="tool-label" for="postVisibility">Post Privacy</label>
-              <select id="postVisibility">
-                <option value="public">Public</option>
-                <option value="connections">Connections Only</option>
-                <option value="private">Private (Only Me)</option>
-              </select>
-            </div>
-            <div class="composer-tools">
-              <div class="tool-group">
+            <div class="composer-grid">
+              <div class="tool-group tool-card">
+                <label class="tool-label" for="postVisibility">Post Privacy</label>
+                <select id="postVisibility">
+                  <option value="public">Public</option>
+                  <option value="connections">Connections Only</option>
+                  <option value="followers_connections">Followers + Connections</option>
+                  <option value="private">Private (Only Me)</option>
+                </select>
+                <div class="tool-hint">Followers can view these posts and stories, while chat and direct shares remain for connections.</div>
+              </div>
+              <div class="tool-group tool-card">
                 <label class="tool-label" for="postPublishAt">Go Live Date & Time</label>
                 <input id="postPublishAt" type="datetime-local" />
-                <div class="muted" style="margin-top:0.35rem;font-size:0.82rem">Leave empty to publish immediately.</div>
+                <div class="tool-hint">Leave empty to publish immediately.</div>
               </div>
-              <div class="tool-group">
+              <div class="tool-group tool-card">
                 <label class="tool-label" for="postImage">Attach Image</label>
                 <div class="file-upload">
                   <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
@@ -127,29 +138,41 @@
                 </div>
                 <div id="postImagePreview" class="post-image-preview hidden"></div>
               </div>
+            </div>
+            <div class="composer-tools">
               <div id="reminderModeFields" class="mode-fields hidden">
-                <div class="tool-group">
+                <div class="tool-group tool-card">
                   <label class="tool-label" for="postReminderAt">Reminder Date & Time</label>
                   <input id="postReminderAt" type="datetime-local" />
                 </div>
-                <div class="tool-group">
+                <div class="tool-group tool-card">
                   <label class="tool-label" for="postReminderNote">Reminder Note</label>
                   <input id="postReminderNote" type="text" maxlength="240" placeholder="Example: Review meds before morning round" />
                 </div>
+                <div class="tool-group tool-card composer-span-two">
+                  <label class="tool-label">Tag connections for the reminder</label>
+                  <input id="reminderTargetSearch" type="text" placeholder="Search your connections to tag them" />
+                  <div id="reminderTargetsSelected" class="reminder-target-selected hidden"></div>
+                  <div id="reminderTargetsList" class="reminder-target-grid"></div>
+                  <div class="tool-hint">Tagged connections will receive an in-app reminder and an email when the reminder becomes due.</div>
+                </div>
               </div>
               <div id="quizModeFields" class="mode-fields hidden">
-                <div class="tool-group">
+                <div class="tool-group tool-card composer-span-two">
                   <label class="tool-label" for="quizQuestion">Quiz Question</label>
                   <input id="quizQuestion" type="text" maxlength="400" placeholder="Add a quiz question" />
                 </div>
-                <div class="tool-group">
+                <div class="tool-group tool-card">
                   <label class="tool-label">Quiz Options</label>
-                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 1" />
-                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 2" />
-                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 3 (optional)" />
-                  <input class="quiz-option" type="text" maxlength="200" placeholder="Option 4 (optional)" />
+                  <div id="quizOptionsWrap" class="quiz-option-editor-list">
+                    <input class="quiz-option" type="text" maxlength="200" placeholder="Option 1" />
+                    <input class="quiz-option" type="text" maxlength="200" placeholder="Option 2" />
+                    <input class="quiz-option" type="text" maxlength="200" placeholder="Option 3 (optional)" />
+                    <input class="quiz-option" type="text" maxlength="200" placeholder="Option 4 (optional)" />
+                  </div>
+                  <button id="addQuizOptionBtn" class="btn secondary tiny-btn" type="button">Add another option</button>
                 </div>
-                <div class="tool-group">
+                <div class="tool-group tool-card">
                   <label class="tool-label" for="quizCorrectIndex">Correct Answer</label>
                   <select id="quizCorrectIndex">
                     <option value="">Select correct option</option>
@@ -159,9 +182,21 @@
                     <option value="3">Option 4</option>
                   </select>
                 </div>
+                <div class="tool-group tool-card composer-span-two">
+                  <label class="tool-label">Correct Answer Explanation</label>
+                  <div class="rich-editor-toolbar">
+                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="bold">Bold</button>
+                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="italic">Italic</button>
+                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="underline">Underline</button>
+                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="link">Add Link</button>
+                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="unlink">Remove Link</button>
+                  </div>
+                  <div id="quizExplanationEditor" class="rich-editor" contenteditable="true" data-placeholder="Add why this answer is correct. You can include a trusted hyperlink."></div>
+                  <div class="tool-hint">Visible after the quiz is attempted.</div>
+                </div>
               </div>
             </div>
-            <div class="row">
+            <div class="row composer-submit-row">
               <button class="btn primary" type="submit">Post</button>
             </div>
           </form>

@@ -30,10 +30,10 @@ function setLoading(el, loading) {
 // Theme toggle
 function initThemeToggle() {
   const btn = document.getElementById('themeToggle');
+  const storedTheme = localStorage.getItem('theme');
+  const isDark = storedTheme === 'dark';
+  document.body.classList.toggle('light-mode', !isDark);
   if (!btn) return;
-  
-  const isDark = localStorage.getItem('theme') !== 'light';
-  if (!isDark) document.body.classList.add('light-mode');
   updateThemeButton();
   
   btn.addEventListener('click', toggleTheme);
@@ -111,8 +111,7 @@ async function handleSearch(query) {
         if (r.type === 'user') {
           location.href = `/user-profile.html?id=${encodeURIComponent(r.id)}`;
         } else {
-          // Show post in feed
-          showToast('Showing post by ' + (r.name || r.username));
+          location.href = `/post?id=${encodeURIComponent(r.id)}`;
         }
         document.getElementById('searchInput').value = '';
         resultsBox.classList.remove('active');
@@ -138,6 +137,8 @@ let activeStoryIndex = 0;
 let storyAutoAdvanceTimeout = null;
 let storyProgressInterval = null;
 let postMode = null;
+let reminderConnectionsCache = [];
+let selectedReminderTargets = new Set();
 let currentSavedListFilter = 'General';
 let clanLoungeInterval = null;
 const STORY_VIEW_DURATION_MS = 30000;
@@ -512,6 +513,10 @@ function highlightAndScrollToPost(postId) {
 
 function tryOpenSharedPostFromUrl() {
   if (!pendingPostLinkId) return;
+  if (document.getElementById('singlePostBox')) {
+    loadSinglePostPage();
+    return;
+  }
   const found = highlightAndScrollToPost(pendingPostLinkId);
   if (found) pendingPostLinkId = null;
 }
@@ -527,6 +532,37 @@ function tryOpenSharedStoryFromUrl() {
       return;
     }
   }
+}
+
+async function loadSinglePostPage() {
+  const box = document.getElementById('singlePostBox');
+  if (!box) return;
+  const params = new URLSearchParams(window.location.search);
+  const directPostId = Number(params.get('id') || 0);
+  const postId = pendingPostLinkId || directPostId;
+  if (!postId && String(params.get('share') || '').trim()) {
+    box.innerHTML = '<div class="muted">Resolving shared post...</div>';
+    return;
+  }
+  if (!postId) {
+    box.innerHTML = '<div class="muted">Post link is missing or invalid.</div>';
+    return;
+  }
+  box.innerHTML = '<div class="muted">Loading post...</div>';
+  const [meRes, postRes] = await Promise.all([
+    api('/api/me'),
+    api(`/api/post/${encodeURIComponent(postId)}`)
+  ]);
+  if (!postRes || postRes.error || !postRes.post) {
+    box.innerHTML = `<div class="muted">${escapeHtml((postRes && postRes.error) || 'Post not found')}</div>`;
+    return;
+  }
+  const me = meRes.user || null;
+  cachedMe = me || cachedMe;
+  if (me) window.__me = me;
+  box.innerHTML = '';
+  box.appendChild(renderPostCard(postRes.post, me, { readOnly: false }));
+  pendingPostLinkId = null;
 }
 
 async function api(path, method='GET', data) {
@@ -718,6 +754,7 @@ function getActionIconName(actionKey) {
     add: 'lucide:plus',
     post: 'lucide:square-pen',
     clan: 'lucide:users',
+    quiz: 'lucide:badge-help',
     approve: 'lucide:check',
     reject: 'lucide:x',
     connect: 'lucide:user-plus',
@@ -903,13 +940,24 @@ function renderQuizBlock(post) {
   const attempted = Number(post.my_quiz_attempted) > 0;
   const selectedIndex = Number(post.my_quiz_selected_index);
   const hasSelected = attempted && !Number.isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < quizOptions.length;
+  const optionCountsRaw = parseQuizOptions(post.quiz_option_counts);
+  const optionCounts = quizOptions.map((_, index) => Number(optionCountsRaw[index]) || 0);
+  const attemptCount = Number(post.quiz_attempt_count) || optionCounts.reduce((sum, count) => sum + count, 0);
+  const explanationHtml = String(post.quiz_explanation || '').trim();
 
   const quizWrap = document.createElement('div');
   quizWrap.className = 'quiz-box';
+  const head = document.createElement('div');
+  head.className = 'quiz-head';
   const qEl = document.createElement('div');
   qEl.className = 'quiz-question';
   qEl.textContent = `Quiz: ${quizQuestion}`;
-  quizWrap.appendChild(qEl);
+  const meta = document.createElement('div');
+  meta.className = 'quiz-meta';
+  meta.textContent = `${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`;
+  head.appendChild(qEl);
+  head.appendChild(meta);
+  quizWrap.appendChild(head);
 
   const optionsWrap = document.createElement('div');
   optionsWrap.className = 'quiz-options interactive';
@@ -931,6 +979,12 @@ function renderQuizBlock(post) {
     text.textContent = opt;
     row.appendChild(input);
     row.appendChild(text);
+    const count = Number(optionCounts[idx]) || 0;
+    const percent = attemptCount > 0 ? Math.round((count / attemptCount) * 100) : 0;
+    const stats = document.createElement('span');
+    stats.className = 'quiz-option-stats';
+    stats.textContent = attemptCount > 0 ? `${percent}% (${count})` : '0%';
+    row.appendChild(stats);
     if (attempted) {
       row.classList.add('is-review');
       if (idx === correctIndex) row.classList.add('is-correct');
@@ -953,9 +1007,23 @@ function renderQuizBlock(post) {
       feedback.classList.remove('quiz-correct', 'quiz-incorrect');
       feedback.classList.add(isCorrect ? 'quiz-correct' : 'quiz-incorrect');
       quizWrap.dataset.answered = '1';
+      const responseCounts = Array.isArray(response.optionCounts) ? response.optionCounts.map((value) => Number(value) || 0) : optionCounts;
+      const responseAttemptCount = Number(response.attemptCount) || responseCounts.reduce((sum, countValue) => sum + countValue, 0);
+      meta.textContent = `${responseAttemptCount} attempt${responseAttemptCount === 1 ? '' : 's'}`;
+      Array.from(optionsWrap.querySelectorAll('.quiz-option-stats')).forEach((statsEl, statsIdx) => {
+        const nextCount = Number(responseCounts[statsIdx]) || 0;
+        const nextPercent = responseAttemptCount > 0 ? Math.round((nextCount / responseAttemptCount) * 100) : 0;
+        statsEl.textContent = `${nextPercent}% (${nextCount})`;
+      });
       optionsWrap.querySelectorAll('input').forEach((optionInput) => {
         optionInput.disabled = true;
       });
+      if (response.explanation && !quizWrap.querySelector('.quiz-explanation')) {
+        const explanation = document.createElement('div');
+        explanation.className = 'quiz-explanation';
+        explanation.innerHTML = `<strong>Explanation</strong>${response.explanation}`;
+        quizWrap.appendChild(explanation);
+      }
       showQuizResultPopup(isCorrect, response.correctAnswer || quizOptions[correctIndex]);
     });
     optionsWrap.appendChild(row);
@@ -974,7 +1042,128 @@ function renderQuizBlock(post) {
     feedback.textContent = '';
   }
   quizWrap.appendChild(feedback);
+  if (attempted && explanationHtml) {
+    const explanation = document.createElement('div');
+    explanation.className = 'quiz-explanation';
+    explanation.innerHTML = `<strong>Explanation</strong>${explanationHtml}`;
+    quizWrap.appendChild(explanation);
+  }
   return quizWrap;
+}
+
+function syncQuizCorrectOptions() {
+  const select = document.getElementById('quizCorrectIndex');
+  if (!select) return;
+  const optionEls = Array.from(document.querySelectorAll('.quiz-option'));
+  const nextOptions = ['<option value="">Select correct option</option>'];
+  optionEls.forEach((el, index) => {
+    nextOptions.push(`<option value="${index}">Option ${index + 1}</option>`);
+  });
+  const currentValue = select.value;
+  select.innerHTML = nextOptions.join('');
+  if (currentValue !== '' && Number(currentValue) < optionEls.length) select.value = currentValue;
+}
+
+function initQuizComposerControls() {
+  const addBtn = document.getElementById('addQuizOptionBtn');
+  const wrap = document.getElementById('quizOptionsWrap');
+  if (!addBtn || !wrap) return;
+  setButtonIconWithText(addBtn, 'Add another option', 'open');
+  syncQuizCorrectOptions();
+  addBtn.addEventListener('click', () => {
+    const optionCount = wrap.querySelectorAll('.quiz-option').length;
+    if (optionCount >= 8) {
+      showToast('You can add up to 8 options', 'error');
+      return;
+    }
+    const input = document.createElement('input');
+    input.className = 'quiz-option';
+    input.type = 'text';
+    input.maxLength = 200;
+    input.placeholder = `Option ${optionCount + 1} (optional)`;
+    wrap.appendChild(input);
+    syncQuizCorrectOptions();
+    input.focus();
+  });
+  wrap.addEventListener('input', syncQuizCorrectOptions);
+}
+
+function initQuizExplanationEditor() {
+  const editor = document.getElementById('quizExplanationEditor');
+  if (!editor) return;
+  Array.from(document.querySelectorAll('.rich-editor-btn')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-editor-action');
+      editor.focus();
+      if (action === 'link') {
+        const url = window.prompt('Paste a full https:// link');
+        if (!url) return;
+        if (!/^https?:\/\//i.test(url)) {
+          showToast('Please use a full http or https link', 'error');
+          return;
+        }
+        document.execCommand('createLink', false, url);
+        return;
+      }
+      if (action === 'unlink') {
+        document.execCommand('unlink');
+        return;
+      }
+      document.execCommand(action);
+    });
+  });
+}
+
+function renderReminderTargetOptions(query = '') {
+  const box = document.getElementById('reminderTargetsList');
+  const selectedBox = document.getElementById('reminderTargetsSelected');
+  if (!box || !selectedBox) return;
+  const normalized = String(query || '').trim().toLowerCase();
+  const visible = reminderConnectionsCache.filter((conn) => {
+    if (!normalized) return true;
+    return [conn.name, conn.username].some((value) => String(value || '').toLowerCase().includes(normalized));
+  });
+  if (!visible.length) {
+    box.innerHTML = '<div class="muted">No matching connections.</div>';
+  } else {
+    box.innerHTML = visible.map((conn) => {
+      const selected = selectedReminderTargets.has(Number(conn.id));
+      return `<button class="reminder-target-card${selected ? ' is-selected' : ''}" data-reminder-target-id="${Number(conn.id)}" type="button">
+        <img src="${getProfilePictureUrl(conn)}" alt="${escapeHtml(conn.name || conn.username || 'Connection')}" />
+        <span>
+          <strong>${escapeHtml(conn.name || conn.username || 'Connection')}</strong>
+          <span class="muted">@${escapeHtml(conn.username || '')}</span>
+        </span>
+      </button>`;
+    }).join('');
+  }
+  selectedBox.classList.toggle('hidden', !selectedReminderTargets.size);
+  selectedBox.innerHTML = Array.from(selectedReminderTargets).map((id) => {
+    const conn = reminderConnectionsCache.find((item) => Number(item.id) === Number(id));
+    if (!conn) return '';
+    return `<span class="reminder-target-pill">${escapeHtml(conn.name || conn.username || 'Connection')}</span>`;
+  }).join('');
+  box.querySelectorAll('[data-reminder-target-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const userId = Number(btn.getAttribute('data-reminder-target-id') || 0);
+      if (!userId) return;
+      if (selectedReminderTargets.has(userId)) selectedReminderTargets.delete(userId);
+      else selectedReminderTargets.add(userId);
+      renderReminderTargetOptions(document.getElementById('reminderTargetSearch') ? document.getElementById('reminderTargetSearch').value : '');
+    });
+  });
+}
+
+async function initReminderTargetsComposer() {
+  const list = document.getElementById('reminderTargetsList');
+  if (!list) return;
+  const res = await api('/api/connections');
+  reminderConnectionsCache = Array.isArray(res.connections) ? res.connections : [];
+  renderReminderTargetOptions('');
+  const searchInput = document.getElementById('reminderTargetSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => renderReminderTargetOptions(searchInput.value));
+  }
 }
 
 function setPostMode(nextMode) {
@@ -997,14 +1186,18 @@ function setPostMode(nextMode) {
     const reminderNoteInput = document.getElementById('postReminderNote');
     if (reminderAtInput) reminderAtInput.value = '';
     if (reminderNoteInput) reminderNoteInput.value = '';
+    selectedReminderTargets.clear();
+    renderReminderTargetOptions('');
   }
   if (postMode !== 'quiz') {
     const quizQuestionInput = document.getElementById('quizQuestion');
     const quizCorrectIndexInput = document.getElementById('quizCorrectIndex');
     const quizOptionEls = Array.from(document.querySelectorAll('.quiz-option'));
+    const quizExplanationEditor = document.getElementById('quizExplanationEditor');
     if (quizQuestionInput) quizQuestionInput.value = '';
     if (quizCorrectIndexInput) quizCorrectIndexInput.value = '';
     quizOptionEls.forEach((el) => { el.value = ''; });
+    if (quizExplanationEditor) quizExplanationEditor.innerHTML = '';
   }
 }
 
@@ -1012,6 +1205,8 @@ function initPostModeSwitcher() {
   const reminderBtn = document.getElementById('postModeReminder');
   const quizBtn = document.getElementById('postModeQuiz');
   if (!reminderBtn || !quizBtn) return;
+  setButtonIconWithText(reminderBtn, 'Reminder Mode', 'notification');
+  setButtonIconWithText(quizBtn, 'Quiz Mode', 'quiz');
   reminderBtn.addEventListener('click', () => setPostMode(postMode === 'reminder' ? null : 'reminder'));
   quizBtn.addEventListener('click', () => setPostMode(postMode === 'quiz' ? null : 'quiz'));
   setPostMode(null);
@@ -1224,6 +1419,18 @@ async function deleteComment(postId, commentId, mountEl, meId, postOwnerId, btn)
   }
 }
 
+async function toggleCommentLike(postId, commentId, mountEl, meId, postOwnerId, btn) {
+  if (!meId) return;
+  setLoading(btn, true);
+  const res = await api(`/api/post/${postId}/comment/${commentId}/like`, 'POST');
+  setLoading(btn, false);
+  if (res && res.success) {
+    await loadComments(postId, mountEl, meId, postOwnerId);
+  } else {
+    showToast((res && res.error) || 'Unable to like comment', 'error');
+  }
+}
+
 async function loadComments(postId, mountEl, meId = null, postOwnerId = null) {
   mountEl.innerHTML = '<div class="muted">Loading comments...</div>';
   const res = await api(`/api/post/${postId}/comments`);
@@ -1251,11 +1458,14 @@ async function loadComments(postId, mountEl, meId = null, postOwnerId = null) {
       row.className = 'comment-item';
       row.style.marginLeft = `${Math.min(depth, 3) * 18}px`;
       const mentionPrefix = c.mention_username ? `<span class="mention-tag">@${escapeHtml(c.mention_username)}</span> ` : '';
-      row.innerHTML = `<div class="meta">${escapeHtml(c.name || c.username)} - ${formatDateTime(c.created_at)}</div><div>${mentionPrefix}${escapeHtml(c.content)}</div>`;
+      row.innerHTML = `<div class="meta">${escapeHtml(c.name || c.username)} - ${formatDateTime(c.created_at)}</div><div class="comment-body">${mentionPrefix}${escapeHtml(c.content)}</div>`;
 
       const actions = document.createElement('div');
       actions.className = 'post-actions';
       if (meId) {
+        const likeBtn = createActionButton(`Like (${Number(c.like_count) || 0})`, () => {}, `btn tiny-btn comment-like-btn${Number(c.my_liked) ? ' is-active' : ''}`);
+        likeBtn.addEventListener('click', () => toggleCommentLike(postId, c.id, mountEl, meId, postOwnerId, likeBtn));
+        actions.appendChild(likeBtn);
         const replyBtn = createActionButton('Reply', () => {}, 'btn tiny-btn');
         replyBtn.addEventListener('click', () => {
           if (row.querySelector('.reply-composer')) return;
@@ -1310,6 +1520,157 @@ async function postComment(postId, inputEl, commentsMount, meId = null, postOwne
   }
 }
 
+function renderPostCard(p, me, options = {}) {
+  const meId = me ? Number(me.id) : null;
+  const canInteract = Boolean(meId) && !options.readOnly;
+  const el = document.createElement('div');
+  el.className = 'post';
+  el.dataset.postId = String(Number(p.id) || 0);
+  const head = document.createElement('div');
+  head.className = 'post-head';
+  const pic = document.createElement('img');
+  pic.className = 'post-avatar';
+  pic.src = p.profile_picture || 'data:image/svg+xml,<svg></svg>';
+  pic.loading = 'lazy';
+  pic.onerror = () => { pic.style.display = 'none'; };
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const isScheduled = Number(p.publish_at || 0) > Date.now();
+  const date = formatDateTime(p.publish_at || p.created_at);
+  meta.textContent = `${p.name || p.username} - ${isScheduled ? `Scheduled for ${date}` : date}`;
+  head.appendChild(pic);
+  head.appendChild(meta);
+  el.appendChild(head);
+
+  if (p.content) {
+    const content = document.createElement('div');
+    content.textContent = p.content;
+    el.appendChild(content);
+  }
+
+  if (p.image) {
+    const postImage = document.createElement('img');
+    postImage.className = 'post-image';
+    postImage.src = p.image;
+    postImage.alt = 'Post attachment';
+    postImage.loading = 'lazy';
+    el.appendChild(postImage);
+  }
+
+  if (p.reminder_at || p.reminder_note) {
+    const reminder = document.createElement('div');
+    reminder.className = 'reminder-chip';
+    const reminderStatus = formatReminder(p.reminder_at);
+    reminder.innerHTML = `<strong>Reminder</strong>${reminderStatus ? `: ${escapeHtml(reminderStatus)}` : ''}${p.reminder_note ? ` - ${escapeHtml(p.reminder_note)}` : ''}`;
+    el.appendChild(reminder);
+  }
+
+  const quizBlock = renderQuizBlock(p);
+  if (quizBlock && !isScheduled) el.appendChild(quizBlock);
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'post-actions';
+  const canInteractWithPost = canInteract && !isScheduled;
+  if (canInteractWithPost) {
+    const likeBtn = createActionButton(`${Number(p.my_liked) ? 'Unlike' : 'Like'} (${p.like_count || 0})`, () => {});
+    likeBtn.addEventListener('click', () => toggleLike(p.id, likeBtn));
+    const saveBtn = createActionButton(`${Number(p.my_saved) ? 'Saved' : 'Save'} (${p.save_count || 0})`, () => {});
+    saveBtn.addEventListener('click', () => toggleSave(p.id, saveBtn));
+    const shareBtn = createActionButton(`Share (${p.share_count || 0})`, () => {});
+    shareBtn.addEventListener('click', () => sharePost(p.id, shareBtn));
+    const viewBtn = createActionButton('Open', () => { location.href = `/post?id=${encodeURIComponent(p.id)}`; });
+    const commentsWrap = document.createElement('div');
+    commentsWrap.className = 'comments-wrap hidden';
+    const commentsList = document.createElement('div');
+    commentsList.className = 'comments-list';
+    commentsWrap.appendChild(commentsList);
+    const commentsToggleBtn = createActionButton(`Comments (${p.comment_count || 0})`, async () => {
+      commentsWrap.classList.toggle('hidden');
+      if (!commentsWrap.classList.contains('hidden')) await loadComments(p.id, commentsList, meId, p.user_id);
+    });
+    actionsRow.appendChild(likeBtn);
+    actionsRow.appendChild(commentsToggleBtn);
+    actionsRow.appendChild(saveBtn);
+    actionsRow.appendChild(shareBtn);
+    actionsRow.appendChild(viewBtn);
+    if (Number(p.user_id) === Number(meId)) {
+      const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+      deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
+      actionsRow.appendChild(deleteBtn);
+    }
+
+    if (p.user_id && Number(p.user_id) !== Number(meId)) {
+      const relationStatus = String(p.relation_status || 'none');
+      const relationRequestedByMe = Number(p.relation_requested_by) === Number(meId);
+      if (relationStatus !== 'accepted') {
+        const connectLabel = relationStatus === 'pending'
+          ? (relationRequestedByMe ? 'Cancel Request' : 'Pending')
+          : 'Connect';
+        const connect = createActionButton(connectLabel, null, 'btn tiny-btn');
+        if (relationStatus === 'pending' && !relationRequestedByMe) {
+          connect.disabled = true;
+        } else {
+          connect.addEventListener('click', async () => {
+            setLoading(connect, true);
+            let r;
+            if (relationStatus === 'pending' && relationRequestedByMe && Number(p.relation_id)) {
+              r = await api('/api/connect/cancel', 'POST', { id: Number(p.relation_id) });
+            } else {
+              r = await api('/api/connect/request', 'POST', { to: p.user_id });
+            }
+            setLoading(connect, false);
+            if (r && r.success) {
+              showToast(relationStatus === 'pending' ? 'Request cancelled' : 'Connection request sent!');
+              loadFeed();
+            } else {
+              showToast(r.error || 'Unable to update request', 'error');
+            }
+          });
+        }
+        actionsRow.appendChild(connect);
+      }
+    }
+
+    if (actionsRow.children.length) el.appendChild(actionsRow);
+    if (canInteract) {
+      const composer = document.createElement('div');
+      composer.className = 'comment-composer';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = 700;
+      input.placeholder = 'Write a comment...';
+      const sendBtn = createActionButton('Add', () => {}, 'btn primary tiny-btn');
+      sendBtn.addEventListener('click', () => postComment(p.id, input, commentsList, meId, p.user_id));
+      input.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter') {
+          evt.preventDefault();
+          postComment(p.id, input, commentsList, meId, p.user_id);
+        }
+      });
+      composer.appendChild(input);
+      composer.appendChild(sendBtn);
+      commentsWrap.appendChild(composer);
+    }
+    el.appendChild(commentsWrap);
+    return el;
+  }
+
+  if (canInteract && isScheduled && Number(p.user_id) === Number(meId)) {
+    const scheduledTag = document.createElement('div');
+    scheduledTag.className = 'muted';
+    scheduledTag.textContent = 'This scheduled post is waiting to go live.';
+    actionsRow.appendChild(scheduledTag);
+    const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
+    deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
+    actionsRow.appendChild(deleteBtn);
+  } else {
+    const viewBtn = createActionButton('Open', () => { location.href = `/post?id=${encodeURIComponent(p.id)}`; });
+    actionsRow.appendChild(viewBtn);
+  }
+  if (actionsRow.children.length) el.appendChild(actionsRow);
+  return el;
+}
+
 // load feed
 async function loadFeed() {
   const box = document.getElementById('feed');
@@ -1339,145 +1700,8 @@ async function loadFeed() {
     return;
   }
   box.innerHTML = '';
-  const meId = me ? me.id : null;
-  const canInteract = Boolean(meId) && !isPublicHomePage();
-  posts.forEach(p => {
-    const el = document.createElement('div'); el.className='post';
-    el.dataset.postId = String(Number(p.id) || 0);
-    const head = document.createElement('div');
-    head.className = 'post-head';
-    const pic = document.createElement('img');
-    pic.className = 'post-avatar';
-    pic.src = p.profile_picture || 'data:image/svg+xml,<svg></svg>';
-    pic.loading='lazy';
-    pic.onerror=()=>{pic.style.display='none'};
-    const meta = document.createElement('div'); meta.className='meta';
-    const isScheduled = Number(p.publish_at || 0) > Date.now();
-    const date = formatDateTime(p.publish_at || p.created_at);
-    meta.textContent = `${p.name || p.username} - ${isScheduled ? `Scheduled for ${date}` : date}`;
-    head.appendChild(pic);
-    head.appendChild(meta);
-    el.appendChild(head);
-
-    if (p.content) {
-      const content = document.createElement('div');
-      content.textContent = p.content;
-      el.appendChild(content);
-    }
-
-    if (p.image) {
-      const postImage = document.createElement('img');
-      postImage.className = 'post-image';
-      postImage.src = p.image;
-      postImage.alt = 'Post attachment';
-      postImage.loading = 'lazy';
-      el.appendChild(postImage);
-    }
-
-    if (p.reminder_at || p.reminder_note) {
-      const reminder = document.createElement('div');
-      reminder.className = 'reminder-chip';
-      const reminderStatus = formatReminder(p.reminder_at);
-      reminder.innerHTML = `<strong>Reminder</strong>${reminderStatus ? `: ${escapeHtml(reminderStatus)}` : ''}${p.reminder_note ? ` - ${escapeHtml(p.reminder_note)}` : ''}`;
-      el.appendChild(reminder);
-    }
-
-    const quizBlock = renderQuizBlock(p);
-    if (quizBlock && !isScheduled) el.appendChild(quizBlock);
-
-    const actionsRow = document.createElement('div');
-    actionsRow.className = 'post-actions';
-    const canInteractWithPost = canInteract && !isScheduled;
-    if (canInteractWithPost) {
-      const likeBtn = createActionButton(`${Number(p.my_liked) ? 'Unlike' : 'Like'} (${p.like_count || 0})`, () => {});
-      likeBtn.addEventListener('click', () => toggleLike(p.id, likeBtn));
-      const saveBtn = createActionButton(`${Number(p.my_saved) ? 'Saved' : 'Save'} (${p.save_count || 0})`, () => {});
-      saveBtn.addEventListener('click', () => toggleSave(p.id, saveBtn));
-      const shareBtn = createActionButton(`Share (${p.share_count || 0})`, () => {});
-      shareBtn.addEventListener('click', () => sharePost(p.id, shareBtn));
-      const commentsToggleBtn = createActionButton(`Comments (${p.comment_count || 0})`, async () => {
-        commentsWrap.classList.toggle('hidden');
-        if (!commentsWrap.classList.contains('hidden')) await loadComments(p.id, commentsList, meId, p.user_id);
-      });
-      actionsRow.appendChild(likeBtn);
-      actionsRow.appendChild(commentsToggleBtn);
-      actionsRow.appendChild(saveBtn);
-      actionsRow.appendChild(shareBtn);
-      if (Number(p.user_id) === Number(meId)) {
-        const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
-        deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
-        actionsRow.appendChild(deleteBtn);
-      }
-    } else if (canInteract && isScheduled && Number(p.user_id) === Number(meId)) {
-      const scheduledTag = document.createElement('div');
-      scheduledTag.className = 'muted';
-      scheduledTag.textContent = 'This scheduled post is waiting to go live.';
-      actionsRow.appendChild(scheduledTag);
-      const deleteBtn = createActionButton('Delete', () => {}, 'btn secondary tiny-btn');
-      deleteBtn.addEventListener('click', () => deletePost(p.id, el, deleteBtn));
-      actionsRow.appendChild(deleteBtn);
-    }
-
-    // show connect button if not self
-    if (canInteractWithPost && p.user_id && Number(p.user_id) !== Number(meId)) {
-      const relationStatus = String(p.relation_status || 'none');
-      const relationRequestedByMe = Number(p.relation_requested_by) === Number(meId);
-      if (relationStatus !== 'accepted') {
-        const connectLabel = relationStatus === 'pending'
-          ? (relationRequestedByMe ? 'Cancel Request' : 'Pending')
-          : 'Connect';
-        const connect = createActionButton(connectLabel, null, 'btn tiny-btn');
-        if (relationStatus === 'pending' && !relationRequestedByMe) {
-          connect.disabled = true;
-        } else {
-          connect.addEventListener('click', async () => {
-            setLoading(connect, true);
-            let r;
-            if (relationStatus === 'pending' && relationRequestedByMe && Number(p.relation_id)) {
-              r = await api('/api/connect/cancel', 'POST', { id: Number(p.relation_id) });
-            } else {
-              r = await api('/api/connect/request','POST',{to:p.user_id});
-            }
-            setLoading(connect, false);
-            if (r && r.success) {
-              showToast(relationStatus === 'pending' ? 'Request cancelled' : 'Connection request sent!');
-              loadFeed();
-            } else {
-              showToast(r.error||'Unable to update request', 'error');
-            }
-          });
-        }
-        actionsRow.appendChild(connect);
-      }
-    }
-    if (actionsRow.children.length) el.appendChild(actionsRow);
-
-    const commentsWrap = document.createElement('div');
-    commentsWrap.className = 'comments-wrap hidden';
-    const commentsList = document.createElement('div');
-    commentsList.className = 'comments-list';
-    commentsWrap.appendChild(commentsList);
-    if (canInteract) {
-      const composer = document.createElement('div');
-      composer.className = 'comment-composer';
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.maxLength = 700;
-      input.placeholder = 'Write a comment...';
-      const sendBtn = createActionButton('Add', () => {}, 'btn primary tiny-btn');
-      sendBtn.addEventListener('click', () => postComment(p.id, input, commentsList, meId, p.user_id));
-      input.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Enter') {
-          evt.preventDefault();
-          postComment(p.id, input, commentsList, meId, p.user_id);
-        }
-      });
-      composer.appendChild(input);
-      composer.appendChild(sendBtn);
-      commentsWrap.appendChild(composer);
-    }
-    el.appendChild(commentsWrap);
-    box.appendChild(el);
+  posts.forEach((p) => {
+    box.appendChild(renderPostCard(p, me, { readOnly: isPublicHomePage() }));
   });
   tryOpenSharedPostFromUrl();
 }
@@ -2944,6 +3168,7 @@ async function loadPublicProfilePage() {
       <div class="profile-stat"><span class="iconify" data-icon="lucide:phone"></span><span>${escapeHtml(publicContactLine || '-')}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:activity"></span><span>${u.online_visible ? (u.online ? 'Online' : 'Offline') : 'Hidden'}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${u.connections_count || 0} connections</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:user-plus"></span><span>${u.followers_count || 0} followers</span></div>
     </div>
     ${publicBio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${publicBio}</p></div>` : ''}
     ${u.speciality ? `<p class="muted">${escapeHtml(u.speciality)}</p>` : ''}
@@ -3695,7 +3920,11 @@ async function loadNotificationsPanel() {
         return;
       }
       if ((type === 'post_shared' || refType === 'post') && refId) {
-        location.href = `/dashboard?post=${encodeURIComponent(refId)}`;
+        location.href = `/post?id=${encodeURIComponent(refId)}`;
+        return;
+      }
+      if (type === 'reminder_due' && refId) {
+        location.href = `/post?id=${encodeURIComponent(refId)}`;
         return;
       }
       if ((type === 'story_shared' || refType === 'story_shared') && refId) {
@@ -3771,6 +4000,150 @@ function upsertNotificationsTopButton(user) {
     notificationRefreshInterval = window.setInterval(() => {
       refreshUnreadNotifications();
     }, 20000);
+  }
+}
+
+function ensureGlobalChatUi() {
+  if (!document.getElementById('chatPanel')) {
+    const panel = document.createElement('section');
+    panel.id = 'chatPanel';
+    panel.className = 'card chat-panel';
+    panel.style.display = 'none';
+    panel.innerHTML = `<div class="chat-header">
+      <div class="chat-title-wrap">
+        <img id="chatTitleAvatar" class="chat-title-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="Chat user" />
+        <div>
+          <h3 id="chatTitle">User</h3>
+          <div id="chatStatus" class="meta">Offline</div>
+        </div>
+      </div>
+      <div class="chat-header-actions">
+        <button id="chatMinimizeBtn" class="btn secondary tiny-btn" type="button">Minimize</button>
+        <button id="chatCloseBtn" class="btn secondary tiny-btn" type="button">Close</button>
+      </div>
+    </div>
+    <div id="messages" class="feed" style="overflow:auto;padding:0.9rem"></div>
+    <form id="chatForm">
+      <input id="chatInput" placeholder="Type a message" />
+      <input id="chatImageInput" class="file-upload-input" type="file" accept="image/*" />
+      <button id="chatAttachBtn" class="btn secondary tiny-btn" type="button"></button>
+      <button id="chatSendBtn" class="btn primary" type="submit"></button>
+    </form>
+    <div id="chatAttachmentHint" class="meta hidden" style="padding:0 1rem 0.7rem"></div>`;
+    document.body.appendChild(panel);
+  }
+  if (!document.getElementById('globalChatPicker')) {
+    const modal = document.createElement('div');
+    modal.id = 'globalChatPicker';
+    modal.className = 'modal-backdrop hidden';
+    modal.innerHTML = `<section class="modal-card global-chat-picker-card" role="dialog" aria-modal="true" aria-labelledby="globalChatPickerTitle">
+      <div class="modal-head">
+        <h3 id="globalChatPickerTitle">Open chat</h3>
+        <button id="globalChatPickerClose" class="btn secondary tiny-btn" type="button">Close</button>
+      </div>
+      <div class="global-chat-picker-body">
+        <div>
+          <div class="tool-label" style="margin-bottom:0.5rem">Existing conversations</div>
+          <div id="globalChatExistingList" class="global-chat-list"></div>
+        </div>
+        <div>
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+            <div class="tool-label">Start new chat</div>
+            <button id="globalChatStartNewBtn" class="btn secondary tiny-btn" type="button">Show all</button>
+          </div>
+          <div id="globalChatNewList" class="global-chat-list hidden"></div>
+        </div>
+      </div>
+    </section>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (evt) => {
+      if (evt.target === modal) modal.classList.add('hidden');
+    });
+    const closeBtn = document.getElementById('globalChatPickerClose');
+    if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+  }
+}
+
+function upsertGlobalChatLauncher(user) {
+  const actions = document.querySelector('.actions');
+  if (!actions) return;
+  const existing = document.getElementById('globalChatLauncherBtn');
+  if (!user || !user.id) {
+    if (existing) existing.remove();
+    return;
+  }
+  ensureGlobalChatUi();
+  if (existing) return;
+  const btn = document.createElement('button');
+  btn.id = 'globalChatLauncherBtn';
+  btn.className = 'btn global-chat-launcher';
+  btn.type = 'button';
+  btn.textContent = 'Chat';
+  setButtonIconWithText(btn, 'chat');
+  btn.addEventListener('click', openGlobalChatPicker);
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn && logoutBtn.parentElement === actions) {
+    logoutBtn.insertAdjacentElement('beforebegin', btn);
+  } else {
+    actions.appendChild(btn);
+  }
+}
+
+async function openGlobalChatPicker() {
+  const modal = document.getElementById('globalChatPicker');
+  const existingList = document.getElementById('globalChatExistingList');
+  const newList = document.getElementById('globalChatNewList');
+  if (!modal || !existingList || !newList) return;
+  modal.classList.remove('hidden');
+  existingList.innerHTML = '<div class="muted">Loading conversations...</div>';
+  newList.innerHTML = '<div class="muted">Loading connections...</div>';
+  const [convRes, connRes] = await Promise.all([
+    api('/api/chat/conversations'),
+    api('/api/connections')
+  ]);
+  const conversations = Array.isArray(convRes.conversations) ? convRes.conversations : [];
+  const connections = Array.isArray(connRes.connections) ? connRes.connections : [];
+  const conversationIds = new Set(conversations.map((item) => Number(item.id)));
+  const freshConnections = connections.filter((item) => !conversationIds.has(Number(item.id)));
+  newList.classList.add('hidden');
+  existingList.innerHTML = conversations.length
+    ? conversations.map((item) => `<button class="global-chat-entry" data-chat-open-id="${Number(item.id)}" data-chat-open-name="${escapeHtml(item.name || item.username || 'Connection')}" data-chat-open-avatar="${escapeHtml(item.profile_picture || '')}" type="button">
+        <img src="${getProfilePictureUrl(item)}" alt="${escapeHtml(item.name || item.username || 'Connection')}" />
+        <span>
+          <strong>${escapeHtml(item.name || item.username || 'Connection')}</strong>
+          <div class="global-chat-entry-preview">${escapeHtml(item.last_message_preview || 'Open conversation')}</div>
+        </span>
+      </button>`).join('')
+    : '<div class="muted">No initiated chats yet.</div>';
+  newList.innerHTML = freshConnections.length
+    ? freshConnections.map((item) => `<button class="global-chat-entry" data-chat-open-id="${Number(item.id)}" data-chat-open-name="${escapeHtml(item.name || item.username || 'Connection')}" data-chat-open-avatar="${escapeHtml(item.profile_picture || '')}" type="button">
+        <img src="${getProfilePictureUrl(item)}" alt="${escapeHtml(item.name || item.username || 'Connection')}" />
+        <span>
+          <strong>${escapeHtml(item.name || item.username || 'Connection')}</strong>
+          <div class="global-chat-entry-preview">@${escapeHtml(item.username || '')}</div>
+        </span>
+      </button>`).join('')
+    : '<div class="muted">All your connections already have active chats.</div>';
+  Array.from(modal.querySelectorAll('[data-chat-open-id]')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      openChat(
+        Number(btn.getAttribute('data-chat-open-id') || 0),
+        String(btn.getAttribute('data-chat-open-name') || 'Connection'),
+        null,
+        String(btn.getAttribute('data-chat-open-avatar') || '')
+      );
+    });
+  });
+  const startNewBtn = document.getElementById('globalChatStartNewBtn');
+  if (startNewBtn) {
+    startNewBtn.onclick = () => {
+      const isHidden = newList.classList.toggle('hidden');
+      startNewBtn.textContent = isHidden ? 'Show all' : 'Hide';
+      setButtonIconWithText(startNewBtn, isHidden ? 'Show all' : 'Hide', isHidden ? 'open' : 'close');
+      if (!isHidden) newList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+    setButtonIconWithText(startNewBtn, 'Show all', 'open');
   }
 }
 
@@ -4115,6 +4488,7 @@ async function submitPost(e) {
   const quizQuestionInput = document.getElementById('quizQuestion');
   const quizCorrectIndexInput = document.getElementById('quizCorrectIndex');
   const quizOptionEls = Array.from(document.querySelectorAll('.quiz-option'));
+  const quizExplanationEditor = document.getElementById('quizExplanationEditor');
   const content = ta.value.trim();
   const reminderNote = reminderNoteInput ? reminderNoteInput.value.trim() : '';
   const visibilityInput = document.getElementById('postVisibility');
@@ -4122,6 +4496,7 @@ async function submitPost(e) {
   const publishAtRaw = publishAtInput ? publishAtInput.value : '';
   const quizQuestion = quizQuestionInput ? quizQuestionInput.value.trim() : '';
   const quizOptions = quizOptionEls.map((el) => el.value.trim()).filter(Boolean);
+  const quizExplanation = quizExplanationEditor ? quizExplanationEditor.innerHTML.trim() : '';
   const quizCorrectIndexRaw = quizCorrectIndexInput ? quizCorrectIndexInput.value : '';
   const quizCorrectIndex = quizCorrectIndexRaw === '' ? null : Number(quizCorrectIndexRaw);
   const reminderAtRaw = reminderAtInput ? reminderAtInput.value : '';
@@ -4148,6 +4523,10 @@ async function submitPost(e) {
     showToast('Please choose a valid reminder date/time', 'error');
     return;
   }
+  if (isReminderMode && selectedReminderTargets.size && !reminderAtRaw) {
+    showToast('Choose a reminder date/time when tagging connections', 'error');
+    return;
+  }
   if (publishAtRaw && (Number.isNaN(publishAt) || publishAt <= Date.now())) {
     showToast('Please choose a future go-live date/time', 'error');
     return;
@@ -4157,8 +4536,8 @@ async function submitPost(e) {
       showToast('Quiz question is required when adding a quiz', 'error');
       return;
     }
-    if (quizOptions.length < 2 || quizOptions.length > 6) {
-      showToast('Quiz needs 2 to 6 options', 'error');
+    if (quizOptions.length < 2 || quizOptions.length > 8) {
+      showToast('Quiz needs 2 to 8 options', 'error');
       return;
     }
     if (Number.isNaN(quizCorrectIndex) || quizCorrectIndex < 0 || quizCorrectIndex >= quizOptions.length) {
@@ -4185,9 +4564,11 @@ async function submitPost(e) {
     publishAt,
     reminderAt: isReminderMode ? reminderAt : null,
     reminderNote: isReminderMode ? reminderNote : '',
+    reminderTagUserIds: isReminderMode ? Array.from(selectedReminderTargets) : [],
     quizQuestion: isQuizMode ? quizQuestion : null,
     quizOptions: isQuizMode ? quizOptions : null,
-    quizCorrectIndex: isQuizMode ? quizCorrectIndex : null
+    quizCorrectIndex: isQuizMode ? quizCorrectIndex : null,
+    quizExplanation: isQuizMode ? quizExplanation : ''
   });
   
   setLoading(form, false);
@@ -4201,6 +4582,9 @@ async function submitPost(e) {
     if (quizQuestionInput) quizQuestionInput.value = '';
     if (quizCorrectIndexInput) quizCorrectIndexInput.value = '';
     quizOptionEls.forEach((el) => { el.value = ''; });
+    if (quizExplanationEditor) quizExplanationEditor.innerHTML = '';
+    selectedReminderTargets.clear();
+    renderReminderTargetOptions('');
     setPostMode(null);
     clearPostImageSelection();
     showToast(res.scheduled && res.publishAt ? `Post scheduled for ${formatDateTime(res.publishAt)}` : 'Post shared!');
@@ -4470,6 +4854,7 @@ async function loadProfile() {
   window.__me = cachedMe;
   upsertSavedListsTopButton(cachedMe);
   upsertNotificationsTopButton(cachedMe);
+  upsertGlobalChatLauncher(cachedMe);
   holder.classList.remove('hidden');
   if (!res.user) {
     holder.innerHTML = `<div class="profile card guest-profile">
@@ -4519,6 +4904,7 @@ async function loadProfile() {
       <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${locationDisplay}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:phone"></span><span>${contactDisplay}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${res.user.connections_count || 0} connections</span></div>
+      <div class="profile-stat"><span class="iconify" data-icon="lucide:user-plus"></span><span>${res.user.followers_count || 0} followers</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:clock-3"></span><span>${last}</span></div>
     </div>
     ${bio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${bio}</p></div>` : ''}
@@ -4646,9 +5032,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
   
   // Initialize socket immediately
   ensureSocket();
+  ensureGlobalChatUi();
   initChatControls();
   parseDashboardShareTargetParams();
   resolveSharedTargetFromToken().catch(() => {});
+  api('/api/me').then((res) => {
+    if (res && res.user) {
+      cachedMe = res.user;
+      window.__me = res.user;
+      upsertGlobalChatLauncher(res.user);
+      upsertSavedListsTopButton(res.user);
+      upsertNotificationsTopButton(res.user);
+    } else {
+      upsertGlobalChatLauncher(null);
+    }
+  }).catch(() => {});
   
   // Dashboard-specific
   if (document.getElementById('connections')) loadConnectionPanels();
@@ -4694,6 +5092,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (document.getElementById('postForm')) {
     document.getElementById('postForm').addEventListener('submit', submitPost);
     initPostModeSwitcher();
+    initQuizComposerControls();
+    initQuizExplanationEditor();
+    initReminderTargetsComposer();
     const postImageInput = document.getElementById('postImage');
     if (postImageInput) postImageInput.addEventListener('change', handlePostImageSelection);
   }
@@ -4775,6 +5176,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   if (document.getElementById('savedPostsBox')) {
     loadSavedLists().then(() => loadSavedPosts());
+  }
+  if (document.getElementById('singlePostBox')) {
+    loadSinglePostPage();
   }
   const createListBtn = document.getElementById('createSavedListBtn');
   if (createListBtn) createListBtn.addEventListener('click', createSavedList);

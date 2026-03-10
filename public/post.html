@@ -1,9 +1,9 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Verify Email - Mednecta</title>
+  <title>Post - Mednecta</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
   <link rel="shortcut icon" href="/favicon.ico?v=2" />
   <link rel="stylesheet" href="/styles.css">
@@ -18,13 +18,22 @@
       </div>
       <div class="actions">
         <button id="themeToggle" class="btn secondary">Dark</button>
-        <a class="btn" href="/login.html">Log in</a>
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/saved">Saved</a>
       </div>
     </header>
-    <main class="stack" style="margin-top:1rem">
-      <section class="card">
-        <h3>Email Verification</h3>
-        <p id="verifyEmailStatus" class="muted">Verifying your email...</p>
+    <main class="layout" style="margin-top:1rem">
+      <section class="stack">
+        <section class="card">
+          <div class="saved-page-head">
+            <div>
+              <p class="eyebrow">Direct View</p>
+              <h3 style="margin:0">Shared Post</h3>
+              <p class="muted" style="margin:0.25rem 0 0">This page opens a single post directly instead of searching for it in the feed.</p>
+            </div>
+          </div>
+          <div id="singlePostBox" class="feed section-gap"></div>
+        </section>
       </section>
     </main>
   </div>
@@ -33,10 +42,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-

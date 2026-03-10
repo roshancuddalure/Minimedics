@@ -114,6 +114,76 @@ function hashToken(rawToken) {
 	return crypto.createHash('sha256').update(String(rawToken || '')).digest('hex');
 }
 
+const DATA_ENCRYPTION_SECRET = typeof process.env.DATA_ENCRYPTION_SECRET === 'string' && process.env.DATA_ENCRYPTION_SECRET.trim()
+	? process.env.DATA_ENCRYPTION_SECRET.trim()
+	: (process.env.SESSION_SECRET || 'dev-secret');
+const DATA_ENCRYPTION_KEY = crypto.createHash('sha256').update(DATA_ENCRYPTION_SECRET).digest();
+const ENCRYPTED_VALUE_PREFIX = 'enc:v1:';
+
+function encryptValue(value) {
+	if (value === null || value === undefined) return null;
+	const raw = String(value);
+	if (!raw) return null;
+	if (raw.startsWith(ENCRYPTED_VALUE_PREFIX)) return raw;
+	const iv = crypto.randomBytes(12);
+	const cipher = crypto.createCipheriv('aes-256-gcm', DATA_ENCRYPTION_KEY, iv);
+	const encrypted = Buffer.concat([cipher.update(raw, 'utf8'), cipher.final()]);
+	const tag = cipher.getAuthTag();
+	return `${ENCRYPTED_VALUE_PREFIX}${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
+}
+
+function decryptValue(value) {
+	if (value === null || value === undefined) return null;
+	const raw = String(value);
+	if (!raw) return null;
+	if (!raw.startsWith(ENCRYPTED_VALUE_PREFIX)) return raw;
+	const parts = raw.slice(ENCRYPTED_VALUE_PREFIX.length).split(':');
+	if (parts.length !== 3) return null;
+	try {
+		const decipher = crypto.createDecipheriv('aes-256-gcm', DATA_ENCRYPTION_KEY, Buffer.from(parts[0], 'base64'));
+		decipher.setAuthTag(Buffer.from(parts[1], 'base64'));
+		const decrypted = Buffer.concat([
+			decipher.update(Buffer.from(parts[2], 'base64')),
+			decipher.final()
+		]);
+		return decrypted.toString('utf8');
+	} catch (e) {
+		return null;
+	}
+}
+
+function sanitizeRichText(html, maxLength = 4000) {
+	const raw = typeof html === 'string' ? html.trim() : '';
+	if (!raw) return '';
+	let safe = raw
+		.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+		.replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+		.replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, '')
+		.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
+		.replace(/javascript:/gi, '');
+	safe = safe.replace(/<(?!\/?(a|strong|b|em|i|u|br|p|ul|ol|li)\b)[^>]*>/gi, '');
+	safe = safe.replace(/<a\b([^>]*)>/gi, (match, attrs) => {
+		const hrefMatch = attrs.match(/\bhref\s*=\s*(['"])(.*?)\1/i);
+		const href = hrefMatch ? String(hrefMatch[2] || '').trim() : '';
+		if (!/^https?:\/\//i.test(href)) return '<a>';
+		return `<a href="${href.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">`;
+	});
+	if (safe.length > maxLength) safe = safe.slice(0, maxLength);
+	return safe;
+}
+
+function getPlainTextFromRichText(html) {
+	return String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|li)>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+}
+
+function parseMentionUserIds(rawValue) {
+	if (!Array.isArray(rawValue)) return [];
+	const seen = new Set();
+	return rawValue
+		.map((value) => Number(value))
+		.filter((value) => Number.isInteger(value) && value > 0 && !seen.has(value) && (seen.add(value) || true));
+}
+
 function getPasswordPolicyError(password) {
 	const pwd = typeof password === 'string' ? password : '';
 	if (pwd.length < 6) return 'Password must be at least 6 characters';
@@ -375,6 +445,177 @@ async function getAcceptedConnectionIds(userId) {
 		FROM connections
 		WHERE (user_a = ? OR user_b = ?) AND status = 'accepted'`, [userId, userId, userId]);
 	return rows.map((r) => Number(r.id)).filter((v) => !Number.isNaN(v));
+}
+
+async function getFollowerIds(userId) {
+	const rows = await allAsync('SELECT follower_id AS id FROM follows WHERE followee_id = ?', [userId]);
+	return rows.map((r) => Number(r.id)).filter((v) => !Number.isNaN(v));
+}
+
+async function getPostAudienceUserIds(ownerId, visibility) {
+	const audience = new Set([Number(ownerId) || 0]);
+	if (visibility === 'connections' || visibility === 'followers_connections') {
+		(await getAcceptedConnectionIds(ownerId)).forEach((id) => audience.add(Number(id)));
+	}
+	if (visibility === 'followers_connections') {
+		(await getFollowerIds(ownerId)).forEach((id) => audience.add(Number(id)));
+	}
+	return Array.from(audience).filter((id) => id > 0);
+}
+
+async function getVisibleStoryOwnerIds(userId) {
+	const ids = new Set([Number(userId) || 0]);
+	(await getAcceptedConnectionIds(userId)).forEach((id) => ids.add(Number(id)));
+	const followingRows = await allAsync('SELECT followee_id AS id FROM follows WHERE follower_id = ?', [userId]);
+	followingRows.forEach((row) => ids.add(Number(row.id) || 0));
+	return Array.from(ids).filter((id) => id > 0);
+}
+
+function applyProfileFieldDecryption(user) {
+	if (!user || typeof user !== 'object') return user;
+	const next = { ...user };
+	['date_of_birth', 'pincode', 'contact_country_code', 'contact_number'].forEach((field) => {
+		next[field] = decryptValue(next[field]);
+	});
+	return next;
+}
+
+function applyMessageFieldDecryption(message) {
+	if (!message || typeof message !== 'object') return message;
+	const next = { ...message };
+	next.content = decryptValue(next.content) || '';
+	next.image = decryptValue(next.image) || null;
+	return next;
+}
+
+async function enrichPostsWithQuizStats(posts, viewerId = 0) {
+	const postList = Array.isArray(posts) ? posts : [];
+	const quizPostIds = postList
+		.filter((post) => String(post.quiz_question || '').trim())
+		.map((post) => Number(post.id))
+		.filter((id) => Number.isInteger(id) && id > 0);
+	if (!quizPostIds.length) return postList;
+	const grouped = await allAsync(`SELECT post_id, selected_index, COUNT(*)::int AS cnt
+		FROM quiz_attempts
+		WHERE post_id = ANY(?)
+		GROUP BY post_id, selected_index`, [quizPostIds]);
+	const totals = new Map();
+	grouped.forEach((row) => {
+		const postId = Number(row.post_id);
+		const optionIndex = Number(row.selected_index);
+		const count = Number(row.cnt) || 0;
+		if (!totals.has(postId)) totals.set(postId, { total: 0, options: {} });
+		const entry = totals.get(postId);
+		entry.total += count;
+		entry.options[optionIndex] = count;
+	});
+	postList.forEach((post) => {
+		const options = (() => {
+			try { return JSON.parse(post.quiz_options || '[]'); } catch (e) { return []; }
+		})();
+		const stats = totals.get(Number(post.id)) || { total: 0, options: {} };
+		post.quiz_attempt_count = stats.total;
+		post.quiz_option_counts = JSON.stringify(options.map((_, index) => Number(stats.options[index]) || 0));
+		post.quiz_explanation = String(post.quiz_explanation || '');
+		post.quiz_explanation_text = getPlainTextFromRichText(post.quiz_explanation);
+		post.quiz_viewer_id = Number(viewerId) || 0;
+	});
+	return postList;
+}
+
+async function sendReminderEmail(toEmail, viewerName, actorName, reminderTitle, reminderNote, reminderUrl, whenLabel) {
+	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
+	if (!apiKey || !toEmail || !reminderUrl) return false;
+	const html = `
+		<div style="font-family:Arial,sans-serif;background:#f4f8ff;padding:28px;color:#10233b">
+			<div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid rgba(15,159,154,0.12);box-shadow:0 18px 42px rgba(16,35,59,0.12)">
+				<div style="padding:24px 28px;background:linear-gradient(135deg,#0f9f9a,#0b7b78);color:#ffffff">
+					<div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.82">Mednecta Reminder</div>
+					<h2 style="margin:10px 0 0;font-size:28px;line-height:1.2">${reminderTitle}</h2>
+				</div>
+				<div style="padding:26px 28px">
+					<p style="margin:0 0 12px">Hello ${viewerName || 'there'},</p>
+					<p style="margin:0 0 14px"><strong>${actorName || 'A connection'}</strong> tagged you in a reminder scheduled for <strong>${whenLabel}</strong>.</p>
+					${reminderNote ? `<div style="padding:14px 16px;border-radius:14px;background:#f7fbff;border:1px solid rgba(25,60,100,0.12);margin:0 0 18px">${reminderNote}</div>` : ''}
+					<p style="margin:0 0 18px">Open the reminder post to review the task and context.</p>
+					<a href="${reminderUrl}" style="display:inline-block;padding:12px 18px;background:#0f9f9a;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:700">Open Reminder</a>
+				</div>
+			</div>
+		</div>
+	`;
+	const body = JSON.stringify({
+		from: EMAIL_FROM,
+		to: [toEmail],
+		subject: `${APP_NAME} reminder: ${reminderTitle}`,
+		html
+	});
+	const result = await new Promise((resolve, reject) => {
+		const req = https.request('https://api.resend.com/emails', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${apiKey}`,
+				'Content-Type': 'application/json',
+				'Content-Length': Buffer.byteLength(body)
+			}
+		}, (res) => {
+			let raw = '';
+			res.on('data', (chunk) => { raw += chunk; });
+			res.on('end', () => resolve({ statusCode: res.statusCode || 0, raw }));
+		});
+		req.on('error', reject);
+		req.write(body);
+		req.end();
+	});
+	return result.statusCode >= 200 && result.statusCode < 300;
+}
+
+async function processDueReminderNotifications() {
+	const now = Date.now();
+	const dueTargets = await allAsync(`SELECT prt.id, prt.post_id, prt.tagged_user_id, prt.notified_at, prt.email_sent_at,
+		p.user_id AS owner_id, p.content, p.reminder_note, p.reminder_at, p.visibility,
+		u.name AS owner_name, u.username AS owner_username,
+		tu.email AS tagged_email, tu.name AS tagged_name
+		FROM post_reminder_targets prt
+		JOIN posts p ON p.id = prt.post_id
+		JOIN users u ON u.id = p.user_id
+		JOIN users tu ON tu.id = prt.tagged_user_id
+		WHERE p.reminder_at IS NOT NULL
+		AND p.reminder_at <= ?
+		AND (prt.notified_at IS NULL OR prt.email_sent_at IS NULL)`, [now]);
+	for (const row of dueTargets) {
+		const targetId = Number(row.tagged_user_id) || 0;
+		if (!targetId) continue;
+		const reminderTitle = String(row.content || row.reminder_note || 'Reminder').trim().slice(0, 120) || 'Reminder';
+		const whenLabel = row.reminder_at ? new Date(Number(row.reminder_at)).toLocaleString() : 'now';
+		if (!row.notified_at) {
+			await createUserNotification(targetId, {
+				actorId: Number(row.owner_id) || null,
+				type: 'reminder_due',
+				title: 'Reminder is due',
+				message: `${row.owner_name || row.owner_username || 'A connection'} tagged you in a reminder.`,
+				refType: 'post',
+				refId: Number(row.post_id) || 0
+			}).catch((e) => console.error('Reminder notification error:', e));
+			await runAsync('UPDATE post_reminder_targets SET notified_at = ? WHERE id = ?', [Date.now(), row.id]).catch(() => {});
+		}
+		if (!row.email_sent_at && row.tagged_email) {
+			const sent = await sendReminderEmail(
+				row.tagged_email,
+				row.tagged_name || '',
+				row.owner_name || row.owner_username || 'A connection',
+				reminderTitle,
+				getPlainTextFromRichText(row.reminder_note || ''),
+				`${getPublicBaseUrl()}/post?id=${encodeURIComponent(row.post_id)}`,
+				whenLabel
+			).catch((e) => {
+				console.error('Reminder email error:', e);
+				return false;
+			});
+			if (sent) {
+				await runAsync('UPDATE post_reminder_targets SET email_sent_at = ? WHERE id = ?', [Date.now(), row.id]).catch(() => {});
+			}
+		}
+	}
 }
 
 async function ensureNotificationsReady() {
@@ -640,7 +881,10 @@ async function createShareLink(itemType, itemId, userId, req) {
 		try {
 			await runAsync(`INSERT INTO share_links (token, item_type, item_id, created_by, created_at)
 				VALUES (?, ?, ?, ?, ?)`, [token, itemType, itemId, userId, Date.now()]);
-			return { token, shareUrl: `${getRequestBaseUrl(req)}/dashboard?share=${encodeURIComponent(token)}` };
+			const sharePath = itemType === 'post'
+				? `/post?share=${encodeURIComponent(token)}`
+				: `/dashboard?share=${encodeURIComponent(token)}`;
+			return { token, shareUrl: `${getRequestBaseUrl(req)}${sharePath}` };
 		} catch (e) {
 			if (!String(e.message || '').toLowerCase().includes('unique')) throw e;
 		}
@@ -762,6 +1006,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_at BIGINT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reminder_note TEXT`);
 	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_at BIGINT`);
+	await runAsync(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS quiz_explanation TEXT`);
 	await runAsync(`UPDATE posts SET publish_at = created_at WHERE publish_at IS NULL`);
 
 	await runAsync(`CREATE TABLE IF NOT EXISTS connections (
@@ -864,6 +1109,22 @@ async function initializeDatabase() {
 	)`);
 	await runAsync(`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS parent_comment_id BIGINT`);
 	await runAsync(`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS mention_user_id BIGINT`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS comment_likes (
+		id BIGSERIAL PRIMARY KEY,
+		comment_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT,
+		UNIQUE(comment_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS post_reminder_targets (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		tagged_user_id BIGINT NOT NULL,
+		created_at BIGINT NOT NULL,
+		notified_at BIGINT,
+		email_sent_at BIGINT,
+		UNIQUE(post_id, tagged_user_id)
+	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS saved_posts (
 		id BIGSERIAL PRIMARY KEY,
 		post_id BIGINT NOT NULL,
@@ -1063,6 +1324,25 @@ async function ensureSuperAdmin() {
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+	res.setHeader('X-Content-Type-Options', 'nosniff');
+	res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+	res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+	res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+	res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+	res.setHeader('Content-Security-Policy', [
+		"default-src 'self' https://code.iconify.design",
+		"img-src 'self' data: https:",
+		"style-src 'self' 'unsafe-inline' https://code.iconify.design",
+		"script-src 'self' 'unsafe-inline' https://code.iconify.design",
+		"connect-src 'self' https: wss: ws:",
+		"font-src 'self' data: https:",
+		"frame-ancestors 'self'",
+		"base-uri 'self'"
+	].join('; '));
+	next();
+});
 
 app.use(session({
 	store: new PgSession({
@@ -1073,7 +1353,12 @@ app.use(session({
 	secret: process.env.SESSION_SECRET || 'dev-secret',
 	resave: false,
 	saveUninitialized: false,
-	cookie: { maxAge: 1000 * 60 * 60 * 24 }
+	cookie: {
+		maxAge: 1000 * 60 * 60 * 24,
+		httpOnly: true,
+		sameSite: 'lax',
+		secure: isProduction
+	}
 }));
 
 app.get('/favicon.ico', (req, res) => {
@@ -1313,12 +1598,16 @@ app.get('/api/me', (req, res) => {
 	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
+		const safeUser = applyProfileFieldDecryption(user);
 		// get connections count
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
-		db.get(q, [user.id, user.id], (err2, row) => {
-			if (err2) user.connections_count = 0;
-			else user.connections_count = row.cnt || 0;
-			res.json({ user });
+		db.get(q, [safeUser.id, safeUser.id], (err2, row) => {
+			if (err2) safeUser.connections_count = 0;
+			else safeUser.connections_count = row.cnt || 0;
+			db.get('SELECT COUNT(*) AS cnt FROM follows WHERE followee_id = ?', [safeUser.id], (err3, followerRow) => {
+				safeUser.followers_count = err3 ? 0 : Number(followerRow && followerRow.cnt) || 0;
+				res.json({ user: safeUser });
+			});
 		});
 	});
 });
@@ -1382,7 +1671,7 @@ app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
 		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
-		res.json({ user });
+		res.json({ user: applyProfileFieldDecryption(user) });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -1443,7 +1732,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 		return res.status(400).json({ error: 'Add both country code and contact number' });
 	}
 	try {
-		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, contact_country_code = ?, contact_number = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, dateOfBirth || null, bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, pincode || null, contactCountryCode || null, contactNumber || null, institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, contact_country_code = ?, contact_number = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -1839,16 +2128,19 @@ app.get('/api/user/:id', (req, res) => {
 	const viewerId = Number(req.session.userId || 0);
 	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
-		if (user.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
+		const safeUser = applyProfileFieldDecryption(user);
+		if (safeUser.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
 			return res.status(404).json({ error: 'User not found' });
 		}
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
 		db.get(q, [uid, uid], async (err2, row) => {
-			if (err2) user.connections_count = 0;
-			else user.connections_count = row.cnt || 0;
-			user.online = false;
-			user.online_visible = false;
-			if (!viewerId || Number(uid) === viewerId) return res.json({ user });
+			if (err2) safeUser.connections_count = 0;
+			else safeUser.connections_count = row.cnt || 0;
+			const followerCount = await getAsync('SELECT COUNT(*) AS cnt FROM follows WHERE followee_id = ?', [uid]).catch(() => ({ cnt: 0 }));
+			safeUser.followers_count = Number(followerCount && followerCount.cnt) || 0;
+			safeUser.online = false;
+			safeUser.online_visible = false;
+			if (!viewerId || Number(uid) === viewerId) return res.json({ user: safeUser });
 			try {
 				const [connection, follow, blockedByMe, blockedMe] = await Promise.all([
 					getAsync(`SELECT id, status, user_a FROM connections
@@ -1858,7 +2150,7 @@ app.get('/api/user/:id', (req, res) => {
 					getAsync('SELECT id FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [viewerId, uid]),
 					getAsync('SELECT id FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [uid, viewerId])
 				]);
-				user.relationship = {
+				safeUser.relationship = {
 					connectionStatus: connection ? connection.status : 'none',
 					connectionId: connection ? connection.id : null,
 					connectionRequestedByMe: connection ? Number(connection.user_a) === viewerId : false,
@@ -1866,29 +2158,29 @@ app.get('/api/user/:id', (req, res) => {
 					blockedByMe: Boolean(blockedByMe),
 					blockedMe: Boolean(blockedMe)
 				};
-				const canSeeOnline = user.privacy_show_online === 'everyone' || (user.privacy_show_online === 'connections' && connection && connection.status === 'accepted');
-				user.online_visible = Boolean(canSeeOnline);
-				user.online = canSeeOnline ? isUserOnline(uid) : false;
+				const canSeeOnline = safeUser.privacy_show_online === 'everyone' || (safeUser.privacy_show_online === 'connections' && connection && connection.status === 'accepted');
+				safeUser.online_visible = Boolean(canSeeOnline);
+				safeUser.online = canSeeOnline ? isUserOnline(uid) : false;
 			} catch (relErr) {
-				user.relationship = {
+				safeUser.relationship = {
 					connectionStatus: 'unknown',
 					connectionId: null,
 					following: false,
 					blockedByMe: false,
 					blockedMe: false
 				};
-				user.online_visible = false;
-				user.online = false;
+				safeUser.online_visible = false;
+				safeUser.online = false;
 			}
-			return res.json({ user });
+			return res.json({ user: safeUser });
 		});
 	});
 });
 
-app.get('/api/feed', requireAuth, (req, res) => {
+app.get('/api/feed', requireAuth, async (req, res) => {
 	const uid = Number(req.session.userId || 0);
 	const now = Date.now();
-	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at, p.publish_at, u.id as user_id, u.username, u.name, u.profile_picture,
+	const q = `SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.quiz_explanation, p.visibility, p.reminder_at, p.reminder_note, p.created_at, p.publish_at, u.id as user_id, u.username, u.name, u.profile_picture,
 		(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
 		(SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) as comment_count,
 		(SELECT COUNT(*) FROM saved_posts sp WHERE sp.post_id = p.id) as save_count,
@@ -1921,31 +2213,52 @@ app.get('/api/feed', requireAuth, (req, res) => {
 					AND ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_b = ${uid} AND c.user_a = p.user_id))
 				)
 			)
+			OR (
+				p.visibility = 'followers_connections' AND (
+					EXISTS (
+						SELECT 1 FROM connections c
+						WHERE c.status = 'accepted'
+						AND ((c.user_a = ${uid} AND c.user_b = p.user_id) OR (c.user_b = ${uid} AND c.user_a = p.user_id))
+					)
+					OR EXISTS (
+						SELECT 1 FROM follows f
+						WHERE f.follower_id = ${uid} AND f.followee_id = p.user_id
+					)
+				)
+			)
 		) AND u.username <> '${SUPERADMIN_USERNAME}'
 		ORDER BY COALESCE(p.publish_at, p.created_at) DESC LIMIT 50`;
-	db.all(q, [], (err, rows) => {
+	db.all(q, [], async (err, rows) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
-		res.json({ posts: rows });
+		try {
+			const enriched = await enrichPostsWithQuizStats(rows || [], uid);
+			res.json({ posts: enriched });
+		} catch (e) {
+			console.error('Feed quiz enrichment error:', e);
+			res.json({ posts: rows || [] });
+		}
 	});
 });
 
-app.post('/api/post', requireAuth, (req, res) => {
-	const { content, image, visibility, reminderAt, reminderNote, quizQuestion, quizOptions, quizCorrectIndex, publishAt } = req.body;
+app.post('/api/post', requireAuth, async (req, res) => {
+	const { content, image, visibility, reminderAt, reminderNote, reminderTagUserIds, quizQuestion, quizOptions, quizCorrectIndex, quizExplanation, publishAt } = req.body;
 	const safeContent = typeof content === 'string' ? content.trim() : '';
-	const safeVisibility = ['public', 'connections', 'private'].includes(String(visibility || '').trim()) ? String(visibility).trim() : 'public';
+	const safeVisibility = ['public', 'connections', 'followers_connections', 'private'].includes(String(visibility || '').trim()) ? String(visibility).trim() : 'public';
 	const safeReminderNote = typeof reminderNote === 'string' ? reminderNote.trim() : '';
 	const hasImage = typeof image === 'string' && image.startsWith('data:image');
 	const safeQuizQuestion = typeof quizQuestion === 'string' ? quizQuestion.trim() : '';
+	const safeQuizExplanation = sanitizeRichText(quizExplanation, 5000);
 	const hasQuizCorrectIndex = quizCorrectIndex !== undefined && quizCorrectIndex !== null && quizCorrectIndex !== '';
 	const isQuizPost = safeQuizQuestion.length > 0 || Array.isArray(quizOptions) || hasQuizCorrectIndex;
 	let safeQuizOptions = null;
 	let safeQuizCorrectIndex = null;
+	let validReminderTagUserIds = [];
 	if (isQuizPost) {
 		const normalized = Array.isArray(quizOptions) ? quizOptions.map((v) => String(v || '').trim()).filter((v) => v.length > 0) : [];
 		const parsedCorrect = Number(quizCorrectIndex);
 		if (!safeQuizQuestion) return res.status(400).json({ error: 'Quiz question is required' });
 		if (safeQuizQuestion.length > 400) return res.status(400).json({ error: 'Quiz question is too long' });
-		if (normalized.length < 2 || normalized.length > 6) return res.status(400).json({ error: 'Quiz must have 2 to 6 options' });
+		if (normalized.length < 2 || normalized.length > 8) return res.status(400).json({ error: 'Quiz must have 2 to 8 options' });
 		if (normalized.some((opt) => opt.length > 200)) return res.status(400).json({ error: 'Quiz option is too long' });
 		if (Number.isNaN(parsedCorrect) || parsedCorrect < 0 || parsedCorrect >= normalized.length) {
 			return res.status(400).json({ error: 'Choose a valid correct answer for the quiz' });
@@ -1964,6 +2277,7 @@ app.post('/api/post', requireAuth, (req, res) => {
 	if (safeContent.length > 5000) return res.status(400).json({ error: 'Post too long' });
 	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Image is too large' });
 	if (safeReminderNote.length > 240) return res.status(400).json({ error: 'Reminder note is too long' });
+	if (safeQuizExplanation && safeQuizExplanation.length > 5000) return res.status(400).json({ error: 'Quiz explanation is too long' });
 	let publishAtTs = Date.now();
 	if (publishAt !== undefined && publishAt !== null && publishAt !== '') {
 		const parsedPublishAt = Number(publishAt);
@@ -1972,17 +2286,31 @@ app.post('/api/post', requireAuth, (req, res) => {
 		}
 		publishAtTs = parsedPublishAt;
 	}
+	if (reminderAtTs) {
+		const requestedTagIds = parseMentionUserIds(reminderTagUserIds);
+		if (requestedTagIds.length) {
+			const allowedConnections = await getAcceptedConnectionIds(Number(req.session.userId));
+			const allowed = new Set(allowedConnections.map((id) => Number(id)));
+			validReminderTagUserIds = requestedTagIds.filter((id) => allowed.has(Number(id)));
+		}
+	}
 	const ts = Date.now();
-	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, visibility, reminder_at, reminder_note, created_at, publish_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, safeVisibility, reminderAtTs, safeReminderNote || null, ts, publishAtTs], 
+	db.run('INSERT INTO posts (user_id, content, image, quiz_question, quiz_options, quiz_correct_index, quiz_explanation, visibility, reminder_at, reminder_note, created_at, publish_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+		[req.session.userId, safeContent, hasImage ? image : null, safeQuizQuestion || null, safeQuizOptions, safeQuizCorrectIndex, safeQuizExplanation || null, safeVisibility, reminderAtTs, safeReminderNote || null, ts, publishAtTs], 
 		async function (err) {
 			if (err) {
 				console.error('Post insert error:', err);
 				return res.status(500).json({ error: 'Server error' });
 			}
 			console.log(`Post created: ${this.lastID}`);
+			if (validReminderTagUserIds.length) {
+				await Promise.all(validReminderTagUserIds.map((taggedUserId) => runAsync(
+					'INSERT INTO post_reminder_targets (post_id, tagged_user_id, created_at) VALUES (?, ?, ?) ON CONFLICT (post_id, tagged_user_id) DO NOTHING',
+					[this.lastID, taggedUserId, Date.now()]
+				))).catch((tagErr) => console.error('Reminder target insert error:', tagErr));
+			}
 			try { await addXp(req.session.userId, 'POST_CREATE', 'post', this.lastID); } catch (xpErr) { console.error('POST_CREATE XP error:', xpErr); }
-			res.json({ success: true, id: this.lastID, scheduled: publishAtTs > ts, publishAt: publishAtTs });
+			res.json({ success: true, id: this.lastID, scheduled: publishAtTs > ts, publishAt: publishAtTs, taggedCount: validReminderTagUserIds.length });
 		});
 });
 
@@ -1994,10 +2322,12 @@ app.delete('/api/post/:id', requireAuth, async (req, res) => {
 		const post = await getAsync('SELECT id, user_id FROM posts WHERE id = ?', [postId]);
 		if (!post) return res.status(404).json({ error: 'Post not found' });
 		if (Number(post.user_id) !== userId) return res.status(403).json({ error: 'You can delete only your own posts' });
+		await runAsync('DELETE FROM comment_likes WHERE comment_id IN (SELECT id FROM post_comments WHERE post_id = ?)', [postId]);
 		await runAsync('DELETE FROM post_comments WHERE post_id = ?', [postId]);
 		await runAsync('DELETE FROM post_likes WHERE post_id = ?', [postId]);
 		await runAsync('DELETE FROM saved_posts WHERE post_id = ?', [postId]);
 		await runAsync('DELETE FROM post_shares WHERE post_id = ?', [postId]);
+		await runAsync('DELETE FROM post_reminder_targets WHERE post_id = ?', [postId]);
 		await runAsync('DELETE FROM posts WHERE id = ?', [postId]);
 		return res.json({ success: true });
 	} catch (e) {
@@ -2146,18 +2476,70 @@ app.get('/api/user/:id/posts', requireAuth, async (req, res) => {
 		const connected = await getAsync(`SELECT id FROM connections
 			WHERE status = 'accepted'
 			AND ((user_a = ? AND user_b = ?) OR (user_b = ? AND user_a = ?))`, [viewerId, profileUserId, viewerId, profileUserId]);
-		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.visibility, p.reminder_at, p.reminder_note, p.created_at
+		const following = await getAsync('SELECT id FROM follows WHERE follower_id = ? AND followee_id = ?', [viewerId, profileUserId]);
+		const rows = await allAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.quiz_explanation, p.visibility, p.reminder_at, p.reminder_note, p.created_at, p.publish_at
 			FROM posts p
 			WHERE p.user_id = ?
+			AND (p.user_id = ? OR COALESCE(p.publish_at, p.created_at) <= ?)
 			AND (
 				p.visibility IS NULL OR p.visibility = 'public'
 				OR (? = 1)
 				OR (? = 1 AND p.visibility = 'connections')
+				OR ((? = 1 OR ? = 1) AND p.visibility = 'followers_connections')
 			)
-			ORDER BY p.created_at DESC
-			LIMIT 50`, [profileUserId, isSelf ? 1 : 0, connected ? 1 : 0]);
-		res.json({ posts: rows });
+			ORDER BY COALESCE(p.publish_at, p.created_at) DESC
+			LIMIT 50`, [profileUserId, viewerId, Date.now(), isSelf ? 1 : 0, connected ? 1 : 0, connected ? 1 : 0, following ? 1 : 0]);
+		const enriched = await enrichPostsWithQuizStats(rows, viewerId);
+		res.json({ posts: enriched });
 	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/post/:id', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	const viewerId = Number(req.session.userId);
+	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	try {
+		const post = await getAsync(`SELECT p.id, p.content, p.image, p.quiz_question, p.quiz_options, p.quiz_correct_index, p.quiz_explanation, p.visibility, p.reminder_at, p.reminder_note, p.created_at, p.publish_at,
+			u.id AS user_id, u.username, u.name, u.profile_picture,
+			(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) as like_count,
+			(SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) as comment_count,
+			(SELECT COUNT(*) FROM saved_posts sp WHERE sp.post_id = p.id) as save_count,
+			(SELECT COUNT(*) FROM post_shares ps WHERE ps.post_id = p.id) as share_count,
+			(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id AND pl2.user_id = ?) as my_liked,
+			(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ?) as my_saved,
+			(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ?) as my_quiz_attempted,
+			(SELECT qa2.selected_index FROM quiz_attempts qa2 WHERE qa2.post_id = p.id AND qa2.user_id = ? ORDER BY qa2.created_at DESC LIMIT 1) as my_quiz_selected_index,
+			(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ? ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct,
+			(SELECT c.status FROM connections c
+				WHERE ((c.user_a = ? AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ?))
+				ORDER BY c.created_at DESC LIMIT 1) as relation_status,
+			(SELECT c.id FROM connections c
+				WHERE ((c.user_a = ? AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ?))
+				ORDER BY c.created_at DESC LIMIT 1) as relation_id,
+			(SELECT c.user_a FROM connections c
+				WHERE ((c.user_a = ? AND c.user_b = p.user_id) OR (c.user_a = p.user_id AND c.user_b = ?))
+				ORDER BY c.created_at DESC LIMIT 1) as relation_requested_by
+			FROM posts p
+			JOIN users u ON u.id = p.user_id
+			WHERE p.id = ? AND u.username <> ?`, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, postId, SUPERADMIN_USERNAME]);
+		if (!post) return res.status(404).json({ error: 'Post not found' });
+		const isSelf = Number(post.user_id) === viewerId;
+		const isPublished = Number(post.publish_at || post.created_at) <= Date.now();
+		const connected = isSelf ? true : await getAsync(`SELECT id FROM connections
+			WHERE status = 'accepted'
+			AND ((user_a = ? AND user_b = ?) OR (user_b = ? AND user_a = ?))`, [viewerId, post.user_id, viewerId, post.user_id]);
+		const following = isSelf ? true : await getAsync('SELECT id FROM follows WHERE follower_id = ? AND followee_id = ?', [viewerId, post.user_id]);
+		const canView = isSelf
+			|| ((post.visibility === 'public' || !post.visibility) && isPublished)
+			|| (post.visibility === 'connections' && connected && isPublished)
+			|| (post.visibility === 'followers_connections' && (connected || following) && isPublished);
+		if (!canView) return res.status(403).json({ error: 'Post is not available' });
+		const [enriched] = await enrichPostsWithQuizStats([post], viewerId);
+		res.json({ post: enriched || post });
+	} catch (e) {
+		console.error('Single post fetch error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -2321,7 +2703,7 @@ app.get('/api/messages/:otherId', requireAuth, (req, res) => {
 		const q = `SELECT m.*, ua.username as from_username, ua.profile_picture as from_picture, ub.username as to_username FROM messages m LEFT JOIN users ua ON ua.id = m.from_user LEFT JOIN users ub ON ub.id = m.to_user WHERE (m.from_user = ? AND m.to_user = ?) OR (m.from_user = ? AND m.to_user = ?) ORDER BY m.created_at ASC`;
 		db.all(q, [uid, other, other, uid], (err, rows) => {
 			if (err) return res.status(500).json({ error: 'Server error' });
-			res.json({ messages: rows });
+			res.json({ messages: (rows || []).map((row) => applyMessageFieldDecryption(row)) });
 		});
 	});
 });
@@ -2346,6 +2728,39 @@ app.post('/api/messages/:otherId/mark-seen', requireAuth, async (req, res) => {
 		res.json({ success: true, updated: Number(updated.changes) || 0 });
 	} catch (e) {
 		console.error('Mark seen error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/chat/conversations', requireAuth, async (req, res) => {
+	const userId = Number(req.session.userId);
+	try {
+		const rows = await allAsync(`SELECT DISTINCT ON (peer.id)
+			peer.id,
+			peer.username,
+			peer.name,
+			peer.profile_picture,
+			m.content,
+			m.image,
+			m.created_at
+			FROM messages m
+			JOIN users peer ON peer.id = CASE WHEN m.from_user = ? THEN m.to_user ELSE m.from_user END
+			WHERE m.from_user = ? OR m.to_user = ?
+			ORDER BY peer.id, m.created_at DESC`, [userId, userId, userId]);
+		const conversations = (rows || []).map((row) => {
+			const decrypted = applyMessageFieldDecryption(row);
+			return {
+				id: Number(row.id) || 0,
+				username: row.username,
+				name: row.name,
+				profile_picture: row.profile_picture,
+				last_message_at: row.created_at,
+				last_message_preview: decrypted.content ? decrypted.content.slice(0, 120) : (decrypted.image ? 'Image message' : '')
+			};
+		});
+		res.json({ conversations });
+	} catch (e) {
+		console.error('Chat conversations error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -2403,8 +2818,11 @@ app.post('/api/notifications/mark-all-read', requireAuth, async (req, res) => {
 
 app.get('/api/post/:id/comments', (req, res) => {
 	const postId = Number(req.params.id);
+	const viewerId = Number(req.session.userId || 0);
 	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
-	const q = `SELECT c.id, c.post_id, c.user_id, c.parent_comment_id, c.mention_user_id, c.content, c.created_at, u.username, u.name, u.profile_picture, mu.username as mention_username
+	const q = `SELECT c.id, c.post_id, c.user_id, c.parent_comment_id, c.mention_user_id, c.content, c.created_at, u.username, u.name, u.profile_picture, mu.username as mention_username,
+		(SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
+		(SELECT COUNT(*) FROM comment_likes cl2 WHERE cl2.comment_id = c.id AND cl2.user_id = ${viewerId}) AS my_liked
 		FROM post_comments c
 		JOIN users u ON u.id = c.user_id
 		LEFT JOIN users mu ON mu.id = c.mention_user_id
@@ -2415,6 +2833,29 @@ app.get('/api/post/:id/comments', (req, res) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		res.json({ comments: rows });
 	});
+});
+
+app.post('/api/post/:postId/comment/:commentId/like', requireAuth, async (req, res) => {
+	const postId = Number(req.params.postId);
+	const commentId = Number(req.params.commentId);
+	const userId = Number(req.session.userId);
+	if (!postId || !commentId) return res.status(400).json({ error: 'Invalid request' });
+	try {
+		const comment = await getAsync('SELECT id FROM post_comments WHERE id = ? AND post_id = ?', [commentId, postId]);
+		if (!comment) return res.status(404).json({ error: 'Comment not found' });
+		const existing = await getAsync('SELECT id FROM comment_likes WHERE comment_id = ? AND user_id = ?', [commentId, userId]);
+		if (existing) {
+			await runAsync('DELETE FROM comment_likes WHERE id = ?', [existing.id]);
+			const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM comment_likes WHERE comment_id = ?', [commentId]);
+			return res.json({ success: true, liked: false, count: Number(count && count.cnt) || 0 });
+		}
+		await runAsync('INSERT INTO comment_likes (comment_id, user_id, created_at) VALUES (?, ?, ?)', [commentId, userId, Date.now()]);
+		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM comment_likes WHERE comment_id = ?', [commentId]);
+		return res.json({ success: true, liked: true, count: Number(count && count.cnt) || 0 });
+	} catch (e) {
+		console.error('Comment like error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
 });
 
 app.post('/api/post/:id/comment', requireAuth, (req, res) => {
@@ -2453,7 +2894,7 @@ app.post('/api/post/:id/quiz-attempt', requireAuth, async (req, res) => {
 	const userId = Number(req.session.userId);
 	if (!postId || Number.isNaN(selectedIndex)) return res.status(400).json({ error: 'Invalid quiz attempt' });
 	try {
-		const post = await getAsync('SELECT id, quiz_options, quiz_correct_index FROM posts WHERE id = ?', [postId]);
+		const post = await getAsync('SELECT id, quiz_options, quiz_correct_index, quiz_explanation FROM posts WHERE id = ?', [postId]);
 		if (!post || post.quiz_correct_index === null || post.quiz_correct_index === undefined) return res.status(404).json({ error: 'Quiz not found' });
 		const options = (() => {
 			try { return JSON.parse(post.quiz_options || '[]'); } catch (e) { return []; }
@@ -2465,7 +2906,26 @@ app.post('/api/post/:id/quiz-attempt', requireAuth, async (req, res) => {
 		if (existing) return res.status(400).json({ error: 'Quiz already attempted' });
 		const isCorrect = Number(selectedIndex) === Number(post.quiz_correct_index) ? 1 : 0;
 		await runAsync('INSERT INTO quiz_attempts (post_id, user_id, selected_index, is_correct, created_at) VALUES (?, ?, ?, ?, ?)', [postId, userId, selectedIndex, isCorrect, Date.now()]);
-		res.json({ success: true, isCorrect: Boolean(isCorrect), correctIndex: Number(post.quiz_correct_index), correctAnswer: options[Number(post.quiz_correct_index)] || '' });
+		const grouped = await allAsync(`SELECT selected_index, COUNT(*)::int AS cnt
+			FROM quiz_attempts
+			WHERE post_id = ?
+			GROUP BY selected_index
+			ORDER BY selected_index ASC`, [postId]);
+		const optionCounts = options.map((_, index) => {
+			const row = grouped.find((item) => Number(item.selected_index) === index);
+			return Number(row && row.cnt) || 0;
+		});
+		const attemptCount = optionCounts.reduce((sum, value) => sum + value, 0);
+		res.json({
+			success: true,
+			isCorrect: Boolean(isCorrect),
+			correctIndex: Number(post.quiz_correct_index),
+			correctAnswer: options[Number(post.quiz_correct_index)] || '',
+			attemptCount,
+			optionCounts,
+			explanation: String(post.quiz_explanation || ''),
+			explanationText: getPlainTextFromRichText(post.quiz_explanation || '')
+		});
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -2513,6 +2973,7 @@ app.delete('/api/post/:postId/comment/:commentId', requireAuth, async (req, res)
 		const isCommentOwner = Number(row.user_id) === userId;
 		const isPostOwner = Number(row.post_owner_id) === userId;
 		if (!isCommentOwner && !isPostOwner) return res.status(403).json({ error: 'Not allowed to delete this comment' });
+		await runAsync('DELETE FROM comment_likes WHERE comment_id = ? OR comment_id IN (SELECT id FROM post_comments WHERE parent_comment_id = ?)', [commentId, commentId]);
 		await runAsync('DELETE FROM post_comments WHERE id = ? OR parent_comment_id = ?', [commentId, commentId]);
 		return res.json({ success: true });
 	} catch (e) {
@@ -2524,8 +2985,7 @@ app.delete('/api/post/:postId/comment/:commentId', requireAuth, async (req, res)
 app.get('/api/stories', requireAuth, async (req, res) => {
 	try {
 		const userId = Number(req.session.userId);
-		const connectionIds = await getAcceptedConnectionIds(userId);
-		const ids = [userId, ...connectionIds];
+		const ids = await getVisibleStoryOwnerIds(userId);
 		if (!ids.length) return res.json({ stories: [] });
 		const placeholders = ids.map(() => '?').join(',');
 		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture,
@@ -2623,7 +3083,7 @@ app.post('/api/stories/:id/reply', requireAuth, async (req, res) => {
 			const storySnippet = storyTextRaw ? storyTextRaw.slice(0, 120) : '';
 			const storyQuote = storySnippet ? `"${storySnippet}${storyTextRaw.length > 120 ? '...' : ''}"` : `story #${storyId}`;
 			const chatMessage = `Story reply on ${storyQuote}\nReply: ${content}`;
-			await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUserId, chatMessage, ts]);
+			await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUserId, encryptValue(chatMessage), ts]);
 			await createUserNotification(toUserId, {
 				actorId: userId,
 				type: 'story_reply',
@@ -2661,7 +3121,7 @@ app.post('/api/stories/:id/share', requireAuth, async (req, res) => {
 			ON CONFLICT (story_id, user_id) DO NOTHING`, [storyId, userId, ts]);
 		for (const toUser of targets) {
 			try {
-				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, `Shared a story (#${storyId})`, ts]);
+				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, encryptValue(`Shared a story (#${storyId})`), ts]);
 				await createUserNotification(toUser, {
 					actorId: userId,
 					type: 'story_shared',
@@ -2770,7 +3230,7 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 		for (const toUser of targets) {
 			try {
 				await runAsync('INSERT INTO post_shares (post_id, from_user, to_user, created_at) VALUES (?, ?, ?, ?)', [postId, userId, toUser, ts]);
-				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, `Shared a post (#${postId})`, ts]);
+				await runAsync('INSERT INTO messages (from_user,to_user,content,created_at) VALUES (?,?,?,?)', [userId, toUser, encryptValue(`Shared a post (#${postId})`), ts]);
 				await createUserNotification(toUser, {
 					actorId: userId,
 					type: 'post_shared',
@@ -3513,10 +3973,23 @@ app.get('/dashboard', (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-app.get('/shared/:token', (req, res) => {
+app.get('/post', (req, res) => {
+	if (!req.session.userId) return res.redirect(`/login.html?next=${encodeURIComponent(req.originalUrl || '/post')}`);
+	res.sendFile(path.join(__dirname, 'public', 'post.html'));
+});
+
+app.get('/shared/:token', async (req, res) => {
 	const token = String(req.params.token || '').trim();
 	if (!token) return res.redirect('/dashboard');
-	return res.redirect(`/dashboard?share=${encodeURIComponent(token)}`);
+	try {
+		const resolved = await resolveShareLink(token);
+		if (resolved && String(resolved.itemType) === 'story') {
+			return res.redirect(`/dashboard?share=${encodeURIComponent(token)}`);
+		}
+		return res.redirect(`/post?share=${encodeURIComponent(token)}`);
+	} catch (e) {
+		return res.redirect(`/post?share=${encodeURIComponent(token)}`);
+	}
 });
 
 app.get('/admin', requireAdmin, (req, res) => {
@@ -3626,7 +4099,7 @@ io.on('connection', (socket) => {
 				break;
 			}
 		}
-		db.run('INSERT INTO messages (from_user,to_user,content,image,seen_at,created_at) VALUES (?,?,?,?,?,?)', [from, to, content || null, hasImage ? image : null, seenAt, created_at], function (err) {
+		db.run('INSERT INTO messages (from_user,to_user,content,image,seen_at,created_at) VALUES (?,?,?,?,?,?)', [from, to, encryptValue(content || null), encryptValue(hasImage ? image : null), seenAt, created_at], function (err) {
 			if (err) {
 				socket.emit('chatError', { error: 'Unable to send message right now' });
 				return;
@@ -3678,6 +4151,10 @@ initializeDatabase()
 		await ensureSuperAdmin();
 		await pool.query('SELECT 1');
 		console.log('PostgreSQL connected');
+		processDueReminderNotifications().catch((e) => console.error('Initial reminder processor error:', e));
+		setInterval(() => {
+			processDueReminderNotifications().catch((e) => console.error('Reminder processor error:', e));
+		}, 60 * 1000);
 		server.listen(PORT, () => {
 			console.log(`Server listening on http://localhost:${PORT}`);
 		});
