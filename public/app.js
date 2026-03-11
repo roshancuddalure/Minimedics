@@ -3977,7 +3977,7 @@ function upsertActivityTopButton(user) {
   anchor.id = 'activityMenuBtn';
   anchor.className = 'btn';
   anchor.href = '/activity';
-  anchor.textContent = 'Activity';
+  anchor.textContent = 'Suggest Us';
   const savedBtn = document.getElementById('savedListsMenuBtn');
   if (savedBtn && savedBtn.parentElement === actions) {
     savedBtn.insertAdjacentElement('afterend', anchor);
