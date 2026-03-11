@@ -215,6 +215,7 @@
             <button class="btn tiny-btn admin-tab-btn" data-tab="clans" type="button">Clans</button>
             <button class="btn tiny-btn admin-tab-btn" data-tab="reports" type="button">Reports</button>
             <button class="btn tiny-btn admin-tab-btn" data-tab="tickets" type="button">Tickets</button>
+            <button class="btn tiny-btn admin-tab-btn" data-tab="features" type="button">Features</button>
           </div>
           <section id="adminTabUsers" class="section-gap">
             <h4 id="adminUsersTitle">Registered Users</h4>
@@ -266,6 +267,21 @@
               <button id="adminTicketsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
             </div>
             <div id="adminTickets" class="section-gap"></div>
+          </section>
+          <section id="adminTabFeatures" class="section-gap hidden">
+            <h4>Feature Suggestions</h4>
+            <div class="row" style="justify-content:flex-start">
+              <input id="adminFeatureSuggestionsSearch" type="text" placeholder="Search suggestions..." />
+              <select id="adminFeatureSuggestionsStatus">
+                <option value="">All status</option>
+                <option value="open">Open</option>
+                <option value="approved">Approved</option>
+                <option value="implemented">Implemented</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <button id="adminFeatureSuggestionsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+            </div>
+            <div id="adminFeatureSuggestions" class="section-gap"></div>
           </section>
         </section>
 
@@ -350,6 +366,7 @@
           <span id="storyLikesCount">0 likes</span>
           <span id="storyRepliesCount">0 replies</span>
           <span id="storySharesCount">0 shares</span>
+          <span id="storyViewsCount">0 views</span>
         </div>
         <div class="row" style="justify-content:flex-start">
           <button id="storyLikeBtn" class="btn secondary tiny-btn" type="button">Like</button>

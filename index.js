@@ -308,15 +308,87 @@ pool.on('error', (err) => {
 	console.error('PostgreSQL pool error:', err);
 });
 
+const XP_DAILY_CAP = 200;
 const XP_RULES = {
-	DAILY_LOGIN: 20,
-	POST_CREATE: 15,
-	POST_LIKE: 4,
-	POST_COMMENT: 6,
-	POST_SAVE: 2,
-	POST_SHARE: 8,
-	GROUP_CREATE: 30,
-	GROUP_POST: 10
+	LOGIN_DAILY: { xp: 5, type: 'RECURRING', oncePerDay: true },
+	DASHBOARD_OPEN_DAILY: { xp: 2, type: 'RECURRING', oncePerDay: true },
+	PROFILE_COMPLETE: { xp: 20, type: 'ONE_TIME' },
+	PROFILE_PHOTO_FIRST: { xp: 10, type: 'ONE_TIME' },
+	PROFILE_BIO_FIRST: { xp: 5, type: 'ONE_TIME' },
+	PROFILE_INSTITUTE_FIRST: { xp: 5, type: 'ONE_TIME' },
+	PROFILE_SPECIALTY_FIRST: { xp: 5, type: 'ONE_TIME' },
+	PROFILE_LOCATION_FIRST: { xp: 3, type: 'ONE_TIME' },
+	POST_FIRST: { xp: 20, type: 'ONE_TIME' },
+	QUIZ_FIRST_CREATE: { xp: 30, type: 'ONE_TIME' },
+	CLAN_FIRST_JOIN: { xp: 15, type: 'ONE_TIME' },
+	CONNECTION_FIRST_ACCEPTED: { xp: 10, type: 'ONE_TIME' },
+	XP_REACH_100: { xp: 20, type: 'MILESTONE' },
+	XP_REACH_1000: { xp: 100, type: 'MILESTONE' },
+	XP_REACH_5000: { xp: 300, type: 'MILESTONE' },
+	CLAN_ADMIN_FIRST: { xp: 50, type: 'ONE_TIME' },
+	FEATURE_IMPLEMENTED_REWARD: { xp: 100, type: 'ONE_TIME', bypassDailyCap: true },
+	LOGIN_STREAK_3: { xp: 15, type: 'STREAK' },
+	LOGIN_STREAK_7: { xp: 40, type: 'STREAK' },
+	LOGIN_STREAK_14: { xp: 80, type: 'STREAK' },
+	LOGIN_STREAK_30: { xp: 200, type: 'STREAK' },
+	LOGIN_STREAK_60: { xp: 500, type: 'STREAK' },
+	LOGIN_STREAK_90: { xp: 800, type: 'STREAK' },
+	POST_CREATE: { xp: 10, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'post' },
+	POST_IMAGE_ATTACH: { xp: 10, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'post' },
+	POST_LIKES_5: { xp: 10, type: 'MILESTONE' },
+	POST_LIKES_20: { xp: 30, type: 'MILESTONE' },
+	POST_LIKES_50: { xp: 60, type: 'MILESTONE' },
+	POST_COMMENTS_10: { xp: 25, type: 'MILESTONE' },
+	STORY_CREATE: { xp: 5, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'story' },
+	STORY_VIEWS_10: { xp: 5, type: 'MILESTONE' },
+	STORY_VIEWS_30: { xp: 10, type: 'MILESTONE' },
+	STORY_REPLY_RECEIVED: { xp: 5, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'story' },
+	STORY_REACT: { xp: 2, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'story' },
+	QUIZ_CREATE: { xp: 25, type: 'RECURRING', dailyCountLimit: 3, dailyCountScope: 'quiz' },
+	QUIZ_ATTEMPTS_10: { xp: 10, type: 'MILESTONE' },
+	QUIZ_ATTEMPTS_50: { xp: 30, type: 'MILESTONE' },
+	QUIZ_ATTEMPTS_100: { xp: 70, type: 'MILESTONE' },
+	QUIZ_ANSWER_CORRECT: { xp: 10, type: 'RECURRING' },
+	QUIZ_FIRST_ATTEMPT_CORRECT: { xp: 15, type: 'RECURRING' },
+	QUIZ_CORRECT_STREAK_10: { xp: 40, type: 'MILESTONE' },
+	REMINDER_CREATE: { xp: 5, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'post' },
+	REMINDER_COMPLETE: { xp: 10, type: 'RECURRING', dailyCountLimit: 10, dailyCountScope: 'comment' },
+	REMINDER_SHARE_CLAN: { xp: 5, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'post' },
+	CONNECTION_REQUEST_SEND: { xp: 2, type: 'RECURRING' },
+	CONNECTION_ACCEPTED: { xp: 10, type: 'RECURRING' },
+	CONNECTIONS_10: { xp: 30, type: 'MILESTONE' },
+	CONNECTIONS_50: { xp: 100, type: 'MILESTONE' },
+	CONNECTIONS_100: { xp: 200, type: 'MILESTONE' },
+	CONNECTIONS_500: { xp: 500, type: 'MILESTONE' },
+	CHAT_START_CONVERSATION: { xp: 5, type: 'RECURRING', dailyXpScope: 'chat', dailyXpLimit: 50 },
+	CHAT_RECEIVE_REPLY: { xp: 5, type: 'RECURRING', dailyXpScope: 'chat', dailyXpLimit: 50 },
+	CHAT_THREAD_5: { xp: 10, type: 'RECURRING', dailyXpScope: 'chat', dailyXpLimit: 50 },
+	CHAT_THREAD_20: { xp: 30, type: 'RECURRING', dailyXpScope: 'chat', dailyXpLimit: 50 },
+	CLAN_CREATE: { xp: 50, type: 'RECURRING' },
+	CLAN_JOIN: { xp: 10, type: 'RECURRING' },
+	CLAN_POST_CREATE: { xp: 10, type: 'RECURRING', dailyCountLimit: 5, dailyCountScope: 'post' },
+	CLAN_POST_REACTIONS_10: { xp: 15, type: 'MILESTONE' },
+	CLAN_DISCUSSION_REPLIES_10: { xp: 20, type: 'MILESTONE' },
+	CLAN_MEMBERS_50: { xp: 100, type: 'MILESTONE' },
+	CLAN_MEMBERS_200: { xp: 300, type: 'MILESTONE' },
+	POST_SAVE: { xp: 2, type: 'RECURRING', dailyCountLimit: 10, dailyCountScope: 'saved' },
+	SAVE_LIST_CREATE: { xp: 5, type: 'RECURRING', dailyCountLimit: 10, dailyCountScope: 'saved' },
+	POSTS_SAVED_20: { xp: 20, type: 'MILESTONE' },
+	STUDY_LIST_ORGANIZED: { xp: 30, type: 'MILESTONE' },
+	COMMENT_REPLY_ANSWER: { xp: 5, type: 'RECURRING', dailyCountLimit: 10, dailyCountScope: 'comment' },
+	COMMENT_LIKES_10: { xp: 15, type: 'MILESTONE' },
+	BUG_REPORT_SUBMIT: { xp: 10, type: 'RECURRING', dailyCountLimit: 5 },
+	FEATURE_SUGGEST_SUBMIT: { xp: 10, type: 'RECURRING', dailyCountLimit: 5 },
+	CONTENT_REPORT_SUBMIT: { xp: 5, type: 'RECURRING', dailyCountLimit: 10 },
+	CLAN_MODERATION_ACTION: { xp: 10, type: 'RECURRING', dailyCountLimit: 10 }
+};
+const XP_RULE_SCOPE_GROUPS = {
+	post: ['POST_CREATE', 'POST_IMAGE_ATTACH', 'REMINDER_CREATE', 'REMINDER_SHARE_CLAN', 'CLAN_POST_CREATE'],
+	quiz: ['QUIZ_CREATE'],
+	chat: ['CHAT_START_CONVERSATION', 'CHAT_RECEIVE_REPLY', 'CHAT_THREAD_5', 'CHAT_THREAD_20'],
+	story: ['STORY_CREATE', 'STORY_REPLY_RECEIVED', 'STORY_REACT'],
+	comment: ['COMMENT_REPLY_ANSWER', 'REMINDER_COMPLETE'],
+	saved: ['POST_SAVE', 'SAVE_LIST_CREATE']
 };
 
 // userId -> set of connected socket ids
@@ -359,6 +431,27 @@ function getTitleForLevel(level) {
 	if (level >= 20) return 'Ward Collaborator';
 	if (level >= 10) return 'Clinical Explorer';
 	return 'Rookie Medic';
+}
+
+function getDayKey(ts = Date.now()) {
+	return new Date(ts).toISOString().slice(0, 10);
+}
+
+function getDayStart(ts = Date.now()) {
+	const key = getDayKey(ts);
+	return new Date(`${key}T00:00:00.000Z`).getTime();
+}
+
+function getYesterdayDayKey(ts = Date.now()) {
+	return getDayKey(ts - 24 * 60 * 60 * 1000);
+}
+
+function normalizeAwardScope(refType = '', refId = 0, scopeKey = '') {
+	return {
+		refType: String(refType || ''),
+		refId: Number(refId) || 0,
+		scopeKey: String(scopeKey || '')
+	};
 }
 
 function convertPlaceholders(sql) {
@@ -428,16 +521,109 @@ const allAsync = (sql, params = []) => new Promise((resolve, reject) => {
 });
 
 async function addXp(userId, activity, refType = null, refId = null) {
-	const delta = XP_RULES[activity] || 0;
-	if (!delta || !userId) return null;
+	return grantXpRule(userId, activity, { refType, refId });
+}
+
+async function hasRuleAward(userId, ruleKey, refType = '', refId = 0, scopeKey = '') {
+	const scope = normalizeAwardScope(refType, refId, scopeKey);
+	const row = await getAsync('SELECT id FROM xp_rule_awards WHERE user_id = ? AND rule_key = ? AND ref_type = ? AND ref_id = ? AND scope_key = ?', [userId, ruleKey, scope.refType, scope.refId, scope.scopeKey]);
+	return Boolean(row);
+}
+
+async function markRuleAward(userId, ruleKey, refType = '', refId = 0, scopeKey = '') {
+	const scope = normalizeAwardScope(refType, refId, scopeKey);
+	await runAsync(`INSERT INTO xp_rule_awards (user_id, rule_key, ref_type, ref_id, scope_key, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (user_id, rule_key, ref_type, ref_id, scope_key) DO NOTHING`, [userId, ruleKey, scope.refType, scope.refId, scope.scopeKey, Date.now()]);
+}
+
+function buildInList(column, values = [], params = []) {
+	const list = Array.isArray(values) ? values.filter(Boolean) : [];
+	if (!list.length) return '1=0';
+	const placeholders = list.map((value) => {
+		params.push(value);
+		return '?';
+	}).join(',');
+	return `${column} IN (${placeholders})`;
+}
+
+async function getUserDayXp(userId, ts = Date.now()) {
+	const row = await getAsync('SELECT COALESCE(SUM(xp_delta), 0) AS total FROM xp_events WHERE user_id = ? AND created_at >= ?', [userId, getDayStart(ts)]);
+	return Number(row && row.total) || 0;
+}
+
+async function getRuleAwardsToday(userId, ruleKeys = [], ts = Date.now()) {
+	const params = [userId, getDayStart(ts)];
+	const where = buildInList('activity', ruleKeys, params);
+	const row = await getAsync(`SELECT COUNT(*)::int AS cnt FROM xp_events WHERE user_id = ? AND created_at >= ? AND ${where}`, params);
+	return Number(row && row.cnt) || 0;
+}
+
+async function getRuleXpToday(userId, ruleKeys = [], ts = Date.now()) {
+	const params = [userId, getDayStart(ts)];
+	const where = buildInList('activity', ruleKeys, params);
+	const row = await getAsync(`SELECT COALESCE(SUM(xp_delta), 0) AS total FROM xp_events WHERE user_id = ? AND created_at >= ? AND ${where}`, params);
+	return Number(row && row.total) || 0;
+}
+
+async function evaluateUserXpMilestones(userId) {
 	const user = await getAsync('SELECT xp FROM users WHERE id = ?', [userId]);
+	if (!user) return;
+	const totalXp = Number(user.xp) || 0;
+	const thresholds = [
+		{ key: 'XP_REACH_100', min: 100 },
+		{ key: 'XP_REACH_1000', min: 1000 },
+		{ key: 'XP_REACH_5000', min: 5000 }
+	];
+	for (const item of thresholds) {
+		if (totalXp >= item.min) {
+			await grantXpRule(userId, item.key, { scopeKey: item.key }).catch(() => {});
+		}
+	}
+}
+
+async function grantXpRule(userId, ruleKey, options = {}) {
+	const safeUserId = Number(userId) || 0;
+	const rule = XP_RULES[ruleKey];
+	if (!safeUserId || !rule || !Number(rule.xp)) return null;
+	const now = Date.now();
+	const dayKey = getDayKey(now);
+	const refType = String(options.refType || '');
+	const refId = Number(options.refId) || 0;
+	const scopeKey = String(options.scopeKey || '');
+	const dayScopeKey = `day:${dayKey}`;
+	if (rule.type === 'ONE_TIME' && await hasRuleAward(safeUserId, ruleKey, '', 0, 'once')) return null;
+	if (rule.oncePerDay && await hasRuleAward(safeUserId, ruleKey, '', 0, dayScopeKey)) return null;
+	if (rule.type === 'MILESTONE' && await hasRuleAward(safeUserId, ruleKey, refType, refId, scopeKey || 'milestone')) return null;
+	if (rule.type === 'STREAK' && await hasRuleAward(safeUserId, ruleKey, '', 0, scopeKey || 'streak')) return null;
+	if (rule.dailyCountLimit) {
+		const scopedKeys = XP_RULE_SCOPE_GROUPS[rule.dailyCountScope] || [ruleKey];
+		const countToday = await getRuleAwardsToday(safeUserId, scopedKeys, now);
+		if (countToday >= Number(rule.dailyCountLimit)) return null;
+	}
+	if (rule.dailyXpLimit) {
+		const scopedKeys = XP_RULE_SCOPE_GROUPS[rule.dailyXpScope] || [ruleKey];
+		const xpToday = await getRuleXpToday(safeUserId, scopedKeys, now);
+		if (xpToday >= Number(rule.dailyXpLimit)) return null;
+	}
+	if (!rule.bypassDailyCap) {
+		const xpToday = await getUserDayXp(safeUserId, now);
+		if (xpToday >= XP_DAILY_CAP) return null;
+	}
+	const user = await getAsync('SELECT xp FROM users WHERE id = ?', [safeUserId]);
 	if (!user) return null;
-	const nextXp = (Number(user.xp) || 0) + delta;
+	const nextXp = (Number(user.xp) || 0) + Number(rule.xp);
 	const nextLevel = getLevelFromXp(nextXp);
 	const nextTitle = getTitleForLevel(nextLevel);
-	await runAsync('UPDATE users SET xp = ?, level = ?, title = ? WHERE id = ?', [nextXp, nextLevel, nextTitle, userId]);
-	await runAsync('INSERT INTO xp_events (user_id, activity, xp_delta, ref_type, ref_id, created_at) VALUES (?, ?, ?, ?, ?, ?)', [userId, activity, delta, refType, refId, Date.now()]);
-	return { xp: nextXp, level: nextLevel, title: nextTitle, gained: delta };
+	await runAsync('UPDATE users SET xp = ?, level = ?, title = ? WHERE id = ?', [nextXp, nextLevel, nextTitle, safeUserId]);
+	await runAsync('INSERT INTO xp_events (user_id, activity, xp_delta, ref_type, ref_id, created_at) VALUES (?, ?, ?, ?, ?, ?)', [safeUserId, ruleKey, Number(rule.xp), refType || null, refId || null, now]);
+	if (rule.type === 'ONE_TIME') await markRuleAward(safeUserId, ruleKey, '', 0, 'once');
+	if (rule.oncePerDay) await markRuleAward(safeUserId, ruleKey, '', 0, dayScopeKey);
+	if (rule.type === 'MILESTONE') await markRuleAward(safeUserId, ruleKey, refType, refId, scopeKey || 'milestone');
+	if (rule.type === 'STREAK') await markRuleAward(safeUserId, ruleKey, '', 0, scopeKey || 'streak');
+	if (options.markScopeOnce) await markRuleAward(safeUserId, ruleKey, refType, refId, scopeKey || 'scope');
+	await evaluateUserXpMilestones(safeUserId).catch(() => {});
+	return { xp: nextXp, level: nextLevel, title: nextTitle, gained: Number(rule.xp), ruleKey };
 }
 
 async function getAcceptedConnectionIds(userId) {
@@ -521,6 +707,119 @@ async function enrichPostsWithQuizStats(posts, viewerId = 0) {
 		post.quiz_viewer_id = Number(viewerId) || 0;
 	});
 	return postList;
+}
+
+async function evaluateProfileAwards(userId) {
+	const user = await getAsync('SELECT name, email, bio, institute, speciality, place_from, country, state, profile_picture FROM users WHERE id = ?', [userId]);
+	if (!user) return;
+	if (String(user.bio || '').trim()) await grantXpRule(userId, 'PROFILE_BIO_FIRST').catch(() => {});
+	if (String(user.institute || '').trim()) await grantXpRule(userId, 'PROFILE_INSTITUTE_FIRST').catch(() => {});
+	if (String(user.speciality || '').trim()) await grantXpRule(userId, 'PROFILE_SPECIALTY_FIRST').catch(() => {});
+	if (String(user.place_from || user.country || user.state || '').trim()) await grantXpRule(userId, 'PROFILE_LOCATION_FIRST').catch(() => {});
+	if (String(user.profile_picture || '').trim()) await grantXpRule(userId, 'PROFILE_PHOTO_FIRST').catch(() => {});
+	const complete = [
+		user.name,
+		user.email,
+		user.bio,
+		user.institute,
+		user.speciality
+	].every((value) => String(value || '').trim());
+	if (complete) await grantXpRule(userId, 'PROFILE_COMPLETE').catch(() => {});
+}
+
+async function evaluatePostOwnerMilestones(postId) {
+	const row = await getAsync(`SELECT p.id, p.user_id,
+		(SELECT COUNT(*)::int FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
+		(SELECT COUNT(*)::int FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count,
+		COALESCE(p.quiz_question, '') AS quiz_question
+		FROM posts p WHERE p.id = ?`, [postId]);
+	if (!row) return;
+	const ownerId = Number(row.user_id) || 0;
+	if (!ownerId) return;
+	if ((Number(row.likes_count) || 0) >= 5) await grantXpRule(ownerId, 'POST_LIKES_5', { refType: 'post', refId: postId, scopeKey: 'likes-5' }).catch(() => {});
+	if ((Number(row.likes_count) || 0) >= 20) await grantXpRule(ownerId, 'POST_LIKES_20', { refType: 'post', refId: postId, scopeKey: 'likes-20' }).catch(() => {});
+	if ((Number(row.likes_count) || 0) >= 50) await grantXpRule(ownerId, 'POST_LIKES_50', { refType: 'post', refId: postId, scopeKey: 'likes-50' }).catch(() => {});
+	if ((Number(row.comment_count) || 0) >= 10) await grantXpRule(ownerId, 'POST_COMMENTS_10', { refType: 'post', refId: postId, scopeKey: 'comments-10' }).catch(() => {});
+	if (String(row.quiz_question || '').trim()) {
+		if ((Number(row.comment_count) || 0) >= 10) await grantXpRule(ownerId, 'QUIZ_ATTEMPTS_10', { refType: 'post', refId: postId, scopeKey: 'attempts-10' }).catch(() => {});
+	}
+}
+
+async function evaluateQuizAttemptMilestones(postId) {
+	const row = await getAsync('SELECT user_id FROM posts WHERE id = ? AND quiz_question IS NOT NULL', [postId]);
+	if (!row) return;
+	const counts = await getAsync('SELECT COUNT(*)::int AS cnt FROM quiz_attempts WHERE post_id = ?', [postId]);
+	const ownerId = Number(row.user_id) || 0;
+	const attemptCount = Number(counts && counts.cnt) || 0;
+	if (attemptCount >= 10) await grantXpRule(ownerId, 'QUIZ_ATTEMPTS_10', { refType: 'post', refId: postId, scopeKey: 'attempts-10' }).catch(() => {});
+	if (attemptCount >= 50) await grantXpRule(ownerId, 'QUIZ_ATTEMPTS_50', { refType: 'post', refId: postId, scopeKey: 'attempts-50' }).catch(() => {});
+	if (attemptCount >= 100) await grantXpRule(ownerId, 'QUIZ_ATTEMPTS_100', { refType: 'post', refId: postId, scopeKey: 'attempts-100' }).catch(() => {});
+}
+
+async function evaluateConnectionMilestones(userId) {
+	const row = await getAsync(`SELECT COUNT(*)::int AS cnt FROM connections
+		WHERE (user_a = ? OR user_b = ?) AND status = 'accepted'`, [userId, userId]);
+	const count = Number(row && row.cnt) || 0;
+	if (count >= 10) await grantXpRule(userId, 'CONNECTIONS_10', { scopeKey: 'connections-10' }).catch(() => {});
+	if (count >= 50) await grantXpRule(userId, 'CONNECTIONS_50', { scopeKey: 'connections-50' }).catch(() => {});
+	if (count >= 100) await grantXpRule(userId, 'CONNECTIONS_100', { scopeKey: 'connections-100' }).catch(() => {});
+	if (count >= 500) await grantXpRule(userId, 'CONNECTIONS_500', { scopeKey: 'connections-500' }).catch(() => {});
+}
+
+async function evaluateSavedMilestones(userId, listName = '') {
+	const totalSaved = await getAsync('SELECT COUNT(*)::int AS cnt FROM saved_posts WHERE user_id = ?', [userId]);
+	if ((Number(totalSaved && totalSaved.cnt) || 0) >= 20) await grantXpRule(userId, 'POSTS_SAVED_20', { scopeKey: 'saved-20' }).catch(() => {});
+	const list = String(listName || '').trim();
+	if (list && list.toLowerCase() !== 'general') {
+		const row = await getAsync('SELECT COUNT(*)::int AS cnt FROM saved_posts WHERE user_id = ? AND list_name = ?', [userId, list]);
+		if ((Number(row && row.cnt) || 0) >= 10) {
+			await grantXpRule(userId, 'STUDY_LIST_ORGANIZED', { refType: 'saved_list', refId: 0, scopeKey: `organized:${list.toLowerCase()}` }).catch(() => {});
+		}
+	}
+}
+
+async function evaluateCommentMilestones(commentId) {
+	const row = await getAsync('SELECT c.user_id, (SELECT COUNT(*)::int FROM comment_likes cl WHERE cl.comment_id = c.id) AS likes_count FROM post_comments c WHERE c.id = ?', [commentId]);
+	if (!row) return;
+	if ((Number(row.likes_count) || 0) >= 10) {
+		await grantXpRule(Number(row.user_id) || 0, 'COMMENT_LIKES_10', { refType: 'comment', refId: commentId, scopeKey: 'likes-10' }).catch(() => {});
+	}
+}
+
+async function evaluateStoryMilestones(storyId) {
+	const story = await getAsync('SELECT id, user_id FROM stories WHERE id = ?', [storyId]);
+	if (!story) return;
+	const views = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_views WHERE story_id = ?', [storyId]);
+	const viewCount = Number(views && views.cnt) || 0;
+	if (viewCount >= 10) await grantXpRule(Number(story.user_id) || 0, 'STORY_VIEWS_10', { refType: 'story', refId: storyId, scopeKey: 'views-10' }).catch(() => {});
+	if (viewCount >= 30) await grantXpRule(Number(story.user_id) || 0, 'STORY_VIEWS_30', { refType: 'story', refId: storyId, scopeKey: 'views-30' }).catch(() => {});
+}
+
+async function evaluateClanMilestones(groupId) {
+	const group = await getAsync('SELECT id, created_by FROM groups WHERE id = ?', [groupId]);
+	if (!group) return;
+	const row = await getAsync('SELECT COUNT(*)::int AS cnt FROM group_memberships WHERE group_id = ? AND status = ?', [groupId, 'active']);
+	const memberCount = Number(row && row.cnt) || 0;
+	if (memberCount >= 50) await grantXpRule(Number(group.created_by) || 0, 'CLAN_MEMBERS_50', { refType: 'group', refId: groupId, scopeKey: 'members-50' }).catch(() => {});
+	if (memberCount >= 200) await grantXpRule(Number(group.created_by) || 0, 'CLAN_MEMBERS_200', { refType: 'group', refId: groupId, scopeKey: 'members-200' }).catch(() => {});
+}
+
+async function evaluateChatThreadMilestones(userA, userB) {
+	const a = Number(userA) || 0;
+	const b = Number(userB) || 0;
+	if (!a || !b || a === b) return;
+	const roomKey = `chat:${Math.min(a, b)}:${Math.max(a, b)}`;
+	const row = await getAsync(`SELECT COUNT(*)::int AS cnt FROM messages
+		WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)`, [a, b, b, a]);
+	const count = Number(row && row.cnt) || 0;
+	if (count >= 5) {
+		await grantXpRule(a, 'CHAT_THREAD_5', { refType: 'chat', refId: 0, scopeKey: `${roomKey}:5` }).catch(() => {});
+		await grantXpRule(b, 'CHAT_THREAD_5', { refType: 'chat', refId: 0, scopeKey: `${roomKey}:5` }).catch(() => {});
+	}
+	if (count >= 20) {
+		await grantXpRule(a, 'CHAT_THREAD_20', { refType: 'chat', refId: 0, scopeKey: `${roomKey}:20` }).catch(() => {});
+		await grantXpRule(b, 'CHAT_THREAD_20', { refType: 'chat', refId: 0, scopeKey: `${roomKey}:20` }).catch(() => {});
+	}
 }
 
 async function sendReminderEmail(toEmail, viewerName, actorName, reminderTitle, reminderNote, reminderUrl, whenLabel) {
@@ -981,6 +1280,10 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Rookie Medic'`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_xp_login_day TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_dashboard_xp_day TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_streak_count INTEGER DEFAULT 0`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_streak_day TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiz_correct_streak INTEGER DEFAULT 0`);
 	await runAsync(`UPDATE users SET xp = COALESCE(xp, 0)`);
 	await runAsync(`UPDATE users SET level = CASE WHEN level IS NULL OR level < 1 THEN 1 ELSE level END`);
 	await runAsync(`UPDATE users SET title = COALESCE(title, 'Rookie Medic')`);
@@ -1158,6 +1461,40 @@ async function initializeDatabase() {
 		ref_type TEXT,
 		ref_id BIGINT,
 		created_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS xp_rule_awards (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		rule_key TEXT NOT NULL,
+		ref_type TEXT NOT NULL DEFAULT '',
+		ref_id BIGINT NOT NULL DEFAULT 0,
+		scope_key TEXT NOT NULL DEFAULT '',
+		created_at BIGINT NOT NULL,
+		UNIQUE(user_id, rule_key, ref_type, ref_id, scope_key)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS story_views (
+		id BIGSERIAL PRIMARY KEY,
+		story_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		created_at BIGINT NOT NULL,
+		UNIQUE(story_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS reminder_completions (
+		id BIGSERIAL PRIMARY KEY,
+		post_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		completed_at BIGINT NOT NULL,
+		UNIQUE(post_id, user_id)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS feature_suggestions (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		title TEXT NOT NULL,
+		details TEXT,
+		status TEXT NOT NULL DEFAULT 'open',
+		approved_by BIGINT,
+		rewarded_at BIGINT,
+		created_at BIGINT NOT NULL
 	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS groups (
 		id BIGSERIAL PRIMARY KEY,
@@ -1470,19 +1807,27 @@ app.post('/api/login', (req, res) => {
 				return res.status(403).json({ error: 'Please verify your email before logging in' });
 			}
 			
-			// update last_login
 			const ts = Date.now();
-			db.run('UPDATE users SET last_login = ? WHERE id = ?', [ts, user.id], (err) => {
-				if (err) console.error('Update last_login error:', err);
-			});
-			const today = new Date().toISOString().slice(0, 10);
-			if (user.last_xp_login_day !== today) {
-				db.run('UPDATE users SET last_xp_login_day = ? WHERE id = ?', [today, user.id], async (dayErr) => {
-					if (!dayErr) {
-						try { await addXp(user.id, 'DAILY_LOGIN', 'login', null); } catch (xpErr) { console.error('Daily XP error:', xpErr); }
+			const today = getDayKey(ts);
+			const yesterday = getYesterdayDayKey(ts);
+			const lastStreakDay = String(user.last_login_streak_day || '').trim();
+			const prevStreak = Number(user.login_streak_count) || 0;
+			const nextStreak = lastStreakDay === today ? prevStreak : (lastStreakDay === yesterday ? prevStreak + 1 : 1);
+			db.run('UPDATE users SET last_login = ?, last_xp_login_day = ?, last_login_streak_day = ?, login_streak_count = ? WHERE id = ?', [ts, today, today, nextStreak, user.id], async (dayErr) => {
+				if (!dayErr) {
+					try {
+						await grantXpRule(user.id, 'LOGIN_DAILY', { refType: 'login', scopeKey: today });
+						if (nextStreak >= 3) await grantXpRule(user.id, 'LOGIN_STREAK_3', { scopeKey: `streak-3:${today}` });
+						if (nextStreak >= 7) await grantXpRule(user.id, 'LOGIN_STREAK_7', { scopeKey: `streak-7:${today}` });
+						if (nextStreak >= 14) await grantXpRule(user.id, 'LOGIN_STREAK_14', { scopeKey: `streak-14:${today}` });
+						if (nextStreak >= 30) await grantXpRule(user.id, 'LOGIN_STREAK_30', { scopeKey: `streak-30:${today}` });
+						if (nextStreak >= 60) await grantXpRule(user.id, 'LOGIN_STREAK_60', { scopeKey: `streak-60:${today}` });
+						if (nextStreak >= 90) await grantXpRule(user.id, 'LOGIN_STREAK_90', { scopeKey: `streak-90:${today}` });
+					} catch (xpErr) {
+						console.error('Login XP error:', xpErr);
 					}
-				});
-			}
+				}
+			});
 			
 			req.session.userId = user.id;
 			req.session.cookie.maxAge = rememberMe ? (1000 * 60 * 60 * 24 * 7) : (1000 * 60 * 60 * 24);
@@ -1612,6 +1957,21 @@ app.get('/api/me', (req, res) => {
 	});
 });
 
+app.post('/api/xp/dashboard-open', requireAuth, async (req, res) => {
+	try {
+		const user = await getAsync('SELECT id, last_dashboard_xp_day FROM users WHERE id = ?', [req.session.userId]);
+		if (!user) return res.status(404).json({ error: 'User not found' });
+		const today = getDayKey();
+		if (String(user.last_dashboard_xp_day || '') !== today) {
+			await runAsync('UPDATE users SET last_dashboard_xp_day = ? WHERE id = ?', [today, req.session.userId]);
+			await grantXpRule(req.session.userId, 'DASHBOARD_OPEN_DAILY', { refType: 'dashboard', scopeKey: today }).catch(() => {});
+		}
+		return res.json({ success: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/verify-email', async (req, res) => {
 	const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
 	if (!token) return res.status(400).json({ error: 'Invalid token' });
@@ -1733,6 +2093,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	}
 	try {
 		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, contact_country_code = ?, contact_number = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+		await evaluateProfileAwards(req.session.userId).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -2033,6 +2394,7 @@ app.post('/api/support/tickets', requireAuth, async (req, res) => {
 		const now = Date.now();
 		const created = await runAsync(`INSERT INTO support_tickets (user_id, subject, category, message, status, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`, [req.session.userId, subject, category || 'general', message, 'waiting', now, now]);
+		if (String(category || '').toLowerCase() === 'bug') await grantXpRule(req.session.userId, 'BUG_REPORT_SUBMIT', { refType: 'ticket', refId: created.lastID }).catch(() => {});
 		res.json({ success: true, id: created.lastID, status: 'waiting' });
 	} catch (e) {
 		console.error('Support ticket create error:', e);
@@ -2050,6 +2412,69 @@ app.get('/api/support/tickets/mine', requireAuth, async (req, res) => {
 		res.json({ tickets: rows });
 	} catch (e) {
 		console.error('Support ticket mine error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/feature-suggestions', requireAuth, async (req, res) => {
+	const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+	const details = typeof req.body.details === 'string' ? req.body.details.trim() : '';
+	if (!title) return res.status(400).json({ error: 'Title is required' });
+	if (title.length > 140) return res.status(400).json({ error: 'Title is too long' });
+	if (details.length > 4000) return res.status(400).json({ error: 'Details are too long' });
+	try {
+		const created = await runAsync('INSERT INTO feature_suggestions (user_id, title, details, status, created_at) VALUES (?, ?, ?, ?, ?)', [req.session.userId, title, details || null, 'open', Date.now()]);
+		await grantXpRule(req.session.userId, 'FEATURE_SUGGEST_SUBMIT', { refType: 'feature_suggestion', refId: created.lastID }).catch(() => {});
+		res.json({ success: true, id: created.lastID });
+	} catch (e) {
+		console.error('Feature suggestion create error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/feature-suggestions/mine', requireAuth, async (req, res) => {
+	try {
+		const rows = await allAsync('SELECT id, title, details, status, created_at, rewarded_at FROM feature_suggestions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', [req.session.userId]);
+		res.json({ suggestions: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/feature-suggestions', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+	try {
+		const rows = await allAsync(`SELECT fs.id, fs.user_id, fs.title, fs.details, fs.status, fs.created_at, fs.rewarded_at, u.username, u.name
+			FROM feature_suggestions fs
+			JOIN users u ON u.id = fs.user_id
+			WHERE (? = '' OR fs.status = ?)
+			AND (? = '' OR LOWER(fs.title) LIKE LOWER(?) OR LOWER(COALESCE(fs.details, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?))
+			ORDER BY fs.created_at DESC
+			LIMIT 500`, [status, status, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+		res.json({ suggestions: rows });
+	} catch (e) {
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/feature-suggestions/:id/status', requireAdmin, async (req, res) => {
+	const id = Number(req.params.id);
+	const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : '';
+	const awardCredit = Boolean(req.body.awardCredit);
+	if (!id) return res.status(400).json({ error: 'Invalid suggestion id' });
+	if (!['open', 'approved', 'implemented', 'rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+	try {
+		const suggestion = await getAsync('SELECT id, user_id, rewarded_at FROM feature_suggestions WHERE id = ?', [id]);
+		if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+		await runAsync('UPDATE feature_suggestions SET status = ?, approved_by = ? WHERE id = ?', [status, req.session.userId, id]);
+		if (awardCredit && !suggestion.rewarded_at) {
+			await grantXpRule(Number(suggestion.user_id) || 0, 'FEATURE_IMPLEMENTED_REWARD', { refType: 'feature_suggestion', refId: id, scopeKey: `feature-implemented:${id}` }).catch(() => {});
+			await runAsync('UPDATE feature_suggestions SET rewarded_at = ? WHERE id = ?', [Date.now(), id]);
+		}
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Feature suggestion admin update error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -2116,8 +2541,9 @@ app.post('/api/admin/reports/:id/status', requireAdmin, async (req, res) => {
 app.post('/api/upload-picture', requireAuth, (req, res) => {
 	const { image } = req.body; // base64 image
 	if (!image || !image.startsWith('data:image')) return res.status(400).json({ error: 'Invalid image' });
-	db.run('UPDATE users SET profile_picture = ? WHERE id = ?', [image, req.session.userId], (err) => {
+	db.run('UPDATE users SET profile_picture = ? WHERE id = ?', [image, req.session.userId], async (err) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
+		await evaluateProfileAwards(req.session.userId).catch(() => {});
 		res.json({ success: true });
 	});
 });
@@ -2187,6 +2613,8 @@ app.get('/api/feed', requireAuth, async (req, res) => {
 		(SELECT COUNT(*) FROM post_shares ps WHERE ps.post_id = p.id) as share_count,
 		(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id AND pl2.user_id = ${uid}) as my_liked,
 		(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ${uid}) as my_saved,
+		(SELECT COUNT(*) FROM post_reminder_targets prt WHERE prt.post_id = p.id AND prt.tagged_user_id = ${uid}) as my_reminder_tagged,
+		(SELECT COUNT(*) FROM reminder_completions rc WHERE rc.post_id = p.id AND rc.user_id = ${uid}) as my_reminder_completed,
 		(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ${uid}) as my_quiz_attempted,
 		(SELECT qa2.selected_index FROM quiz_attempts qa2 WHERE qa2.post_id = p.id AND qa2.user_id = ${uid} ORDER BY qa2.created_at DESC LIMIT 1) as my_quiz_selected_index,
 		(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ${uid} ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct,
@@ -2309,7 +2737,16 @@ app.post('/api/post', requireAuth, async (req, res) => {
 					[this.lastID, taggedUserId, Date.now()]
 				))).catch((tagErr) => console.error('Reminder target insert error:', tagErr));
 			}
-			try { await addXp(req.session.userId, 'POST_CREATE', 'post', this.lastID); } catch (xpErr) { console.error('POST_CREATE XP error:', xpErr); }
+			try {
+				await grantXpRule(req.session.userId, 'POST_CREATE', { refType: 'post', refId: this.lastID });
+				if (hasImage) await grantXpRule(req.session.userId, 'POST_IMAGE_ATTACH', { refType: 'post', refId: this.lastID, scopeKey: `image:${this.lastID}` });
+				if (safeQuizQuestion) {
+					await grantXpRule(req.session.userId, 'QUIZ_CREATE', { refType: 'post', refId: this.lastID });
+					await grantXpRule(req.session.userId, 'QUIZ_FIRST_CREATE');
+				}
+				if (reminderAtTs || safeReminderNote) await grantXpRule(req.session.userId, 'REMINDER_CREATE', { refType: 'post', refId: this.lastID });
+				await grantXpRule(req.session.userId, 'POST_FIRST');
+			} catch (xpErr) { console.error('POST_CREATE XP error:', xpErr); }
 			res.json({ success: true, id: this.lastID, scheduled: publishAtTs > ts, publishAt: publishAtTs, taggedCount: validReminderTagUserIds.length });
 		});
 });
@@ -2360,8 +2797,9 @@ app.post('/api/connect/request', requireAuth, (req, res) => {
 			if (existingErr) return res.status(500).json({ error: 'Server error' });
 			if (existing && existing.status === 'accepted') return res.status(400).json({ error: 'Already connected' });
 			if (existing && existing.status === 'pending') return res.status(400).json({ error: 'Connection request already pending' });
-			db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], function (err) {
+			db.run('INSERT INTO connections (user_a,user_b,status,created_at) VALUES (?,?,?,?)', [a, b, 'pending', ts], async function (err) {
 				if (err) return res.status(400).json({ error: 'Unable to create request' });
+				await grantXpRule(a, 'CONNECTION_REQUEST_SEND', { refType: 'user', refId: b }).catch(() => {});
 				io.to(`user:${b}`).emit('connectionRequest', { from: a, to: b });
 				createUserNotification(b, {
 					actorId: a,
@@ -2439,6 +2877,7 @@ app.post('/api/report/user', requireAuth, async (req, res) => {
 	if (details.length > 400) return res.status(400).json({ error: 'Report details are too long' });
 	try {
 		await runAsync('INSERT INTO user_reports (reporter_id, target_user_id, category, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [me, targetId, category, details || null, 'open', Date.now()]);
+		await grantXpRule(me, 'CONTENT_REPORT_SUBMIT', { refType: 'user', refId: targetId }).catch(() => {});
 		return res.json({ success: true });
 	} catch (e) {
 		return res.status(500).json({ error: 'Server error' });
@@ -2457,6 +2896,7 @@ app.post('/api/report/clan', requireAuth, async (req, res) => {
 		const clan = await getAsync('SELECT id FROM groups WHERE id = ?', [clanId]);
 		if (!clan) return res.status(404).json({ error: 'Clan not found' });
 		await runAsync('INSERT INTO clan_reports (reporter_id, clan_id, category, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [me, clanId, category, details || null, 'open', Date.now()]);
+		await grantXpRule(me, 'CONTENT_REPORT_SUBMIT', { refType: 'group', refId: clanId }).catch(() => {});
 		return res.json({ success: true });
 	} catch (e) {
 		return res.status(500).json({ error: 'Server error' });
@@ -2509,6 +2949,8 @@ app.get('/api/post/:id', requireAuth, async (req, res) => {
 			(SELECT COUNT(*) FROM post_shares ps WHERE ps.post_id = p.id) as share_count,
 			(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id AND pl2.user_id = ?) as my_liked,
 			(SELECT COUNT(*) FROM saved_posts sp2 WHERE sp2.post_id = p.id AND sp2.user_id = ?) as my_saved,
+			(SELECT COUNT(*) FROM post_reminder_targets prt WHERE prt.post_id = p.id AND prt.tagged_user_id = ?) as my_reminder_tagged,
+			(SELECT COUNT(*) FROM reminder_completions rc WHERE rc.post_id = p.id AND rc.user_id = ?) as my_reminder_completed,
 			(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.post_id = p.id AND qa.user_id = ?) as my_quiz_attempted,
 			(SELECT qa2.selected_index FROM quiz_attempts qa2 WHERE qa2.post_id = p.id AND qa2.user_id = ? ORDER BY qa2.created_at DESC LIMIT 1) as my_quiz_selected_index,
 			(SELECT qa3.is_correct FROM quiz_attempts qa3 WHERE qa3.post_id = p.id AND qa3.user_id = ? ORDER BY qa3.created_at DESC LIMIT 1) as my_quiz_is_correct,
@@ -2523,7 +2965,7 @@ app.get('/api/post/:id', requireAuth, async (req, res) => {
 				ORDER BY c.created_at DESC LIMIT 1) as relation_requested_by
 			FROM posts p
 			JOIN users u ON u.id = p.user_id
-			WHERE p.id = ? AND u.username <> ?`, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, postId, SUPERADMIN_USERNAME]);
+			WHERE p.id = ? AND u.username <> ?`, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, postId, SUPERADMIN_USERNAME]);
 		if (!post) return res.status(404).json({ error: 'Post not found' });
 		const isSelf = Number(post.user_id) === viewerId;
 		const isPublished = Number(post.publish_at || post.created_at) <= Date.now();
@@ -2548,9 +2990,24 @@ app.get('/api/post/:id', requireAuth, async (req, res) => {
 app.post('/api/connect/accept', requireAuth, (req, res) => {
 	const { id } = req.body;
 	if (!id) return res.status(400).json({ error: 'Missing id' });
-	db.run('UPDATE connections SET status = ? WHERE id = ? AND user_b = ? AND status = ?', ['accepted', id, req.session.userId, 'pending'], function (err) {
+	db.run('UPDATE connections SET status = ? WHERE id = ? AND user_b = ? AND status = ?', ['accepted', id, req.session.userId, 'pending'], async function (err) {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!this.changes) return res.status(404).json({ error: 'Request not found' });
+		try {
+			const row = await getAsync('SELECT user_a, user_b FROM connections WHERE id = ?', [id]);
+			if (row) {
+				const a = Number(row.user_a) || 0;
+				const b = Number(row.user_b) || 0;
+				await grantXpRule(a, 'CONNECTION_ACCEPTED', { refType: 'user', refId: b }).catch(() => {});
+				await grantXpRule(b, 'CONNECTION_ACCEPTED', { refType: 'user', refId: a }).catch(() => {});
+				await grantXpRule(a, 'CONNECTION_FIRST_ACCEPTED').catch(() => {});
+				await grantXpRule(b, 'CONNECTION_FIRST_ACCEPTED').catch(() => {});
+				await evaluateConnectionMilestones(a).catch(() => {});
+				await evaluateConnectionMilestones(b).catch(() => {});
+			}
+		} catch (xpErr) {
+			console.error('Connection accept XP error:', xpErr);
+		}
 		res.json({ success: true });
 	});
 });
@@ -2851,6 +3308,7 @@ app.post('/api/post/:postId/comment/:commentId/like', requireAuth, async (req, r
 		}
 		await runAsync('INSERT INTO comment_likes (comment_id, user_id, created_at) VALUES (?, ?, ?)', [commentId, userId, Date.now()]);
 		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM comment_likes WHERE comment_id = ?', [commentId]);
+		await evaluateCommentMilestones(commentId).catch(() => {});
 		return res.json({ success: true, liked: true, count: Number(count && count.cnt) || 0 });
 	} catch (e) {
 		console.error('Comment like error:', e);
@@ -2875,7 +3333,10 @@ app.post('/api/post/:id/comment', requireAuth, (req, res) => {
 			if (!parent) return res.status(400).json({ error: 'Parent comment not found' });
 			db.run('INSERT INTO post_comments (post_id, user_id, parent_comment_id, mention_user_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)', [postId, req.session.userId, parentCommentId, mentionUserId || null, content, ts], async function onReply(err) {
 				if (err) return res.status(500).json({ error: 'Server error' });
-				try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
+				try {
+					await grantXpRule(req.session.userId, 'COMMENT_REPLY_ANSWER', { refType: 'comment', refId: this.lastID });
+					await evaluatePostOwnerMilestones(postId);
+				} catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
 				res.json({ success: true, id: this.lastID });
 			});
 		});
@@ -2883,7 +3344,10 @@ app.post('/api/post/:id/comment', requireAuth, (req, res) => {
 	}
 	db.run('INSERT INTO post_comments (post_id, user_id, parent_comment_id, mention_user_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)', [postId, req.session.userId, null, null, content, ts], async function onComment(err) {
 		if (err) return res.status(500).json({ error: 'Server error' });
-		try { await addXp(req.session.userId, 'POST_COMMENT', 'post', postId); } catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
+		try {
+			await grantXpRule(req.session.userId, 'COMMENT_REPLY_ANSWER', { refType: 'comment', refId: this.lastID });
+			await evaluatePostOwnerMilestones(postId);
+		} catch (xpErr) { console.error('POST_COMMENT XP error:', xpErr); }
 		res.json({ success: true, id: this.lastID });
 	});
 });
@@ -2906,6 +3370,17 @@ app.post('/api/post/:id/quiz-attempt', requireAuth, async (req, res) => {
 		if (existing) return res.status(400).json({ error: 'Quiz already attempted' });
 		const isCorrect = Number(selectedIndex) === Number(post.quiz_correct_index) ? 1 : 0;
 		await runAsync('INSERT INTO quiz_attempts (post_id, user_id, selected_index, is_correct, created_at) VALUES (?, ?, ?, ?, ?)', [postId, userId, selectedIndex, isCorrect, Date.now()]);
+		if (isCorrect) {
+			await grantXpRule(userId, 'QUIZ_ANSWER_CORRECT', { refType: 'post', refId: postId }).catch(() => {});
+			await grantXpRule(userId, 'QUIZ_FIRST_ATTEMPT_CORRECT', { refType: 'post', refId: postId, scopeKey: `quiz:${postId}` }).catch(() => {});
+			const streakRow = await getAsync('SELECT quiz_correct_streak FROM users WHERE id = ?', [userId]);
+			const nextStreak = (Number(streakRow && streakRow.quiz_correct_streak) || 0) + 1;
+			await runAsync('UPDATE users SET quiz_correct_streak = ? WHERE id = ?', [nextStreak, userId]);
+			if (nextStreak >= 10) await grantXpRule(userId, 'QUIZ_CORRECT_STREAK_10', { scopeKey: `quiz-streak-10:${nextStreak}` }).catch(() => {});
+		} else {
+			await runAsync('UPDATE users SET quiz_correct_streak = 0 WHERE id = ?', [userId]);
+		}
+		await evaluateQuizAttemptMilestones(postId).catch(() => {});
 		const grouped = await allAsync(`SELECT selected_index, COUNT(*)::int AS cnt
 			FROM quiz_attempts
 			WHERE post_id = ?
@@ -2928,6 +3403,26 @@ app.post('/api/post/:id/quiz-attempt', requireAuth, async (req, res) => {
 		});
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/post/:id/reminder-complete', requireAuth, async (req, res) => {
+	const postId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!postId) return res.status(400).json({ error: 'Invalid post id' });
+	try {
+		const post = await getAsync(`SELECT p.id, p.user_id, p.reminder_at,
+			(SELECT COUNT(*) FROM post_reminder_targets prt WHERE prt.post_id = p.id AND prt.tagged_user_id = ?) AS tagged_for_me
+			FROM posts p WHERE p.id = ?`, [userId, postId]);
+		if (!post || !post.reminder_at) return res.status(404).json({ error: 'Reminder not found' });
+		const canComplete = Number(post.user_id) === userId || Number(post.tagged_for_me) > 0;
+		if (!canComplete) return res.status(403).json({ error: 'You cannot complete this reminder' });
+		await runAsync('INSERT INTO reminder_completions (post_id, user_id, completed_at) VALUES (?, ?, ?) ON CONFLICT (post_id, user_id) DO NOTHING', [postId, userId, Date.now()]);
+		await grantXpRule(userId, 'REMINDER_COMPLETE', { refType: 'post', refId: postId, scopeKey: `reminder-complete:${postId}:${userId}` }).catch(() => {});
+		return res.json({ success: true });
+	} catch (e) {
+		console.error('Reminder complete error:', e);
+		return res.status(500).json({ error: 'Server error' });
 	}
 });
 
@@ -2989,6 +3484,7 @@ app.get('/api/stories', requireAuth, async (req, res) => {
 		if (!ids.length) return res.json({ stories: [] });
 		const placeholders = ids.map(() => '?').join(',');
 		const rows = await allAsync(`SELECT s.id, s.user_id, s.content, s.image, s.created_at, s.expires_at, u.username, u.name, u.profile_picture,
+			(SELECT COUNT(*)::int FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
 			(SELECT COUNT(*)::int FROM story_likes sl WHERE sl.story_id = s.id) AS likes_count,
 			(SELECT COUNT(*)::int FROM story_replies sr WHERE sr.story_id = s.id) AS replies_count,
 			(SELECT COUNT(*)::int FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
@@ -3015,6 +3511,7 @@ app.post('/api/stories', requireAuth, async (req, res) => {
 		const now = Date.now();
 		const expiresAt = now + (24 * 60 * 60 * 1000);
 		const created = await runAsync('INSERT INTO stories (user_id, content, image, created_at, expires_at) VALUES (?, ?, ?, ?, ?)', [req.session.userId, content || null, hasImage ? image : null, now, expiresAt]);
+		await grantXpRule(req.session.userId, 'STORY_CREATE', { refType: 'story', refId: created.lastID }).catch(() => {});
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
 		console.error('Story create error:', e);
@@ -3057,6 +3554,7 @@ app.post('/api/stories/:id/like', requireAuth, async (req, res) => {
 		}
 		await runAsync('INSERT INTO story_likes (story_id, user_id, created_at) VALUES (?, ?, ?)', [storyId, userId, Date.now()]);
 		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_likes WHERE story_id = ?', [storyId]);
+		await grantXpRule(userId, 'STORY_REACT', { refType: 'story', refId: storyId }).catch(() => {});
 		return res.json({ success: true, liked: true, count: Number(count && count.cnt) || 0 });
 	} catch (e) {
 		console.error('Story like error:', e);
@@ -3093,11 +3591,30 @@ app.post('/api/stories/:id/reply', requireAuth, async (req, res) => {
 				refId: storyId
 			});
 			io.to(`user:${toUserId}`).emit('storyReply', { storyId, from: userId, to: toUserId, content, created_at: ts });
+			await grantXpRule(toUserId, 'STORY_REPLY_RECEIVED', { refType: 'story', refId: storyId }).catch(() => {});
 		}
 		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_replies WHERE story_id = ?', [storyId]);
 		return res.json({ success: true, count: Number(count && count.cnt) || 0 });
 	} catch (e) {
 		console.error('Story reply create error:', e);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/stories/:id/view', requireAuth, async (req, res) => {
+	const storyId = Number(req.params.id);
+	const userId = Number(req.session.userId);
+	if (!storyId) return res.status(400).json({ error: 'Invalid story id' });
+	try {
+		const story = await getAsync('SELECT id, user_id, expires_at FROM stories WHERE id = ?', [storyId]);
+		if (!story || Number(story.expires_at) <= Date.now()) return res.status(404).json({ error: 'Story not found' });
+		if (Number(story.user_id) === userId) return res.json({ success: true, counted: false });
+		await runAsync('INSERT INTO story_views (story_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT (story_id, user_id) DO NOTHING', [storyId, userId, Date.now()]);
+		await evaluateStoryMilestones(storyId).catch(() => {});
+		const count = await getAsync('SELECT COUNT(*)::int AS cnt FROM story_views WHERE story_id = ?', [storyId]);
+		return res.json({ success: true, counted: true, viewCount: Number(count && count.cnt) || 0 });
+	} catch (e) {
+		console.error('Story view error:', e);
 		return res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -3169,7 +3686,7 @@ app.post('/api/post/:id/like', requireAuth, async (req, res) => {
 			return res.json({ success: true, liked: false, count: c.cnt || 0 });
 		}
 		await runAsync('INSERT INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)', [postId, userId, Date.now()]);
-		await addXp(userId, 'POST_LIKE', 'post', postId);
+		await evaluatePostOwnerMilestones(postId).catch(() => {});
 		const c = await getAsync('SELECT COUNT(*) as cnt FROM post_likes WHERE post_id = ?', [postId]);
 		return res.json({ success: true, liked: true, count: c.cnt || 0 });
 	} catch (e) {
@@ -3199,6 +3716,7 @@ app.post('/api/post/:id/save', requireAuth, async (req, res) => {
 			await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
 				VALUES (?, ?, ?)
 				ON CONFLICT (user_id, name) DO NOTHING`, [userId, listName, Date.now()]);
+			await evaluateSavedMilestones(userId, listName).catch(() => {});
 			const c = await getAsync('SELECT COUNT(*) as cnt FROM saved_posts WHERE post_id = ?', [postId]);
 			return res.json({ success: true, saved: true, moved: true, count: c.cnt || 0, listName });
 		}
@@ -3206,7 +3724,8 @@ app.post('/api/post/:id/save', requireAuth, async (req, res) => {
 		await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
 			VALUES (?, ?, ?)
 			ON CONFLICT (user_id, name) DO NOTHING`, [userId, listName, Date.now()]);
-		await addXp(userId, 'POST_SAVE', 'post', postId);
+		await grantXpRule(userId, 'POST_SAVE', { refType: 'post', refId: postId }).catch(() => {});
+		await evaluateSavedMilestones(userId, listName).catch(() => {});
 		const c = await getAsync('SELECT COUNT(*) as cnt FROM saved_posts WHERE post_id = ?', [postId]);
 		return res.json({ success: true, saved: true, count: c.cnt || 0, listName });
 	} catch (e) {
@@ -3244,7 +3763,6 @@ app.post('/api/post/:id/share', requireAuth, async (req, res) => {
 				// ignore duplicate share for same target
 			}
 		}
-		await addXp(userId, 'POST_SHARE', 'post', postId);
 		const c = await getAsync('SELECT COUNT(*) as cnt FROM post_shares WHERE post_id = ?', [postId]);
 		const { shareUrl } = await createShareLink('post', postId, userId, req);
 		return res.json({ success: true, sharedTo: targets.length, count: c.cnt || 0, shareUrl });
@@ -3331,6 +3849,7 @@ app.post('/api/saved-lists', requireAuth, async (req, res) => {
 		await runAsync(`INSERT INTO saved_post_lists (user_id, name, created_at)
 			VALUES (?, ?, ?)
 			ON CONFLICT (user_id, name) DO NOTHING`, [req.session.userId, name, Date.now()]);
+		await grantXpRule(req.session.userId, 'SAVE_LIST_CREATE', { refType: 'saved_list', scopeKey: name.toLowerCase() }).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -3405,7 +3924,8 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 		await runAsync('INSERT INTO group_memberships (group_id, user_id, role, status, created_at) VALUES (?, ?, ?, ?, ?)', [created.lastID, req.session.userId, 'admin', 'active', ts]);
 		await runAsync(`INSERT INTO group_roles (group_id, name, permissions, is_system, created_by, created_at)
 			VALUES (?, ?, ?, ?, ?, ?)`, [created.lastID, 'Officer', JSON.stringify(['manage_posts', 'manage_requests', 'post_messages', 'post_quiz', 'post_reminder', 'post_links', 'access_lounge']), 0, req.session.userId, ts]);
-		await addXp(req.session.userId, 'GROUP_CREATE', 'group', created.lastID);
+		await grantXpRule(req.session.userId, 'CLAN_CREATE', { refType: 'group', refId: created.lastID }).catch(() => {});
+		await grantXpRule(req.session.userId, 'CLAN_ADMIN_FIRST').catch(() => {});
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
 		console.error('Create group error:', e);
@@ -3560,6 +4080,11 @@ app.post('/api/groups/:id/join', requireAuth, async (req, res) => {
 				custom_role_id = NULL,
 				status = EXCLUDED.status,
 				created_at = EXCLUDED.created_at`, [groupId, req.session.userId, 'member', status, Date.now()]);
+		if (status === 'active') {
+			await grantXpRule(req.session.userId, 'CLAN_JOIN', { refType: 'group', refId: groupId }).catch(() => {});
+			await grantXpRule(req.session.userId, 'CLAN_FIRST_JOIN').catch(() => {});
+			await evaluateClanMilestones(groupId).catch(() => {});
+		}
 		res.json({ success: true, status });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -3614,6 +4139,9 @@ app.post('/api/groups/:id/requests/:userId', requireAuth, async (req, res) => {
 			const activeClan = await getOccupiedClanMembership(targetUserId, groupId);
 			if (activeClan) return res.status(409).json({ error: 'User already has another clan membership.' });
 			await runAsync('UPDATE group_memberships SET status = ? WHERE group_id = ? AND user_id = ?', ['active', groupId, targetUserId]);
+			await grantXpRule(targetUserId, 'CLAN_JOIN', { refType: 'group', refId: groupId }).catch(() => {});
+			await grantXpRule(targetUserId, 'CLAN_FIRST_JOIN').catch(() => {});
+			await evaluateClanMilestones(groupId).catch(() => {});
 		} else {
 			await runAsync('DELETE FROM group_memberships WHERE group_id = ? AND user_id = ? AND status = ?', [groupId, targetUserId, 'pending']);
 		}
@@ -3633,6 +4161,8 @@ app.post('/api/groups/:id/role', requireAuth, async (req, res) => {
 		const mine = await getGroupMembershipDetails(groupId, req.session.userId);
 		if (!hasGroupPermission(mine, 'manage_roles')) return res.status(403).json({ error: 'Role management permission required' });
 		await runAsync('UPDATE group_memberships SET role = ?, custom_role_id = NULL WHERE group_id = ? AND user_id = ? AND status = ?', [nextRole, groupId, targetUserId, 'active']);
+		if (nextRole === 'admin') await grantXpRule(targetUserId, 'CLAN_ADMIN_FIRST').catch(() => {});
+		await grantXpRule(req.session.userId, 'CLAN_MODERATION_ACTION', { refType: 'group', refId: groupId }).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -3778,6 +4308,11 @@ app.post('/api/groups/invite/:token/join', requireAuth, async (req, res) => {
 			ON CONFLICT (group_id, user_id)
 			DO UPDATE SET status = EXCLUDED.status, custom_role_id = NULL, created_at = EXCLUDED.created_at`, [invite.group_id, req.session.userId, 'member', null, status, now]);
 		await runAsync('UPDATE group_invites SET used_count = COALESCE(used_count, 0) + 1 WHERE id = ?', [invite.id]);
+		if (status === 'active') {
+			await grantXpRule(req.session.userId, 'CLAN_JOIN', { refType: 'group', refId: invite.group_id }).catch(() => {});
+			await grantXpRule(req.session.userId, 'CLAN_FIRST_JOIN').catch(() => {});
+			await evaluateClanMilestones(invite.group_id).catch(() => {});
+		}
 		res.json({ success: true, groupId: invite.group_id, status });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -3865,7 +4400,8 @@ app.post('/api/groups/:id/post', requireAuth, async (req, res) => {
 			Date.now()
 		]);
 		await runAsync('UPDATE groups SET clan_xp = COALESCE(clan_xp, 0) + 10, clan_level = (FLOOR((COALESCE(clan_xp, 0) + 10) / 5000) + 1) WHERE id = ?', [groupId]);
-		await addXp(req.session.userId, 'GROUP_POST', 'group', groupId);
+		await grantXpRule(req.session.userId, 'CLAN_POST_CREATE', { refType: 'group', refId: groupId }).catch(() => {});
+		if (postType === 'reminder') await grantXpRule(req.session.userId, 'REMINDER_SHARE_CLAN', { refType: 'group', refId: groupId }).catch(() => {});
 		res.json({ success: true, id: created.lastID });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -3998,6 +4534,10 @@ app.get('/admin', requireAdmin, (req, res) => {
 
 app.get('/profile', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+app.get('/activity', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'activity.html'));
 });
 
 app.get('/saved', requireAuth, (req, res) => {

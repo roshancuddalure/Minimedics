@@ -153,6 +153,7 @@ let saveListDialogState = null;
 let pendingPostLinkId = null;
 let pendingStoryLinkId = null;
 let pendingShareToken = null;
+let dashboardXpMarked = false;
 
 function initNotificationAudioUnlock() {
   if (notificationAudioUnlocked) return;
@@ -871,6 +872,13 @@ function createActionButton(label, onClick, className = 'btn secondary tiny-btn'
   return btn;
 }
 
+async function markDashboardOpenXp() {
+  if (dashboardXpMarked || location.pathname !== '/dashboard') return;
+  dashboardXpMarked = true;
+  const res = await api('/api/xp/dashboard-open', 'POST', {});
+  if (res && res.error) dashboardXpMarked = false;
+}
+
 function createLabeledActionButton(label, onClick, className = 'btn secondary tiny-btn') {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -1563,6 +1571,39 @@ function renderPostCard(p, me, options = {}) {
     const reminderStatus = formatReminder(p.reminder_at);
     reminder.innerHTML = `<strong>Reminder</strong>${reminderStatus ? `: ${escapeHtml(reminderStatus)}` : ''}${p.reminder_note ? ` - ${escapeHtml(p.reminder_note)}` : ''}`;
     el.appendChild(reminder);
+    const canCompleteReminder = canInteract
+      && !isScheduled
+      && Boolean(p.reminder_at)
+      && (Number(p.user_id) === Number(meId) || Number(p.my_reminder_tagged) > 0);
+    const reminderCompleted = Number(p.my_reminder_completed) > 0;
+    if (canCompleteReminder || reminderCompleted) {
+      const completionRow = document.createElement('div');
+      completionRow.className = 'reminder-completion-row';
+      const completionMeta = document.createElement('div');
+      completionMeta.className = 'muted';
+      completionMeta.textContent = reminderCompleted
+        ? 'Marked complete.'
+        : (Number(p.user_id) === Number(meId) ? 'You can close this reminder when finished.' : 'You were tagged on this reminder.');
+      completionRow.appendChild(completionMeta);
+      if (canCompleteReminder && !reminderCompleted) {
+        const completeBtn = createActionButton('Mark complete', null, 'btn secondary tiny-btn reminder-complete-btn');
+        completeBtn.addEventListener('click', async () => {
+          setLoading(completeBtn, true);
+          const res = await api(`/api/post/${p.id}/reminder-complete`, 'POST', {});
+          setLoading(completeBtn, false);
+          if (res && res.success) {
+            p.my_reminder_completed = 1;
+            showToast('Reminder marked complete');
+            if (document.getElementById('singlePostBox')) await loadSinglePostPage();
+            if (document.getElementById('feed')) await loadFeed();
+          } else {
+            showToast((res && res.error) || 'Unable to complete reminder', 'error');
+          }
+        });
+        completionRow.appendChild(completeBtn);
+      }
+      el.appendChild(completionRow);
+    }
   }
 
   const quizBlock = renderQuizBlock(p);
@@ -1955,6 +1996,87 @@ async function loadAdminTickets() {
   });
 }
 
+async function loadAdminFeatureSuggestions() {
+  const box = document.getElementById('adminFeatureSuggestions');
+  if (!box) return;
+  const qEl = document.getElementById('adminFeatureSuggestionsSearch');
+  const statusEl = document.getElementById('adminFeatureSuggestionsStatus');
+  const q = qEl ? qEl.value.trim() : '';
+  const status = statusEl ? statusEl.value.trim() : '';
+  const res = await api(`/api/admin/feature-suggestions?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`);
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load feature suggestions.</div>';
+    return;
+  }
+  const suggestions = Array.isArray(res.suggestions) ? res.suggestions : [];
+  if (!suggestions.length) {
+    box.innerHTML = '<div class="muted">No feature suggestions found.</div>';
+    return;
+  }
+  const rows = suggestions.map((item) => `<tr data-suggestion-id="${Number(item.id) || 0}">
+      <td>${Number(item.id) || 0}</td>
+      <td>${escapeHtml(item.name || item.username || 'User')}</td>
+      <td>${escapeHtml(item.title || '')}</td>
+      <td>${escapeHtml(item.details || '')}</td>
+      <td>${formatDateTime(item.created_at)}</td>
+      <td>${item.rewarded_at ? '<span class="status-pill status-pill-success">Rewarded</span>' : '<span class="status-pill">Pending</span>'}</td>
+      <td>
+        <select class="admin-feature-status">
+          <option value="open" ${item.status === 'open' ? 'selected' : ''}>open</option>
+          <option value="approved" ${item.status === 'approved' ? 'selected' : ''}>approved</option>
+          <option value="implemented" ${item.status === 'implemented' ? 'selected' : ''}>implemented</option>
+          <option value="rejected" ${item.status === 'rejected' ? 'selected' : ''}>rejected</option>
+        </select>
+      </td>
+      <td>
+        <label class="inline-check admin-feature-award-check">
+          <input class="admin-feature-award" type="checkbox" ${item.rewarded_at ? 'checked disabled' : ''} />
+          <span class="inline-check-text">Award XP</span>
+        </label>
+      </td>
+      <td><button class="btn secondary tiny-btn admin-feature-update-btn" type="button">Update</button></td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Title</th>
+          <th>Details</th>
+          <th>Created</th>
+          <th>Reward</th>
+          <th>Status</th>
+          <th>Credit</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-feature-update-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const suggestionId = Number(row.getAttribute('data-suggestion-id'));
+      const statusSelect = row.querySelector('.admin-feature-status');
+      const awardBox = row.querySelector('.admin-feature-award');
+      const status = statusSelect ? String(statusSelect.value || '') : '';
+      const awardCredit = Boolean(awardBox && awardBox.checked && !awardBox.disabled);
+      if (!suggestionId || !status) return;
+      btn.disabled = true;
+      const updateRes = await api(`/api/admin/feature-suggestions/${suggestionId}/status`, 'POST', { status, awardCredit });
+      btn.disabled = false;
+      if (updateRes && updateRes.success) {
+        showToast('Feature suggestion updated');
+        loadAdminFeatureSuggestions();
+      } else {
+        showToast((updateRes && updateRes.error) || 'Unable to update suggestion', 'error');
+      }
+    });
+  });
+}
+
 async function loadAdminClans() {
   const box = document.getElementById('adminClans');
   if (!box) return;
@@ -2006,7 +2128,8 @@ function initAdminTabs() {
     users: 'adminTabUsers',
     clans: 'adminTabClans',
     reports: 'adminTabReports',
-    tickets: 'adminTabTickets'
+    tickets: 'adminTabTickets',
+    features: 'adminTabFeatures'
   };
   const activate = (tab) => {
     tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -2021,6 +2144,7 @@ function initAdminTabs() {
     if (tab === 'clans') loadAdminClans();
     if (tab === 'reports') loadAdminReports();
     if (tab === 'tickets') loadAdminTickets();
+    if (tab === 'features') loadAdminFeatureSuggestions();
   };
   tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
   activate('users');
@@ -2118,6 +2242,7 @@ async function loadStories() {
       likes_count: Number(s.likes_count) || 0,
       replies_count: Number(s.replies_count) || 0,
       shares_count: Number(s.shares_count) || 0,
+      views_count: Number(s.views_count) || 0,
       liked_by_me: Boolean(s.liked_by_me)
     });
   });
@@ -2182,10 +2307,12 @@ function updateStoryStats(story) {
   const likesEl = document.getElementById('storyLikesCount');
   const repliesEl = document.getElementById('storyRepliesCount');
   const sharesEl = document.getElementById('storySharesCount');
+  const viewsEl = document.getElementById('storyViewsCount');
   const likeBtn = document.getElementById('storyLikeBtn');
   if (likesEl) likesEl.textContent = `${Number(story.likes_count) || 0} likes`;
   if (repliesEl) repliesEl.textContent = `${Number(story.replies_count) || 0} replies`;
   if (sharesEl) sharesEl.textContent = `${Number(story.shares_count) || 0} shares`;
+  if (viewsEl) viewsEl.textContent = `${Number(story.views_count) || 0} views`;
   if (likeBtn) setActionButtonLabel(likeBtn, story.liked_by_me ? 'Unlike' : 'Like', 'like');
 }
 
@@ -2282,6 +2409,7 @@ function renderStoryViewer() {
   }
   text.textContent = story.content || '';
   updateStoryStats(story);
+  markStoryViewed(story).catch(() => {});
   const canDelete = cachedMe && Number(story.user_id) === Number(cachedMe.id);
   if (deleteBtn) deleteBtn.classList.toggle('hidden', !canDelete);
   prevBtn.disabled = activeStoryGroupIndex <= 0 && activeStoryIndex <= 0;
@@ -2297,6 +2425,15 @@ function openStoryViewer(groupIndex, storyIndex = 0) {
   renderStoryViewer();
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
+}
+
+async function markStoryViewed(story) {
+  if (!story || !story.id || !cachedMe || Number(story.user_id) === Number(cachedMe.id)) return;
+  const res = await api(`/api/stories/${story.id}/view`, 'POST', {});
+  if (res && !res.error) {
+    story.views_count = Number(res.viewCount) || Number(story.views_count) || 0;
+    updateStoryStats(story);
+  }
 }
 
 function closeStoryViewer() {
@@ -3822,6 +3959,33 @@ function upsertSavedListsTopButton(user) {
   }
 }
 
+function upsertActivityTopButton(user) {
+  const actions = document.querySelector('.actions');
+  if (!actions) return;
+  const existing = document.getElementById('activityMenuBtn');
+  if (isPublicHomePage()) {
+    if (existing) existing.remove();
+    return;
+  }
+  const isAuthenticated = Boolean(user && user.id);
+  if (!isAuthenticated) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+  const anchor = document.createElement('a');
+  anchor.id = 'activityMenuBtn';
+  anchor.className = 'btn';
+  anchor.href = '/activity';
+  anchor.textContent = 'Activity';
+  const savedBtn = document.getElementById('savedListsMenuBtn');
+  if (savedBtn && savedBtn.parentElement === actions) {
+    savedBtn.insertAdjacentElement('afterend', anchor);
+  } else {
+    actions.appendChild(anchor);
+  }
+}
+
 function ensureNotificationPanel() {
   let panel = document.getElementById('notificationPanel');
   if (panel) return panel;
@@ -4841,6 +5005,56 @@ async function handleSupportTicketSubmit(e) {
   }
 }
 
+async function loadMyFeatureSuggestions() {
+  const box = document.getElementById('myFeatureSuggestions');
+  if (!box) return;
+  box.innerHTML = '<div class="muted">Loading your suggestions...</div>';
+  const res = await api('/api/feature-suggestions/mine');
+  if (res.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(res.error || 'Unable to load suggestions')}</div>`;
+    return;
+  }
+  const suggestions = Array.isArray(res.suggestions) ? res.suggestions : [];
+  if (!suggestions.length) {
+    box.innerHTML = '<div class="muted">No feature suggestions yet.</div>';
+    return;
+  }
+  box.innerHTML = suggestions.map((item) => `<article class="activity-entry-card">
+      <div class="activity-entry-head">
+        <strong>${escapeHtml(item.title || '')}</strong>
+        <span class="status-pill${item.rewarded_at ? ' status-pill-success' : ''}">${escapeHtml(item.status || 'open')}</span>
+      </div>
+      ${item.details ? `<p class="muted">${escapeHtml(item.details)}</p>` : ''}
+      <div class="activity-entry-meta muted">Sent ${formatDateTime(item.created_at)}${item.rewarded_at ? ` • Rewarded ${formatDateTime(item.rewarded_at)}` : ''}</div>
+    </article>`).join('');
+}
+
+async function handleFeatureSuggestionSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const titleEl = document.getElementById('featureSuggestionTitle');
+  const detailsEl = document.getElementById('featureSuggestionDetails');
+  const title = titleEl ? titleEl.value.trim() : '';
+  const details = detailsEl ? detailsEl.value.trim() : '';
+  if (!title) {
+    showToast('Feature title is required', 'error');
+    return;
+  }
+  setLoading(form, true);
+  if (submitBtn) submitBtn.textContent = 'Submitting...';
+  const res = await api('/api/feature-suggestions', 'POST', { title, details });
+  setLoading(form, false);
+  if (submitBtn) submitBtn.textContent = 'Submit Suggestion';
+  if (res && res.success) {
+    showToast('Feature suggestion submitted');
+    form.reset();
+    loadMyFeatureSuggestions();
+  } else {
+    showToast((res && res.error) || 'Unable to submit suggestion', 'error');
+  }
+}
+
 async function loadProfile() {
   const holder = document.getElementById('profileBox');
   if (!holder) return;
@@ -4853,6 +5067,7 @@ async function loadProfile() {
   cachedMe = res.user || null;
   window.__me = cachedMe;
   upsertSavedListsTopButton(cachedMe);
+  upsertActivityTopButton(cachedMe);
   upsertNotificationsTopButton(cachedMe);
   upsertGlobalChatLauncher(cachedMe);
   holder.classList.remove('hidden');
@@ -5002,6 +5217,7 @@ async function handlePostImageSelection(e) {
 
 document.addEventListener('DOMContentLoaded', ()=>{
   upsertSavedListsTopButton(null);
+  upsertActivityTopButton(null);
   upsertNotificationsTopButton(null);
   initNotificationAudioUnlock();
   initBrandMasthead();
@@ -5042,6 +5258,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       window.__me = res.user;
       upsertGlobalChatLauncher(res.user);
       upsertSavedListsTopButton(res.user);
+      upsertActivityTopButton(res.user);
       upsertNotificationsTopButton(res.user);
     } else {
       upsertGlobalChatLauncher(null);
@@ -5142,6 +5359,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     setInterval(loadStories, 30000);
   }
   if (document.getElementById('feed')) loadFeed();
+  if (location.pathname === '/dashboard') markDashboardOpenXp().catch(() => {});
   
   // Chat form
   if (document.getElementById('chatForm')) {
@@ -5188,6 +5406,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('supportTicketForm').addEventListener('submit', handleSupportTicketSubmit);
     loadMySupportTickets();
   }
+  if (document.getElementById('featureSuggestionForm')) {
+    document.getElementById('featureSuggestionForm').addEventListener('submit', handleFeatureSuggestionSubmit);
+    loadMyFeatureSuggestions();
+  }
   
   // Profile display
   loadProfile();
@@ -5197,6 +5419,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.__me = cachedMe;
     if (document.getElementById('storiesBar')) loadStories();
     upsertSavedListsTopButton(cachedMe);
+    upsertActivityTopButton(cachedMe);
     upsertNotificationsTopButton(cachedMe);
     const isAdmin = cachedMe && cachedMe.role === 'admin';
     const dashboardAdmin = document.getElementById('dashboardAdminSection');
@@ -5205,6 +5428,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (isAdmin && document.getElementById('adminReports')) loadAdminReports();
     if (isAdmin && document.getElementById('adminClans')) loadAdminClans();
     if (isAdmin && document.getElementById('adminTickets')) loadAdminTickets();
+    if (isAdmin && document.getElementById('adminFeatureSuggestions')) loadAdminFeatureSuggestions();
     const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
     if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
     const clansSearchBtn = document.getElementById('adminClansSearchBtn');
@@ -5213,6 +5437,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (reportsSearchBtn) reportsSearchBtn.onclick = () => loadAdminReports();
     const ticketsSearchBtn = document.getElementById('adminTicketsSearchBtn');
     if (ticketsSearchBtn) ticketsSearchBtn.onclick = () => loadAdminTickets();
+    const featureSuggestionsSearchBtn = document.getElementById('adminFeatureSuggestionsSearchBtn');
+    if (featureSuggestionsSearchBtn) featureSuggestionsSearchBtn.onclick = () => loadAdminFeatureSuggestions();
     applyIconifyAudit();
   })();
 });
