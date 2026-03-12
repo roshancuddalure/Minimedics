@@ -107,38 +107,41 @@
           <form id="postForm">
             <div class="composer-input-shell">
               <label class="composer-main-label" for="postContent">Post message</label>
-              <textarea id="postContent" placeholder="What's on your mind? Share a quick case pearl, update, or question."></textarea>
+              <div class="rich-editor-toolbar composer-rich-toolbar">
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="bold" aria-label="Bold" title="Bold"><span class="iconify" data-icon="lucide:bold"></span></button>
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="italic" aria-label="Italic" title="Italic"><span class="iconify" data-icon="lucide:italic"></span></button>
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="underline" aria-label="Underline" title="Underline"><span class="iconify" data-icon="lucide:underline"></span></button>
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="insertUnorderedList" aria-label="Bullet list" title="Bullet list"><span class="iconify" data-icon="lucide:list"></span></button>
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="link" aria-label="Add link" title="Add link"><span class="iconify" data-icon="lucide:link-2"></span></button>
+                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="unlink" aria-label="Remove link" title="Remove link"><span class="iconify" data-icon="lucide:unlink-2"></span></button>
+              </div>
+              <div id="postContent" class="rich-editor composer-rich-editor" contenteditable="true" data-placeholder="What's on your mind? Share a quick case pearl, update, or question."></div>
             </div>
             <div class="post-mode-bar post-mode-bar-rich">
               <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Mode</button>
               <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Mode</button>
             </div>
-            <div class="composer-grid">
-              <div class="tool-group tool-card">
-                <label class="tool-label" for="postVisibility">Post Privacy</label>
-                <select id="postVisibility">
-                  <option value="public">Public</option>
-                  <option value="connections">Connections Only</option>
-                  <option value="followers_connections">Followers + Connections</option>
-                  <option value="private">Private (Only Me)</option>
-                </select>
-                <div class="tool-hint">Followers can view these posts and stories, while chat and direct shares remain for connections.</div>
-              </div>
-              <div class="tool-group tool-card">
-                <label class="tool-label" for="postPublishAt">Go Live Date & Time</label>
-                <input id="postPublishAt" type="datetime-local" />
-                <div class="tool-hint">Leave empty to publish immediately.</div>
-              </div>
-              <div class="tool-group tool-card">
-                <label class="tool-label" for="postImage">Attach Image</label>
-                <div class="file-upload">
-                  <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
-                  <button class="btn secondary tiny-btn file-upload-trigger" type="button" data-file-trigger="postImage"></button>
-                  <span id="postImageName" class="file-upload-name">No file selected</span>
-                </div>
-                <div id="postImagePreview" class="post-image-preview hidden"></div>
+            <div class="composer-quick-actions">
+              <button id="postPrivacyBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Privacy" title="Privacy"></button>
+              <button id="postScheduleBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Schedule" title="Schedule"></button>
+              <div class="file-upload composer-inline-upload">
+                <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
+                <button class="btn secondary tiny-btn file-upload-trigger composer-action-btn" type="button" data-file-trigger="postImage">Image</button>
+                <span id="postImageName" class="file-upload-name">No file selected</span>
               </div>
             </div>
+            <div class="composer-meta-chips">
+              <div id="postPrivacySummary" class="composer-meta-chip">Public</div>
+              <div id="postScheduleSummary" class="composer-meta-chip">Post now</div>
+            </div>
+            <select id="postVisibility" class="hidden" aria-hidden="true">
+              <option value="public">Public</option>
+              <option value="connections">Connections Only</option>
+              <option value="followers_connections">Followers + Connections</option>
+              <option value="private">Private (Only Me)</option>
+            </select>
+            <input id="postPublishAt" class="hidden" type="datetime-local" aria-hidden="true" />
+            <div id="postImagePreview" class="post-image-preview hidden"></div>
             <div class="composer-tools">
               <div id="reminderModeFields" class="mode-fields hidden">
                 <div class="tool-group tool-card">
@@ -200,6 +203,77 @@
               <button class="btn primary" type="submit">Post</button>
             </div>
           </form>
+          <div id="postPrivacyModal" class="modal-backdrop hidden" aria-hidden="true">
+            <section class="modal-card composer-modal-card" role="dialog" aria-modal="true" aria-labelledby="postPrivacyModalTitle">
+              <div class="modal-head">
+                <h3 id="postPrivacyModalTitle">Post Privacy</h3>
+                <button id="closePostPrivacyModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
+              </div>
+              <div class="composer-modal-copy">
+                <p class="muted" style="margin:0">Choose who should be able to see this post.</p>
+              </div>
+              <div class="composer-privacy-grid">
+                <label class="composer-choice-card">
+                  <input name="postPrivacyChoice" type="radio" value="public" checked />
+                  <span class="composer-choice-icon iconify" data-icon="lucide:globe"></span>
+                  <span class="composer-choice-text">
+                    <strong>Public</strong>
+                    <span>Visible to everyone on the platform.</span>
+                  </span>
+                </label>
+                <label class="composer-choice-card">
+                  <input name="postPrivacyChoice" type="radio" value="connections" />
+                  <span class="composer-choice-icon iconify" data-icon="lucide:users"></span>
+                  <span class="composer-choice-text">
+                    <strong>Connections</strong>
+                    <span>Only accepted connections can view it.</span>
+                  </span>
+                </label>
+                <label class="composer-choice-card">
+                  <input name="postPrivacyChoice" type="radio" value="followers_connections" />
+                  <span class="composer-choice-icon iconify" data-icon="lucide:user-round-plus"></span>
+                  <span class="composer-choice-text">
+                    <strong>Followers + Connections</strong>
+                    <span>Followers and connections can see it.</span>
+                  </span>
+                </label>
+                <label class="composer-choice-card">
+                  <input name="postPrivacyChoice" type="radio" value="private" />
+                  <span class="composer-choice-icon iconify" data-icon="lucide:lock"></span>
+                  <span class="composer-choice-text">
+                    <strong>Private</strong>
+                    <span>Visible only to you.</span>
+                  </span>
+                </label>
+              </div>
+              <div class="composer-modal-note">
+                Followers can view these posts and stories, while chat and direct shares remain for connections.
+              </div>
+            </section>
+          </div>
+          <div id="postScheduleModal" class="modal-backdrop hidden" aria-hidden="true">
+            <section class="modal-card composer-modal-card" role="dialog" aria-modal="true" aria-labelledby="postScheduleModalTitle">
+              <div class="modal-head">
+                <h3 id="postScheduleModalTitle">Schedule Post</h3>
+                <button id="closePostScheduleModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
+              </div>
+              <div class="composer-modal-copy">
+                <p class="muted" style="margin:0">Pick a go-live time or leave it empty to publish immediately.</p>
+              </div>
+              <div class="composer-schedule-panel">
+                <div class="composer-schedule-icon">
+                  <span class="iconify" data-icon="lucide:calendar-clock"></span>
+                </div>
+                <div class="composer-schedule-field">
+                  <label class="tool-label" for="postPublishAtPicker">Go live date and time</label>
+                  <input id="postPublishAtPicker" type="datetime-local" />
+                </div>
+              </div>
+              <div class="row" style="justify-content:flex-start">
+                  <button id="clearPostScheduleBtn" class="btn secondary tiny-btn" type="button">Post Now</button>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="card">
@@ -304,6 +378,7 @@
             <div class="row" style="justify-content:flex-start">
               <button id="adminTaxonomySyncBtn" class="btn secondary tiny-btn" type="button">Sync From Data File</button>
             </div>
+            <div id="adminTaxonomyManager" class="section-gap"></div>
             <div id="adminMedicalTaxonomy" class="section-gap"></div>
           </section>
         </section>

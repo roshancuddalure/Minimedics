@@ -38,6 +38,8 @@ User linkage:
 3. Restart the server or use the admin taxonomy sync action.
 4. Confirm the taxonomy counts and hierarchy in the admin taxonomy view.
 
+Admins can also add a new domain, specialty, or subspecialty directly from the taxonomy management panel. Those actions update the JSON source file first and then resync the database, so panel-created entries are not lost on the next sync.
+
 ## Debugging notes
 
 - If selectors are empty, check `/api/medical-taxonomy`.

@@ -157,6 +157,7 @@ let dashboardXpMarked = false;
 let medicalTaxonomyCache = null;
 let registerTaxonomyController = null;
 let profileTaxonomyController = null;
+let activeComposerModalId = null;
 
 async function fetchMedicalTaxonomy(force = false) {
   if (!force && medicalTaxonomyCache) return medicalTaxonomyCache;
@@ -841,6 +842,13 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
+function renderStoredRichText(html) {
+  const raw = String(html || '');
+  if (!raw) return '';
+  if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
+  return escapeHtml(raw).replace(/\n/g, '<br>');
+}
+
 function getDefaultAvatarDataUri(gender) {
   const g = String(gender || '').toLowerCase();
   const bg = g === 'female' ? '%23f472b6' : (g === 'male' ? '%233b82f6' : '%2306b6d4');
@@ -897,7 +905,9 @@ function getActionIconName(actionKey) {
     dark: 'lucide:moon',
     light: 'lucide:sun',
     list: 'lucide:list',
-    notification: 'lucide:bell'
+    notification: 'lucide:bell',
+    privacy: 'lucide:shield-check',
+    calendar: 'lucide:calendar-clock'
   };
   return iconMap[actionKey] || '';
 }
@@ -939,6 +949,8 @@ function getActionKeyFromLabel(label) {
   if (normalized.startsWith('light')) return 'light';
   if (normalized.includes('list')) return 'list';
   if (normalized.startsWith('notification')) return 'notification';
+  if (normalized.startsWith('privacy')) return 'privacy';
+  if (normalized.startsWith('schedule') || normalized.startsWith('calendar')) return 'calendar';
   return '';
 }
 
@@ -1250,6 +1262,143 @@ function initQuizExplanationEditor() {
   });
 }
 
+function updatePostComposerMeta() {
+  const visibilityInput = document.getElementById('postVisibility');
+  const publishAtInput = document.getElementById('postPublishAt');
+  const privacySummary = document.getElementById('postPrivacySummary');
+  const scheduleSummary = document.getElementById('postScheduleSummary');
+  const visibilityMap = {
+    public: 'Public',
+    connections: 'Connections Only',
+    followers_connections: 'Followers + Connections',
+    private: 'Private'
+  };
+  if (privacySummary) {
+    privacySummary.textContent = visibilityMap[String(visibilityInput && visibilityInput.value || 'public')] || 'Public';
+  }
+  if (scheduleSummary) {
+    const raw = String(publishAtInput && publishAtInput.value || '').trim();
+    scheduleSummary.textContent = raw ? `Scheduled: ${formatDateTime(new Date(raw).getTime())}` : 'Post now';
+  }
+}
+
+function syncPostPrivacyChoiceCards() {
+  Array.from(document.querySelectorAll('.composer-choice-card')).forEach((card) => {
+    const input = card.querySelector('input[name="postPrivacyChoice"]');
+    card.classList.toggle('is-selected', Boolean(input && input.checked));
+  });
+}
+
+function closeComposerModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  if (activeComposerModalId === modalId) activeComposerModalId = null;
+}
+
+function openComposerModal(modalId) {
+  if (activeComposerModalId && activeComposerModalId !== modalId) closeComposerModal(activeComposerModalId);
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  activeComposerModalId = modalId;
+}
+
+function initPostComposerRichEditor() {
+  const editor = document.getElementById('postContent');
+  if (!editor) return;
+  Array.from(document.querySelectorAll('.composer-rich-btn')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-post-editor-action');
+      editor.focus();
+      if (action === 'link') {
+        const url = window.prompt('Paste a full http or https link');
+        if (!url) return;
+        if (!/^https?:\/\//i.test(url)) {
+          showToast('Please use a full http or https link', 'error');
+          return;
+        }
+        document.execCommand('createLink', false, url);
+        return;
+      }
+      if (action === 'unlink') {
+        document.execCommand('unlink');
+        return;
+      }
+      document.execCommand(action);
+    });
+  });
+}
+
+function initPostComposerSettings() {
+  const privacyBtn = document.getElementById('postPrivacyBtn');
+  const scheduleBtn = document.getElementById('postScheduleBtn');
+  const privacyModal = document.getElementById('postPrivacyModal');
+  const scheduleModal = document.getElementById('postScheduleModal');
+  const visibilityInput = document.getElementById('postVisibility');
+  const publishAtInput = document.getElementById('postPublishAt');
+  const publishAtPicker = document.getElementById('postPublishAtPicker');
+  if (privacyBtn) {
+    privacyBtn.innerHTML = '<span class="btn-iconify iconify" data-icon="lucide:shield-check" aria-hidden="true"></span>';
+    privacyBtn.classList.add('icon-only-btn');
+  }
+  if (scheduleBtn) {
+    scheduleBtn.innerHTML = '<span class="btn-iconify iconify" data-icon="lucide:calendar-clock" aria-hidden="true"></span>';
+    scheduleBtn.classList.add('icon-only-btn');
+  }
+  const currentPrivacy = String(visibilityInput && visibilityInput.value || 'public');
+  Array.from(document.querySelectorAll('input[name="postPrivacyChoice"]')).forEach((input) => {
+    input.checked = input.value === currentPrivacy;
+  });
+  syncPostPrivacyChoiceCards();
+  if (privacyBtn) privacyBtn.addEventListener('click', () => openComposerModal('postPrivacyModal'));
+  if (scheduleBtn) scheduleBtn.addEventListener('click', () => {
+    if (publishAtPicker && publishAtInput) publishAtPicker.value = publishAtInput.value || '';
+    openComposerModal('postScheduleModal');
+  });
+  const closePrivacyBtn = document.getElementById('closePostPrivacyModalBtn');
+  if (closePrivacyBtn) closePrivacyBtn.addEventListener('click', () => closeComposerModal('postPrivacyModal'));
+  const closeScheduleBtn = document.getElementById('closePostScheduleModalBtn');
+  if (closeScheduleBtn) closeScheduleBtn.addEventListener('click', () => closeComposerModal('postScheduleModal'));
+  if (privacyModal) {
+    privacyModal.addEventListener('click', (evt) => {
+      if (evt.target === privacyModal) closeComposerModal('postPrivacyModal');
+    });
+  }
+  if (scheduleModal) {
+    scheduleModal.addEventListener('click', (evt) => {
+      if (evt.target === scheduleModal) closeComposerModal('postScheduleModal');
+    });
+  }
+  Array.from(document.querySelectorAll('input[name="postPrivacyChoice"]')).forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.checked && visibilityInput) visibilityInput.value = input.value;
+      syncPostPrivacyChoiceCards();
+      updatePostComposerMeta();
+      closeComposerModal('postPrivacyModal');
+    });
+  });
+  if (publishAtPicker && publishAtInput) {
+    publishAtPicker.addEventListener('change', () => {
+      publishAtInput.value = publishAtPicker.value || '';
+      updatePostComposerMeta();
+      closeComposerModal('postScheduleModal');
+    });
+  }
+  const clearScheduleBtn = document.getElementById('clearPostScheduleBtn');
+  if (clearScheduleBtn && publishAtInput && publishAtPicker) {
+    clearScheduleBtn.addEventListener('click', () => {
+      publishAtInput.value = '';
+      publishAtPicker.value = '';
+      updatePostComposerMeta();
+      closeComposerModal('postScheduleModal');
+    });
+  }
+  updatePostComposerMeta();
+}
+
 function renderReminderTargetOptions(query = '') {
   const box = document.getElementById('reminderTargetsList');
   const selectedBox = document.getElementById('reminderTargetsSelected');
@@ -1335,6 +1484,7 @@ function setPostMode(nextMode) {
     quizOptionEls.forEach((el) => { el.value = ''; });
     if (quizExplanationEditor) quizExplanationEditor.innerHTML = '';
   }
+  updatePostComposerMeta();
 }
 
 function initPostModeSwitcher() {
@@ -1680,7 +1830,8 @@ function renderPostCard(p, me, options = {}) {
 
   if (p.content) {
     const content = document.createElement('div');
-    content.textContent = p.content;
+    content.className = 'post-rich-content';
+    content.innerHTML = renderStoredRichText(p.content);
     el.appendChild(content);
   }
 
@@ -2275,6 +2426,125 @@ async function loadAdminTaxonomySuggestions() {
   });
 }
 
+function renderAdminTaxonomyManager(overview) {
+  const box = document.getElementById('adminTaxonomyManager');
+  if (!box) return;
+  const domains = Array.isArray(overview && overview.domains) ? overview.domains : [];
+  const specialtyOptions = [];
+  domains.forEach((domain) => {
+    (domain.specialties || []).forEach((specialty) => {
+      specialtyOptions.push({
+        id: specialty.id,
+        label: `${domain.name} - ${specialty.name}`
+      });
+    });
+  });
+  box.innerHTML = `<div class="card" style="padding:1rem">
+    <h4 style="margin:0 0 0.75rem">Add Taxonomy Entries</h4>
+    <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap">
+      <div style="min-width:220px;flex:1 1 220px">
+        <label class="muted" for="adminAddDomainName">New domain</label>
+        <input id="adminAddDomainName" type="text" maxlength="120" placeholder="Example: Lifestyle Medicine" />
+      </div>
+      <button id="adminAddDomainBtn" class="btn tiny-btn" type="button">Add Domain</button>
+    </div>
+    <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap;margin-top:0.8rem">
+      <div style="min-width:220px;flex:1 1 220px">
+        <label class="muted" for="adminAddSpecialtyDomain">Domain</label>
+        <select id="adminAddSpecialtyDomain">
+          <option value="">Select domain</option>
+          ${domains.map((domain) => `<option value="${Number(domain.id) || 0}">${escapeHtml(domain.name || '')}</option>`).join('')}
+        </select>
+      </div>
+      <div style="min-width:220px;flex:1 1 220px">
+        <label class="muted" for="adminAddSpecialtyName">New specialty</label>
+        <input id="adminAddSpecialtyName" type="text" maxlength="120" placeholder="Example: Lifestyle Cardiology" />
+      </div>
+      <button id="adminAddSpecialtyBtn" class="btn tiny-btn" type="button">Add Specialty</button>
+    </div>
+    <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap;margin-top:0.8rem">
+      <div style="min-width:240px;flex:1 1 240px">
+        <label class="muted" for="adminAddSubspecialtySpecialty">Specialty</label>
+        <select id="adminAddSubspecialtySpecialty">
+          <option value="">Select specialty</option>
+          ${specialtyOptions.map((item) => `<option value="${Number(item.id) || 0}">${escapeHtml(item.label || '')}</option>`).join('')}
+        </select>
+      </div>
+      <div style="min-width:220px;flex:1 1 220px">
+        <label class="muted" for="adminAddSubspecialtyName">New subspecialty / topic</label>
+        <input id="adminAddSubspecialtyName" type="text" maxlength="120" placeholder="Example: Preventive Heart Failure" />
+      </div>
+      <button id="adminAddSubspecialtyBtn" class="btn tiny-btn" type="button">Add Subspecialty</button>
+    </div>
+  </div>`;
+
+  const addDomainBtn = document.getElementById('adminAddDomainBtn');
+  if (addDomainBtn) {
+    addDomainBtn.onclick = async () => {
+      const input = document.getElementById('adminAddDomainName');
+      const name = input ? input.value.trim() : '';
+      if (!name) return showToast('Enter a domain name', 'error');
+      addDomainBtn.disabled = true;
+      const res = await api('/api/admin/medical-taxonomy/domain', 'POST', { name });
+      addDomainBtn.disabled = false;
+      if (res && res.success) {
+        if (input) input.value = '';
+        medicalTaxonomyCache = null;
+        await loadAdminMedicalTaxonomy();
+        showToast('Domain added');
+      } else {
+        showToast((res && res.error) || 'Unable to add domain', 'error');
+      }
+    };
+  }
+
+  const addSpecialtyBtn = document.getElementById('adminAddSpecialtyBtn');
+  if (addSpecialtyBtn) {
+    addSpecialtyBtn.onclick = async () => {
+      const domainEl = document.getElementById('adminAddSpecialtyDomain');
+      const input = document.getElementById('adminAddSpecialtyName');
+      const domainId = Number(domainEl && domainEl.value) || 0;
+      const name = input ? input.value.trim() : '';
+      if (!domainId) return showToast('Select a domain first', 'error');
+      if (!name) return showToast('Enter a specialty name', 'error');
+      addSpecialtyBtn.disabled = true;
+      const res = await api('/api/admin/medical-taxonomy/specialty', 'POST', { domainId, name });
+      addSpecialtyBtn.disabled = false;
+      if (res && res.success) {
+        if (input) input.value = '';
+        medicalTaxonomyCache = null;
+        await loadAdminMedicalTaxonomy();
+        showToast('Specialty added');
+      } else {
+        showToast((res && res.error) || 'Unable to add specialty', 'error');
+      }
+    };
+  }
+
+  const addSubspecialtyBtn = document.getElementById('adminAddSubspecialtyBtn');
+  if (addSubspecialtyBtn) {
+    addSubspecialtyBtn.onclick = async () => {
+      const specialtyEl = document.getElementById('adminAddSubspecialtySpecialty');
+      const input = document.getElementById('adminAddSubspecialtyName');
+      const specialtyId = Number(specialtyEl && specialtyEl.value) || 0;
+      const name = input ? input.value.trim() : '';
+      if (!specialtyId) return showToast('Select a specialty first', 'error');
+      if (!name) return showToast('Enter a subspecialty name', 'error');
+      addSubspecialtyBtn.disabled = true;
+      const res = await api('/api/admin/medical-taxonomy/subspecialty', 'POST', { specialtyId, name });
+      addSubspecialtyBtn.disabled = false;
+      if (res && res.success) {
+        if (input) input.value = '';
+        medicalTaxonomyCache = null;
+        await loadAdminMedicalTaxonomy();
+        showToast('Subspecialty added');
+      } else {
+        showToast((res && res.error) || 'Unable to add subspecialty', 'error');
+      }
+    };
+  }
+}
+
 async function loadAdminMedicalTaxonomy() {
   const box = document.getElementById('adminMedicalTaxonomy');
   if (!box) return;
@@ -2283,6 +2553,7 @@ async function loadAdminMedicalTaxonomy() {
     box.innerHTML = `<div class="muted">${escapeHtml(res.error || 'Unable to load taxonomy')}</div>`;
     return;
   }
+  renderAdminTaxonomyManager(res);
   const domains = Array.isArray(res.domains) ? res.domains : [];
   const stats = res.stats || {};
   const cards = domains.map((domain) => {
@@ -2963,7 +3234,7 @@ async function loadSavedPosts() {
     const options = listNames.map((n) => `<option value="${escapeHtml(n)}"${n === listName ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
     const publishMeta = Number(p.publish_at || 0) > Number(p.created_at || 0) ? `Scheduled live: ${formatDateTime(p.publish_at)}` : `Published: ${formatDateTime(p.publish_at || p.created_at)}`;
     card.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${publishMeta}</div>
-      ${p.content ? `<div>${escapeHtml(p.content || '')}</div>` : ''}
+      ${p.content ? `<div class="post-rich-content">${renderStoredRichText(p.content || '')}</div>` : ''}
       ${p.image ? `<img class="post-image" src="${p.image}" alt="Saved post attachment" loading="lazy" />` : ''}
       ${p.reminder_note || p.reminder_at ? `<div class="reminder-chip"><strong>Reminder</strong>${p.reminder_at ? `: ${escapeHtml(formatReminder(p.reminder_at) || '')}` : ''}${p.reminder_note ? ` - ${escapeHtml(p.reminder_note)}` : ''}</div>` : ''}
       <div class="row" style="justify-content:flex-start;margin-top:0.6rem;gap:0.5rem;flex-wrap:wrap">
@@ -3641,7 +3912,7 @@ async function loadPublicProfilePage() {
   postsRes.posts.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'post';
-    el.innerHTML = `<div class="meta">${formatDateTime(p.created_at)} - ${escapeHtml(p.visibility || 'public')}</div><div>${escapeHtml(p.content || '')}</div>`;
+    el.innerHTML = `<div class="meta">${formatDateTime(p.created_at)} - ${escapeHtml(p.visibility || 'public')}</div><div class="post-rich-content">${renderStoredRichText(p.content || '')}</div>`;
     if (p.image) {
       const img = document.createElement('img');
       img.className = 'post-image';
@@ -3935,7 +4206,7 @@ async function loadGroupFeed() {
   res.posts.forEach((p) => {
     const el = document.createElement('div');
     el.className = 'post';
-    el.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div>${escapeHtml(p.content)}</div>`;
+    el.innerHTML = `<div class="meta">${escapeHtml(p.name || p.username)} - ${formatDateTime(p.created_at)}</div><div class="post-rich-content">${renderStoredRichText(p.content)}</div>`;
     const canDelete = meId && (Number(p.user_id) === Number(meId) || ['admin', 'moderator'].includes(selectedGroupRole));
     if (canDelete) {
       const actions = document.createElement('div');
@@ -4881,7 +5152,7 @@ function appendMessage(m){
 async function submitPost(e) {
   e.preventDefault();
   const form = e.target;
-  const ta = document.getElementById('postContent');
+  const editor = document.getElementById('postContent');
   const publishAtInput = document.getElementById('postPublishAt');
   const reminderAtInput = document.getElementById('postReminderAt');
   const reminderNoteInput = document.getElementById('postReminderNote');
@@ -4889,7 +5160,8 @@ async function submitPost(e) {
   const quizCorrectIndexInput = document.getElementById('quizCorrectIndex');
   const quizOptionEls = Array.from(document.querySelectorAll('.quiz-option'));
   const quizExplanationEditor = document.getElementById('quizExplanationEditor');
-  const content = ta.value.trim();
+  const contentHtml = editor ? editor.innerHTML.trim() : '';
+  const contentText = editor ? (editor.textContent || '').trim() : '';
   const reminderNote = reminderNoteInput ? reminderNoteInput.value.trim() : '';
   const visibilityInput = document.getElementById('postVisibility');
   const visibility = visibilityInput ? visibilityInput.value : 'public';
@@ -4907,11 +5179,11 @@ async function submitPost(e) {
   const hasReminderInput = Boolean(reminderNote) || Boolean(reminderAtRaw);
   const hasQuizInput = Boolean(quizQuestion) || quizOptions.length > 0 || quizCorrectIndexRaw !== '';
 
-  if (!content && !selectedPostImageDataUrl && !hasReminderInput && !hasQuizInput) { 
+  if (!contentText && !selectedPostImageDataUrl && !hasReminderInput && !hasQuizInput) { 
     showToast('Add text, image, reminder, or quiz first.');
     return;
   }
-  if (content.length > 5000) {
+  if (contentText.length > 5000) {
     showToast('Post is too long (max 5000 characters)', 'error');
     return;
   }
@@ -4958,7 +5230,7 @@ async function submitPost(e) {
   btn.textContent = 'Posting...';
   
   const res = await api('/api/post','POST',{
-    content,
+    content: contentHtml,
     image: selectedPostImageDataUrl,
     visibility,
     publishAt,
@@ -4975,7 +5247,7 @@ async function submitPost(e) {
   btn.textContent = 'Post';
   
   if (res && res.success) { 
-    ta.value='';
+    if (editor) editor.innerHTML = '';
     if (publishAtInput) publishAtInput.value = '';
     if (reminderAtInput) reminderAtInput.value = '';
     if (reminderNoteInput) reminderNoteInput.value = '';
@@ -4987,6 +5259,7 @@ async function submitPost(e) {
     renderReminderTargetOptions('');
     setPostMode(null);
     clearPostImageSelection();
+    updatePostComposerMeta();
     showToast(res.scheduled && res.publishAt ? `Post scheduled for ${formatDateTime(res.publishAt)}` : 'Post shared!');
     loadFeed();
   } else {
@@ -5545,6 +5818,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   // Post composer
   if (document.getElementById('postForm')) {
     document.getElementById('postForm').addEventListener('submit', submitPost);
+    initPostComposerRichEditor();
+    initPostComposerSettings();
     initPostModeSwitcher();
     initQuizComposerControls();
     initQuizExplanationEditor();

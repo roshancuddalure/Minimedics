@@ -13,7 +13,9 @@ const {
 	flattenMedicalTaxonomy,
 	getTaxonomyDisplayLabel,
 	getTaxonomySearchLabel,
-	loadMedicalTaxonomy
+	loadMedicalTaxonomy,
+	saveMedicalTaxonomy,
+	slugify
 } = require('./lib/medical-taxonomy');
 
 const app = express();
@@ -890,7 +892,7 @@ async function processDueReminderNotifications() {
 	for (const row of dueTargets) {
 		const targetId = Number(row.tagged_user_id) || 0;
 		if (!targetId) continue;
-		const reminderTitle = String(row.content || row.reminder_note || 'Reminder').trim().slice(0, 120) || 'Reminder';
+		const reminderTitle = String(getPlainTextFromRichText(row.content || '') || row.reminder_note || 'Reminder').trim().slice(0, 120) || 'Reminder';
 		const whenLabel = row.reminder_at ? new Date(Number(row.reminder_at)).toLocaleString() : 'now';
 		if (!row.notified_at) {
 			await createUserNotification(targetId, {
@@ -1167,6 +1169,76 @@ async function getMedicalTaxonomyOverview() {
 		},
 		domains
 	};
+}
+
+function assertNonEmptyTaxonomyName(name, label) {
+	const trimmed = typeof name === 'string' ? name.trim() : '';
+	if (!trimmed) throw new Error(`${label} name is required`);
+	if (trimmed.length > 120) throw new Error(`${label} name is too long`);
+	return trimmed;
+}
+
+async function addMedicalTaxonomyDomain(name) {
+	const safeName = assertNonEmptyTaxonomyName(name, 'Domain');
+	const catalog = loadMedicalTaxonomy();
+	const nextSlug = slugify(safeName);
+	if (!nextSlug) throw new Error('Unable to create a valid domain slug');
+	if ((catalog.domains || []).some((domain) => domain.slug === nextSlug || normalizeSuggestionValue(domain.name) === normalizeSuggestionValue(safeName))) {
+		throw new Error('Domain already exists');
+	}
+	catalog.version = getDayKey();
+	catalog.domains.push({ name: safeName, slug: nextSlug, specialties: [] });
+	saveMedicalTaxonomy(catalog);
+	await syncMedicalTaxonomyCatalog();
+	return getMedicalTaxonomyOverview();
+}
+
+async function addMedicalTaxonomySpecialty(domainId, name) {
+	const safeName = assertNonEmptyTaxonomyName(name, 'Specialty');
+	const overview = await getMedicalTaxonomyOverview();
+	const domain = (overview.domains || []).find((item) => Number(item.id) === Number(domainId));
+	if (!domain) throw new Error('Domain not found');
+	const catalog = loadMedicalTaxonomy();
+	const targetDomain = (catalog.domains || []).find((item) => item.slug === domain.slug);
+	if (!targetDomain) throw new Error('Domain source entry not found');
+	const nextSlug = slugify(safeName);
+	if (!nextSlug) throw new Error('Unable to create a valid specialty slug');
+	const specialtyExists = (catalog.domains || []).some((item) => (item.specialties || []).some((specialty) => specialty.slug === nextSlug || normalizeSuggestionValue(specialty.name) === normalizeSuggestionValue(safeName)));
+	if (specialtyExists) throw new Error('Specialty already exists');
+	targetDomain.specialties = Array.isArray(targetDomain.specialties) ? targetDomain.specialties : [];
+	targetDomain.specialties.push({ name: safeName, slug: nextSlug, subspecialties: [] });
+	catalog.version = getDayKey();
+	saveMedicalTaxonomy(catalog);
+	await syncMedicalTaxonomyCatalog();
+	return getMedicalTaxonomyOverview();
+}
+
+async function addMedicalTaxonomySubspecialty(specialtyId, name) {
+	const safeName = assertNonEmptyTaxonomyName(name, 'Subspecialty');
+	const overview = await getMedicalTaxonomyOverview();
+	let specialty = null;
+	for (const domain of overview.domains || []) {
+		specialty = (domain.specialties || []).find((item) => Number(item.id) === Number(specialtyId));
+		if (specialty) break;
+	}
+	if (!specialty) throw new Error('Specialty not found');
+	const catalog = loadMedicalTaxonomy();
+	let targetSpecialty = null;
+	for (const domain of catalog.domains || []) {
+		targetSpecialty = (domain.specialties || []).find((item) => item.slug === specialty.slug);
+		if (targetSpecialty) break;
+	}
+	if (!targetSpecialty) throw new Error('Specialty source entry not found');
+	const nextSlug = slugify(safeName);
+	if (!nextSlug) throw new Error('Unable to create a valid subspecialty slug');
+	const subspecialtyExists = (catalog.domains || []).some((domain) => (domain.specialties || []).some((item) => (item.subspecialties || []).some((subspecialty) => subspecialty.slug === nextSlug || normalizeSuggestionValue(subspecialty.name) === normalizeSuggestionValue(safeName))));
+	if (subspecialtyExists) throw new Error('Subspecialty already exists');
+	targetSpecialty.subspecialties = Array.isArray(targetSpecialty.subspecialties) ? targetSpecialty.subspecialties : [];
+	targetSpecialty.subspecialties.push({ name: safeName, slug: nextSlug });
+	catalog.version = getDayKey();
+	saveMedicalTaxonomy(catalog);
+	await syncMedicalTaxonomyCatalog();
+	return getMedicalTaxonomyOverview();
 }
 
 async function resolveMedicalTaxonomySelection(selection) {
@@ -2881,6 +2953,33 @@ app.get('/api/admin/medical-taxonomy', requireAdmin, async (req, res) => {
 	}
 });
 
+app.post('/api/admin/medical-taxonomy/domain', requireAdmin, async (req, res) => {
+	try {
+		const overview = await addMedicalTaxonomyDomain(req.body && req.body.name);
+		res.json({ success: true, overview });
+	} catch (e) {
+		res.status(400).json({ error: e.message || 'Unable to add domain' });
+	}
+});
+
+app.post('/api/admin/medical-taxonomy/specialty', requireAdmin, async (req, res) => {
+	try {
+		const overview = await addMedicalTaxonomySpecialty(req.body && req.body.domainId, req.body && req.body.name);
+		res.json({ success: true, overview });
+	} catch (e) {
+		res.status(400).json({ error: e.message || 'Unable to add specialty' });
+	}
+});
+
+app.post('/api/admin/medical-taxonomy/subspecialty', requireAdmin, async (req, res) => {
+	try {
+		const overview = await addMedicalTaxonomySubspecialty(req.body && req.body.specialtyId, req.body && req.body.name);
+		res.json({ success: true, overview });
+	} catch (e) {
+		res.status(400).json({ error: e.message || 'Unable to add subspecialty' });
+	}
+});
+
 app.post('/api/admin/medical-taxonomy/sync', requireAdmin, async (req, res) => {
 	try {
 		const overview = await syncMedicalTaxonomyCatalog();
@@ -3084,7 +3183,8 @@ app.get('/api/feed', requireAuth, async (req, res) => {
 
 app.post('/api/post', requireAuth, async (req, res) => {
 	const { content, image, visibility, reminderAt, reminderNote, reminderTagUserIds, quizQuestion, quizOptions, quizCorrectIndex, quizExplanation, publishAt } = req.body;
-	const safeContent = typeof content === 'string' ? content.trim() : '';
+	const safeContent = sanitizeRichText(content, 12000);
+	const safeContentText = getPlainTextFromRichText(safeContent);
 	const safeVisibility = ['public', 'connections', 'followers_connections', 'private'].includes(String(visibility || '').trim()) ? String(visibility).trim() : 'public';
 	const safeReminderNote = typeof reminderNote === 'string' ? reminderNote.trim() : '';
 	const hasImage = typeof image === 'string' && image.startsWith('data:image');
@@ -3113,10 +3213,10 @@ app.post('/api/post', requireAuth, async (req, res) => {
 		const parsed = Number(reminderAt);
 		if (!Number.isNaN(parsed) && parsed > 0) reminderAtTs = parsed;
 	}
-	if (!safeContent && !hasImage && !safeReminderNote && !isQuizPost) {
+	if (!safeContentText && !hasImage && !safeReminderNote && !isQuizPost) {
 		return res.status(400).json({ error: 'Add text, image, reminder, or quiz before posting' });
 	}
-	if (safeContent.length > 5000) return res.status(400).json({ error: 'Post too long' });
+	if (safeContentText.length > 5000) return res.status(400).json({ error: 'Post too long' });
 	if (hasImage && image.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Image is too large' });
 	if (safeReminderNote.length > 240) return res.status(400).json({ error: 'Reminder note is too long' });
 	if (safeQuizExplanation && safeQuizExplanation.length > 5000) return res.status(400).json({ error: 'Quiz explanation is too long' });

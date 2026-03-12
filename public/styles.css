@@ -730,6 +730,175 @@ button {
   min-height: 124px;
 }
 
+.composer-rich-toolbar {
+  margin-bottom: 0.7rem;
+}
+
+.composer-rich-btn {
+  width: 2.3rem;
+  min-width: 2.3rem;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.composer-rich-btn .iconify {
+  width: 1rem;
+  height: 1rem;
+}
+
+.composer-rich-editor {
+  min-height: 140px;
+}
+
+.composer-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+.composer-action-btn {
+  white-space: nowrap;
+}
+
+.composer-inline-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.composer-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.composer-meta-chip {
+  padding: 0.42rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.composer-modal-card {
+  width: min(560px, calc(100vw - 2rem));
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-strong) 92%, #ffffff 8%), color-mix(in srgb, var(--card) 94%, #ffffff 6%)),
+    radial-gradient(circle at top right, rgba(15, 159, 154, 0.12), transparent 36%);
+}
+
+.composer-modal-copy {
+  margin-bottom: 0.85rem;
+}
+
+.composer-modal-note {
+  margin-top: 0.9rem;
+  padding: 0.78rem 0.82rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.composer-privacy-grid {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.composer-choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.composer-choice-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line-soft));
+}
+
+.composer-choice-card.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 54%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.composer-choice-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer-choice-icon {
+  flex: 0 0 1.15rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.08rem;
+  color: var(--accent);
+}
+
+.composer-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.composer-choice-text strong {
+  font-size: 0.92rem;
+}
+
+.composer-choice-text span {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.composer-schedule-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.95rem;
+  border-radius: 16px;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
+.composer-schedule-icon {
+  display: grid;
+  place-items: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.composer-schedule-icon .iconify {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.composer-schedule-field {
+  min-width: 0;
+}
+
+.composer-schedule-field .tool-label {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
 .post-mode-bar {
   margin-top: 0.75rem;
   display: flex;
@@ -832,6 +1001,30 @@ button {
   max-height: 200px;
   object-fit: cover;
   border-radius: 8px;
+}
+
+.post-rich-content {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.post-rich-content p {
+  margin: 0 0 0.7rem;
+}
+
+.post-rich-content p:last-child {
+  margin-bottom: 0;
+}
+
+.post-rich-content ul,
+.post-rich-content ol {
+  margin: 0.45rem 0 0.75rem 1.1rem;
+  padding: 0;
+}
+
+.post-rich-content a {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .tiny-btn {
