@@ -9,6 +9,12 @@ const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
+const {
+	flattenMedicalTaxonomy,
+	getTaxonomyDisplayLabel,
+	getTaxonomySearchLabel,
+	loadMedicalTaxonomy
+} = require('./lib/medical-taxonomy');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1055,6 +1061,258 @@ function normalizeSuggestionValue(value) {
 	return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+async function syncMedicalTaxonomyCatalog() {
+	const catalog = loadMedicalTaxonomy();
+	const flattened = flattenMedicalTaxonomy(catalog);
+	await runAsync('UPDATE subspecialties SET is_active = FALSE');
+	await runAsync('UPDATE specialties SET is_active = FALSE');
+	await runAsync('UPDATE domains SET is_active = FALSE');
+
+	for (const domain of flattened.domains) {
+		await getAsync(`INSERT INTO domains (slug, domain_name, sort_order, is_active, updated_at)
+			VALUES (?, ?, ?, TRUE, ?)
+			ON CONFLICT (slug) DO UPDATE SET
+				domain_name = EXCLUDED.domain_name,
+				sort_order = EXCLUDED.sort_order,
+				is_active = TRUE,
+				updated_at = EXCLUDED.updated_at
+			RETURNING id`, [domain.slug, domain.name, domain.sortOrder, Date.now()]);
+	}
+
+	for (const specialty of flattened.specialties) {
+		const domainRow = await getAsync('SELECT id FROM domains WHERE slug = ?', [specialty.domainSlug]);
+		if (!domainRow) throw new Error(`Taxonomy domain missing during sync: ${specialty.domainSlug}`);
+		await getAsync(`INSERT INTO specialties (slug, specialty_name, domain_id, sort_order, is_active, updated_at)
+			VALUES (?, ?, ?, ?, TRUE, ?)
+			ON CONFLICT (slug) DO UPDATE SET
+				specialty_name = EXCLUDED.specialty_name,
+				domain_id = EXCLUDED.domain_id,
+				sort_order = EXCLUDED.sort_order,
+				is_active = TRUE,
+				updated_at = EXCLUDED.updated_at
+			RETURNING id`, [specialty.slug, specialty.name, domainRow.id, specialty.sortOrder, Date.now()]);
+	}
+
+	for (const subspecialty of flattened.subspecialties) {
+		const specialtyRow = await getAsync('SELECT id FROM specialties WHERE slug = ?', [subspecialty.specialtySlug]);
+		if (!specialtyRow) throw new Error(`Taxonomy specialty missing during sync: ${subspecialty.specialtySlug}`);
+		await getAsync(`INSERT INTO subspecialties (slug, subspecialty_name, specialty_id, sort_order, is_active, updated_at)
+			VALUES (?, ?, ?, ?, TRUE, ?)
+			ON CONFLICT (slug) DO UPDATE SET
+				subspecialty_name = EXCLUDED.subspecialty_name,
+				specialty_id = EXCLUDED.specialty_id,
+				sort_order = EXCLUDED.sort_order,
+				is_active = TRUE,
+				updated_at = EXCLUDED.updated_at
+			RETURNING id`, [subspecialty.slug, subspecialty.name, specialtyRow.id, subspecialty.sortOrder, Date.now()]);
+	}
+
+	return getMedicalTaxonomyOverview();
+}
+
+async function getMedicalTaxonomyOverview() {
+	const domainRows = await allAsync(`SELECT id, slug, domain_name, sort_order
+		FROM domains
+		WHERE is_active = TRUE
+		ORDER BY sort_order ASC, domain_name ASC`);
+	const specialtyRows = await allAsync(`SELECT id, slug, specialty_name, domain_id, sort_order
+		FROM specialties
+		WHERE is_active = TRUE
+		ORDER BY domain_id ASC, sort_order ASC, specialty_name ASC`);
+	const subspecialtyRows = await allAsync(`SELECT id, slug, subspecialty_name, specialty_id, sort_order
+		FROM subspecialties
+		WHERE is_active = TRUE
+		ORDER BY specialty_id ASC, sort_order ASC, subspecialty_name ASC`);
+	const specialtyMap = new Map();
+	const domains = domainRows.map((domain) => {
+		const row = {
+			id: domain.id,
+			slug: domain.slug,
+			name: domain.domain_name,
+			specialties: []
+		};
+		return row;
+	});
+	const domainMap = new Map(domains.map((domain) => [Number(domain.id), domain]));
+	specialtyRows.forEach((specialty) => {
+		const row = {
+			id: specialty.id,
+			slug: specialty.slug,
+			name: specialty.specialty_name,
+			subspecialties: []
+		};
+		specialtyMap.set(Number(specialty.id), row);
+		const parent = domainMap.get(Number(specialty.domain_id));
+		if (parent) parent.specialties.push(row);
+	});
+	subspecialtyRows.forEach((subspecialty) => {
+		const parent = specialtyMap.get(Number(subspecialty.specialty_id));
+		if (!parent) return;
+		parent.subspecialties.push({
+			id: subspecialty.id,
+			slug: subspecialty.slug,
+			name: subspecialty.subspecialty_name
+		});
+	});
+	return {
+		meta: {
+			version: loadMedicalTaxonomy().version,
+			sourceDocument: loadMedicalTaxonomy().sourceDocument,
+			filePath: path.join(__dirname, 'data', 'medical-taxonomy.json')
+		},
+		stats: {
+			domains: domains.length,
+			specialties: specialtyRows.length,
+			subspecialties: subspecialtyRows.length
+		},
+		domains
+	};
+}
+
+async function resolveMedicalTaxonomySelection(selection) {
+	const raw = selection || {};
+	const domainId = Number(raw.specialityDomainId || raw.domainId) || 0;
+	const specialtyId = Number(raw.specialitySpecialtyId || raw.specialtyId) || 0;
+	const subspecialtyId = Number(raw.specialitySubspecialtyId || raw.subspecialtyId) || 0;
+	const legacySpeciality = typeof raw.speciality === 'string' ? raw.speciality.trim() : '';
+	if (!domainId && !specialtyId && !subspecialtyId) {
+		return {
+			domainId: null,
+			specialtyId: null,
+			subspecialtyId: null,
+			speciality: legacySpeciality || null,
+			fullLabel: legacySpeciality || null
+		};
+	}
+	let row = null;
+	if (subspecialtyId) {
+		row = await getAsync(`SELECT
+			d.id AS domain_id,
+			d.domain_name,
+			s.id AS specialty_id,
+			s.specialty_name,
+			ss.id AS subspecialty_id,
+			ss.subspecialty_name
+			FROM subspecialties ss
+			JOIN specialties s ON s.id = ss.specialty_id AND s.is_active = TRUE
+			JOIN domains d ON d.id = s.domain_id AND d.is_active = TRUE
+			WHERE ss.id = ? AND ss.is_active = TRUE`, [subspecialtyId]);
+	} else if (specialtyId) {
+		row = await getAsync(`SELECT
+			d.id AS domain_id,
+			d.domain_name,
+			s.id AS specialty_id,
+			s.specialty_name,
+			NULL::BIGINT AS subspecialty_id,
+			NULL::TEXT AS subspecialty_name
+			FROM specialties s
+			JOIN domains d ON d.id = s.domain_id AND d.is_active = TRUE
+			WHERE s.id = ? AND s.is_active = TRUE`, [specialtyId]);
+	} else if (domainId) {
+		row = await getAsync(`SELECT
+			d.id AS domain_id,
+			d.domain_name,
+			NULL::BIGINT AS specialty_id,
+			NULL::TEXT AS specialty_name,
+			NULL::BIGINT AS subspecialty_id,
+			NULL::TEXT AS subspecialty_name
+			FROM domains d
+			WHERE d.id = ? AND d.is_active = TRUE`, [domainId]);
+	}
+	if (!row) throw new Error('Invalid taxonomy selection');
+	if (domainId && Number(row.domain_id) !== domainId) throw new Error('Domain selection mismatch');
+	if (specialtyId && Number(row.specialty_id || 0) !== specialtyId) throw new Error('Specialty selection mismatch');
+	return {
+		domainId: Number(row.domain_id) || null,
+		specialtyId: Number(row.specialty_id) || null,
+		subspecialtyId: Number(row.subspecialty_id) || null,
+		speciality: getTaxonomySearchLabel(row) || legacySpeciality || null,
+		fullLabel: getTaxonomyDisplayLabel(row) || legacySpeciality || null
+	};
+}
+
+async function backfillUserMedicalTaxonomy() {
+	const specialtyRows = await allAsync(`SELECT
+		s.id AS specialty_id,
+		s.specialty_name,
+		d.id AS domain_id,
+		d.domain_name
+		FROM specialties s
+		JOIN domains d ON d.id = s.domain_id
+		WHERE s.is_active = TRUE AND d.is_active = TRUE`);
+	const subspecialtyRows = await allAsync(`SELECT
+		ss.id AS subspecialty_id,
+		ss.subspecialty_name,
+		s.id AS specialty_id,
+		s.specialty_name,
+		d.id AS domain_id,
+		d.domain_name
+		FROM subspecialties ss
+		JOIN specialties s ON s.id = ss.specialty_id
+		JOIN domains d ON d.id = s.domain_id
+		WHERE ss.is_active = TRUE AND s.is_active = TRUE AND d.is_active = TRUE`);
+	const domainRows = await allAsync(`SELECT id AS domain_id, domain_name FROM domains WHERE is_active = TRUE`);
+	const specialtyMap = new Map(specialtyRows.map((row) => [normalizeSuggestionValue(row.specialty_name), row]));
+	const subspecialtyMap = new Map(subspecialtyRows.map((row) => [normalizeSuggestionValue(row.subspecialty_name), row]));
+	const domainMap = new Map(domainRows.map((row) => [normalizeSuggestionValue(row.domain_name), row]));
+	const users = await allAsync(`SELECT id, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id
+		FROM users
+		WHERE COALESCE(TRIM(speciality), '') <> ''`);
+	for (const user of users) {
+		const normalized = normalizeSuggestionValue(user.speciality);
+		if (!normalized) continue;
+		const subspecialtyMatch = subspecialtyMap.get(normalized);
+		if (subspecialtyMatch) {
+			await runAsync(`UPDATE users
+				SET speciality_domain_id = ?,
+					speciality_specialty_id = ?,
+					speciality_subspecialty_id = ?,
+					speciality = ?
+				WHERE id = ?`, [subspecialtyMatch.domain_id, subspecialtyMatch.specialty_id, subspecialtyMatch.subspecialty_id, subspecialtyMatch.specialty_name, user.id]);
+			continue;
+		}
+		const specialtyMatch = specialtyMap.get(normalized);
+		if (specialtyMatch) {
+			await runAsync(`UPDATE users
+				SET speciality_domain_id = ?,
+					speciality_specialty_id = ?,
+					speciality_subspecialty_id = NULL,
+					speciality = ?
+				WHERE id = ?`, [specialtyMatch.domain_id, specialtyMatch.specialty_id, specialtyMatch.specialty_name, user.id]);
+			continue;
+		}
+		const domainMatch = domainMap.get(normalized);
+		if (domainMatch) {
+			await runAsync(`UPDATE users
+				SET speciality_domain_id = ?,
+					speciality_specialty_id = NULL,
+					speciality_subspecialty_id = NULL
+				WHERE id = ?`, [domainMatch.domain_id, user.id]);
+		}
+	}
+}
+
+async function attachMedicalTaxonomyToUser(user) {
+	if (!user) return user;
+	const selection = {
+		domainId: Number(user.speciality_domain_id) || 0,
+		specialtyId: Number(user.speciality_specialty_id) || 0,
+		subspecialtyId: Number(user.speciality_subspecialty_id) || 0
+	};
+	if (!selection.domainId && !selection.specialtyId && !selection.subspecialtyId) {
+		user.speciality_full_label = user.speciality || '';
+		return user;
+	}
+	try {
+		const resolved = await resolveMedicalTaxonomySelection(selection);
+		user.speciality_full_label = resolved.fullLabel || user.speciality || '';
+		return user;
+	} catch (e) {
+		user.speciality_full_label = user.speciality || '';
+		return user;
+	}
+}
+
 function pushSuggestionReason(reasons, message) {
 	const text = typeof message === 'string' ? message.trim() : '';
 	if (!text || reasons.includes(text)) return;
@@ -1231,6 +1489,9 @@ async function initializeDatabase() {
 		degree TEXT,
 		academic_year TEXT,
 		speciality TEXT,
+		speciality_domain_id BIGINT,
+		speciality_specialty_id BIGINT,
+		speciality_subspecialty_id BIGINT,
 		email_verified INTEGER DEFAULT 0,
 		email_verify_token TEXT,
 		password_reset_token_hash TEXT,
@@ -1267,6 +1528,9 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS academic_year TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality_domain_id BIGINT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality_specialty_id BIGINT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality_subspecialty_id BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT`);
@@ -1287,6 +1551,32 @@ async function initializeDatabase() {
 	await runAsync(`UPDATE users SET xp = COALESCE(xp, 0)`);
 	await runAsync(`UPDATE users SET level = CASE WHEN level IS NULL OR level < 1 THEN 1 ELSE level END`);
 	await runAsync(`UPDATE users SET title = COALESCE(title, 'Rookie Medic')`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS domains (
+		id BIGSERIAL PRIMARY KEY,
+		slug TEXT UNIQUE NOT NULL,
+		domain_name TEXT NOT NULL,
+		sort_order INTEGER DEFAULT 0,
+		is_active BOOLEAN DEFAULT TRUE,
+		updated_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS specialties (
+		id BIGSERIAL PRIMARY KEY,
+		slug TEXT UNIQUE NOT NULL,
+		specialty_name TEXT NOT NULL,
+		domain_id BIGINT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+		sort_order INTEGER DEFAULT 0,
+		is_active BOOLEAN DEFAULT TRUE,
+		updated_at BIGINT
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS subspecialties (
+		id BIGSERIAL PRIMARY KEY,
+		slug TEXT UNIQUE NOT NULL,
+		subspecialty_name TEXT NOT NULL,
+		specialty_id BIGINT NOT NULL REFERENCES specialties(id) ON DELETE CASCADE,
+		sort_order INTEGER DEFAULT 0,
+		is_active BOOLEAN DEFAULT TRUE,
+		updated_at BIGINT
+	)`);
 
 	await runAsync(`CREATE TABLE IF NOT EXISTS posts (
 		id BIGSERIAL PRIMARY KEY,
@@ -1638,6 +1928,8 @@ async function initializeDatabase() {
 		suggestion TEXT NOT NULL,
 		created_at BIGINT
 	)`);
+	await syncMedicalTaxonomyCatalog();
+	await backfillUserMedicalTaxonomy();
 }
 
 async function ensureSuperAdmin() {
@@ -1720,7 +2012,7 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/register', async (req, res) => {
-	const { username, password, name, email, institute, programType, degree, academicYear, speciality } = req.body;
+	const { username, password, name, email, institute, programType, degree, academicYear } = req.body;
 	if (!username || !password || !name || !email || !institute) {
 		return res.status(400).json({ error: 'Username, password, full name, email, and institute are required' });
 	}
@@ -1729,7 +2021,6 @@ app.post('/api/register', async (req, res) => {
 	const safeProgramType = typeof programType === 'string' ? programType.trim() : '';
 	const safeDegree = typeof degree === 'string' ? degree.trim() : '';
 	const safeAcademicYear = typeof academicYear === 'string' ? academicYear.trim() : '';
-	const safeSpeciality = typeof speciality === 'string' ? speciality.trim() : '';
 	if (safeEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
 		return res.status(400).json({ error: 'Please provide a valid email address' });
 	}
@@ -1740,14 +2031,17 @@ app.post('/api/register', async (req, res) => {
 	if (passwordPolicyError) return res.status(400).json({ error: passwordPolicyError });
 	
 	try {
+		const taxonomySelection = await resolveMedicalTaxonomySelection(req.body);
 		const countRow = await getAsync('SELECT COUNT(*) as cnt FROM users');
 		const isFirstUser = Number(countRow && countRow.cnt) === 0;
 		const hash = await bcrypt.hash(password, 10);
 		const role = isFirstUser ? 'admin' : 'user';
 		const verifyToken = createVerificationToken();
 		const created = await runAsync(
-			'INSERT INTO users (username, password, name, email, institute, program_type, degree, academic_year, speciality, role, email_verified, email_verify_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-			[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, safeSpeciality || null, role, 0, verifyToken]
+			`INSERT INTO users
+				(username, password, name, email, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, role, email_verified, email_verify_token)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, role, 0, verifyToken]
 		);
 		const userId = created.lastID;
 		const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
@@ -1774,6 +2068,10 @@ app.post('/api/register', async (req, res) => {
 		}
 		return res.json(payload);
 	} catch (e) {
+		const registerError = String(e && e.message || '').toLowerCase();
+		if (registerError.includes('taxonomy') || registerError.includes('mismatch')) {
+			return res.status(400).json({ error: e.message });
+		}
 		if (String(e && e.message || '').toLowerCase().includes('unique')) {
 			return res.status(400).json({ error: 'Username already exists' });
 		}
@@ -1940,10 +2238,11 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], async (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		const safeUser = applyProfileFieldDecryption(user);
+		await attachMedicalTaxonomyToUser(safeUser);
 		// get connections count
 		const q = `SELECT COUNT(*) as cnt FROM connections WHERE ((user_a = ? OR user_b = ?) AND status = 'accepted')`;
 		db.get(q, [safeUser.id, safeUser.id], (err2, row) => {
@@ -2029,9 +2328,11 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
-		res.json({ user: applyProfileFieldDecryption(user) });
+		const safeUser = applyProfileFieldDecryption(user);
+		await attachMedicalTaxonomyToUser(safeUser);
+		res.json({ user: safeUser });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}
@@ -2060,7 +2361,6 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	const programType = typeof req.body.programType === 'string' ? req.body.programType.trim() : '';
 	const degree = typeof req.body.degree === 'string' ? req.body.degree.trim() : '';
 	const academicYear = typeof req.body.academicYear === 'string' ? req.body.academicYear.trim() : '';
-	const speciality = typeof req.body.speciality === 'string' ? req.body.speciality.trim() : '';
 	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		return res.status(400).json({ error: 'Please provide a valid email address' });
 	}
@@ -2092,11 +2392,53 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 		return res.status(400).json({ error: 'Add both country code and contact number' });
 	}
 	try {
-		await runAsync('UPDATE users SET name = ?, nickname = ?, email = ?, gender = ?, date_of_birth = ?, bio = ?, status_description = ?, achievements = ?, place_from = ?, country = ?, state = ?, pincode = ?, contact_country_code = ?, contact_number = ?, institute = ?, program_type = ?, degree = ?, academic_year = ?, speciality = ?, privacy_show_online = ?, privacy_discoverability = ?, privacy_in_suggestions = ?, privacy_request_policy = ? WHERE id = ?', [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), institute || null, programType || null, degree || null, academicYear || null, speciality || null, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+		const taxonomySelection = await resolveMedicalTaxonomySelection(req.body);
+		await runAsync(`UPDATE users SET
+			name = ?,
+			nickname = ?,
+			email = ?,
+			gender = ?,
+			date_of_birth = ?,
+			bio = ?,
+			status_description = ?,
+			achievements = ?,
+			place_from = ?,
+			country = ?,
+			state = ?,
+			pincode = ?,
+			contact_country_code = ?,
+			contact_number = ?,
+			institute = ?,
+			program_type = ?,
+			degree = ?,
+			academic_year = ?,
+			speciality = ?,
+			speciality_domain_id = ?,
+			speciality_specialty_id = ?,
+			speciality_subspecialty_id = ?,
+			privacy_show_online = ?,
+			privacy_discoverability = ?,
+			privacy_in_suggestions = ?,
+			privacy_request_policy = ?
+			WHERE id = ?`, [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), institute || null, programType || null, degree || null, academicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		await evaluateProfileAwards(req.session.userId).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
+		const profileError = String(e && e.message || '').toLowerCase();
+		if (profileError.includes('taxonomy') || profileError.includes('selection') || profileError.includes('mismatch')) {
+			return res.status(400).json({ error: e.message });
+		}
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/medical-taxonomy', async (req, res) => {
+	try {
+		const overview = await getMedicalTaxonomyOverview();
+		res.json(overview);
+	} catch (e) {
+		console.error('Medical taxonomy load error:', e);
+		res.status(500).json({ error: 'Unable to load medical taxonomy' });
 	}
 });
 
@@ -2476,6 +2818,27 @@ app.post('/api/admin/feature-suggestions/:id/status', requireAdmin, async (req, 
 	} catch (e) {
 		console.error('Feature suggestion admin update error:', e);
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/medical-taxonomy', requireAdmin, async (req, res) => {
+	try {
+		const overview = await getMedicalTaxonomyOverview();
+		res.json(overview);
+	} catch (e) {
+		console.error('Medical taxonomy admin load error:', e);
+		res.status(500).json({ error: 'Unable to load taxonomy overview' });
+	}
+});
+
+app.post('/api/admin/medical-taxonomy/sync', requireAdmin, async (req, res) => {
+	try {
+		const overview = await syncMedicalTaxonomyCatalog();
+		await backfillUserMedicalTaxonomy();
+		res.json({ success: true, overview });
+	} catch (e) {
+		console.error('Medical taxonomy admin sync error:', e);
+		res.status(500).json({ error: 'Unable to sync taxonomy' });
 	}
 });
 

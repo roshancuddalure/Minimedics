@@ -1,0 +1,543 @@
+{
+  "version": "2026-03-12",
+  "sourceDocument": "Mednecta Medical Taxonomy Implementation Document",
+  "domains": [
+    {
+      "name": "Internal Medicine",
+      "slug": "internal-medicine",
+      "specialties": [
+        {
+          "name": "Cardiology",
+          "slug": "cardiology",
+          "subspecialties": [
+            "Interventional Cardiology",
+            "Cardiac Electrophysiology",
+            "Heart Failure",
+            "Preventive Cardiology"
+          ]
+        },
+        {
+          "name": "Gastroenterology",
+          "slug": "gastroenterology",
+          "subspecialties": [
+            "Hepatology",
+            "Inflammatory Bowel Disease",
+            "Endoscopy"
+          ]
+        },
+        {
+          "name": "Nephrology",
+          "slug": "nephrology",
+          "subspecialties": [
+            "Dialysis Medicine",
+            "Transplant Nephrology"
+          ]
+        },
+        {
+          "name": "Pulmonology",
+          "slug": "pulmonology",
+          "subspecialties": [
+            "Interstitial Lung Disease",
+            "Pulmonary Hypertension",
+            "Sleep Medicine"
+          ]
+        },
+        {
+          "name": "Endocrinology",
+          "slug": "endocrinology",
+          "subspecialties": [
+            "Diabetes",
+            "Thyroid Disorders",
+            "Metabolic Diseases"
+          ]
+        },
+        {
+          "name": "Rheumatology",
+          "slug": "rheumatology",
+          "subspecialties": [
+            "Autoimmune Diseases",
+            "Vasculitis"
+          ]
+        },
+        {
+          "name": "Hematology",
+          "slug": "hematology",
+          "subspecialties": [
+            "Coagulation Disorders",
+            "Thrombosis"
+          ]
+        },
+        {
+          "name": "Medical Oncology",
+          "slug": "medical-oncology",
+          "subspecialties": [
+            "Solid Tumor Oncology",
+            "Immunotherapy"
+          ]
+        },
+        {
+          "name": "Infectious Diseases",
+          "slug": "infectious-diseases",
+          "subspecialties": [
+            "HIV Medicine",
+            "Tropical Medicine",
+            "Antimicrobial Stewardship"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Surgery",
+      "slug": "surgery",
+      "specialties": [
+        {
+          "name": "General Surgery",
+          "slug": "general-surgery",
+          "subspecialties": [
+            "Hepatobiliary Surgery",
+            "Colorectal Surgery",
+            "Endocrine Surgery",
+            "Surgical Oncology",
+            "Minimally Invasive Surgery",
+            "Trauma Surgery"
+          ]
+        },
+        {
+          "name": "Cardiothoracic Surgery",
+          "slug": "cardiothoracic-surgery",
+          "subspecialties": [
+            "Cardiac Surgery",
+            "Thoracic Surgery",
+            "Congenital Heart Surgery"
+          ]
+        },
+        {
+          "name": "Neurosurgery",
+          "slug": "neurosurgery",
+          "subspecialties": [
+            "Skull Base Surgery",
+            "Spine Surgery",
+            "Neurovascular Surgery"
+          ]
+        },
+        {
+          "name": "Orthopedic Surgery",
+          "slug": "orthopedic-surgery",
+          "subspecialties": [
+            "Sports Medicine",
+            "Spine Surgery",
+            "Joint Replacement",
+            "Trauma Orthopedics",
+            "Pediatric Orthopedics"
+          ]
+        },
+        {
+          "name": "Plastic Surgery",
+          "slug": "plastic-surgery",
+          "subspecialties": [
+            "Reconstructive Surgery",
+            "Cosmetic Surgery",
+            "Craniofacial Surgery",
+            "Hand Surgery"
+          ]
+        },
+        {
+          "name": "Vascular Surgery",
+          "slug": "vascular-surgery",
+          "subspecialties": [
+            "Endovascular Surgery",
+            "Peripheral Vascular Disease"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Obstetrics and Gynecology",
+      "slug": "obstetrics-and-gynecology",
+      "specialties": [
+        {
+          "name": "Obstetrics",
+          "slug": "obstetrics",
+          "subspecialties": []
+        },
+        {
+          "name": "Gynecology",
+          "slug": "gynecology",
+          "subspecialties": [
+            "Gynecologic Oncology",
+            "Urogynecology"
+          ]
+        },
+        {
+          "name": "Reproductive Medicine",
+          "slug": "reproductive-medicine",
+          "subspecialties": [
+            "Infertility",
+            "IVF Medicine"
+          ]
+        },
+        {
+          "name": "Maternal Fetal Medicine",
+          "slug": "maternal-fetal-medicine",
+          "subspecialties": [
+            "High Risk Pregnancy"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pediatrics",
+      "slug": "pediatrics",
+      "specialties": [
+        {
+          "name": "Pediatrics",
+          "slug": "pediatrics",
+          "subspecialties": [
+            "Neonatology",
+            "Pediatric Cardiology",
+            "Pediatric Neurology",
+            "Pediatric Endocrinology",
+            "Pediatric Gastroenterology",
+            "Pediatric Nephrology",
+            "Pediatric Oncology",
+            "Pediatric Pulmonology",
+            "Pediatric Surgery",
+            "Pediatric Critical Care"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Neurological Sciences",
+      "slug": "neurological-sciences",
+      "specialties": [
+        {
+          "name": "Neurology",
+          "slug": "neurology",
+          "subspecialties": [
+            "Stroke Medicine",
+            "Epilepsy",
+            "Movement Disorders",
+            "Neuroimmunology",
+            "Neurorehabilitation"
+          ]
+        },
+        {
+          "name": "Neurosurgery",
+          "slug": "neurosurgery",
+          "subspecialties": []
+        },
+        {
+          "name": "Neurocritical Care",
+          "slug": "neurocritical-care",
+          "subspecialties": []
+        },
+        {
+          "name": "Neurophysiology",
+          "slug": "neurophysiology",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Anesthesia and Perioperative Medicine",
+      "slug": "anesthesia-and-perioperative-medicine",
+      "specialties": [
+        {
+          "name": "Anesthesiology",
+          "slug": "anesthesiology",
+          "subspecialties": [
+            "Cardiac Anesthesia",
+            "Neuroanesthesia",
+            "Pediatric Anesthesia",
+            "Obstetric Anesthesia",
+            "Regional Anesthesia",
+            "Pain Medicine",
+            "Critical Care Anesthesia",
+            "Perioperative Medicine"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Diagnostic Sciences",
+      "slug": "diagnostic-sciences",
+      "specialties": [
+        {
+          "name": "Radiology",
+          "slug": "radiology",
+          "subspecialties": [
+            "Interventional Radiology",
+            "Musculoskeletal Radiology",
+            "Neuroimaging",
+            "Thoracic Imaging",
+            "Abdominal Imaging",
+            "Breast Imaging"
+          ]
+        },
+        {
+          "name": "Pathology",
+          "slug": "pathology",
+          "subspecialties": [
+            "Anatomical Pathology",
+            "Clinical Pathology",
+            "Molecular Pathology",
+            "Hematopathology",
+            "Forensic Pathology"
+          ]
+        },
+        {
+          "name": "Nuclear Medicine",
+          "slug": "nuclear-medicine",
+          "subspecialties": [
+            "PET Imaging",
+            "Radionuclide Therapy"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mental Health",
+      "slug": "mental-health",
+      "specialties": [
+        {
+          "name": "Psychiatry",
+          "slug": "psychiatry",
+          "subspecialties": [
+            "Child Psychiatry",
+            "Geriatric Psychiatry",
+            "Addiction Medicine",
+            "Neuropsychiatry"
+          ]
+        },
+        {
+          "name": "Clinical Psychology",
+          "slug": "clinical-psychology",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Dermatology and Sensory Medicine",
+      "slug": "dermatology-and-sensory-medicine",
+      "specialties": [
+        {
+          "name": "Dermatology",
+          "slug": "dermatology",
+          "subspecialties": [
+            "Cosmetic Dermatology",
+            "Dermatologic Surgery",
+            "Trichology"
+          ]
+        },
+        {
+          "name": "Ophthalmology",
+          "slug": "ophthalmology",
+          "subspecialties": [
+            "Retina",
+            "Cornea",
+            "Glaucoma",
+            "Oculoplastics",
+            "Pediatric Ophthalmology"
+          ]
+        },
+        {
+          "name": "ENT (Otolaryngology)",
+          "slug": "ent-otolaryngology",
+          "subspecialties": [
+            "Head and Neck Surgery",
+            "Otology",
+            "Rhinology",
+            "Laryngology"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Rehabilitation Medicine",
+      "slug": "rehabilitation-medicine",
+      "specialties": [
+        {
+          "name": "Physical Medicine and Rehabilitation",
+          "slug": "physical-medicine-and-rehabilitation",
+          "subspecialties": [
+            "Neurorehabilitation",
+            "Orthopedic Rehabilitation",
+            "Pain Rehabilitation"
+          ]
+        },
+        {
+          "name": "Sports Medicine",
+          "slug": "sports-medicine",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Public Health",
+      "slug": "public-health",
+      "specialties": [
+        {
+          "name": "Public Health",
+          "slug": "public-health",
+          "subspecialties": [
+            "Epidemiology",
+            "Global Health",
+            "Health Policy",
+            "Health Economics"
+          ]
+        },
+        {
+          "name": "Community Medicine",
+          "slug": "community-medicine",
+          "subspecialties": []
+        },
+        {
+          "name": "Preventive Medicine",
+          "slug": "preventive-medicine",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Dental Sciences",
+      "slug": "dental-sciences",
+      "specialties": [
+        {
+          "name": "General Dentistry",
+          "slug": "general-dentistry",
+          "subspecialties": []
+        },
+        {
+          "name": "Orthodontics",
+          "slug": "orthodontics",
+          "subspecialties": []
+        },
+        {
+          "name": "Oral Surgery",
+          "slug": "oral-surgery",
+          "subspecialties": []
+        },
+        {
+          "name": "Prosthodontics",
+          "slug": "prosthodontics",
+          "subspecialties": []
+        },
+        {
+          "name": "Periodontics",
+          "slug": "periodontics",
+          "subspecialties": []
+        },
+        {
+          "name": "Endodontics",
+          "slug": "endodontics",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Allied Health Sciences",
+      "slug": "allied-health-sciences",
+      "specialties": [
+        {
+          "name": "Nursing",
+          "slug": "nursing",
+          "subspecialties": []
+        },
+        {
+          "name": "Physiotherapy",
+          "slug": "physiotherapy",
+          "subspecialties": []
+        },
+        {
+          "name": "Occupational Therapy",
+          "slug": "occupational-therapy",
+          "subspecialties": []
+        },
+        {
+          "name": "Respiratory Therapy",
+          "slug": "respiratory-therapy",
+          "subspecialties": []
+        },
+        {
+          "name": "Speech Therapy",
+          "slug": "speech-therapy",
+          "subspecialties": []
+        },
+        {
+          "name": "Clinical Nutrition",
+          "slug": "clinical-nutrition",
+          "subspecialties": []
+        },
+        {
+          "name": "Medical Laboratory Technology",
+          "slug": "medical-laboratory-technology",
+          "subspecialties": []
+        },
+        {
+          "name": "Radiologic Technology",
+          "slug": "radiologic-technology",
+          "subspecialties": []
+        }
+      ]
+    },
+    {
+      "name": "Academic and Research Fields",
+      "slug": "academic-and-research-fields",
+      "specialties": [
+        {
+          "name": "Medical Education",
+          "slug": "medical-education",
+          "subspecialties": []
+        },
+        {
+          "name": "Clinical Research",
+          "slug": "clinical-research",
+          "subspecialties": [
+            "Biostatistics"
+          ]
+        },
+        {
+          "name": "Biomedical Research",
+          "slug": "biomedical-research",
+          "subspecialties": [
+            "Bioinformatics",
+            "Medical Ethics",
+            "Medical Informatics"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Emerging Medical Technologies",
+      "slug": "emerging-medical-technologies",
+      "specialties": [
+        {
+          "name": "Digital Health",
+          "slug": "digital-health",
+          "subspecialties": []
+        },
+        {
+          "name": "Health Informatics",
+          "slug": "health-informatics",
+          "subspecialties": []
+        },
+        {
+          "name": "Artificial Intelligence in Medicine",
+          "slug": "artificial-intelligence-in-medicine",
+          "subspecialties": []
+        },
+        {
+          "name": "Telemedicine",
+          "slug": "telemedicine",
+          "subspecialties": []
+        },
+        {
+          "name": "Biomedical Engineering",
+          "slug": "biomedical-engineering",
+          "subspecialties": []
+        }
+      ]
+    }
+  ]
+}

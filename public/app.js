@@ -154,6 +154,110 @@ let pendingPostLinkId = null;
 let pendingStoryLinkId = null;
 let pendingShareToken = null;
 let dashboardXpMarked = false;
+let medicalTaxonomyCache = null;
+let registerTaxonomyController = null;
+let profileTaxonomyController = null;
+
+async function fetchMedicalTaxonomy(force = false) {
+  if (!force && medicalTaxonomyCache) return medicalTaxonomyCache;
+  const res = await api('/api/medical-taxonomy');
+  if (res && !res.error && Array.isArray(res.domains)) {
+    medicalTaxonomyCache = res;
+    return medicalTaxonomyCache;
+  }
+  throw new Error((res && res.error) || 'Unable to load medical taxonomy');
+}
+
+function setSelectOptions(selectEl, items, placeholder) {
+  if (!selectEl) return;
+  const options = [`<option value="">${escapeHtml(placeholder || 'Select')}</option>`];
+  (items || []).forEach((item) => {
+    options.push(`<option value="${Number(item.id) || 0}">${escapeHtml(item.name || '')}</option>`);
+  });
+  selectEl.innerHTML = options.join('');
+}
+
+function createMedicalTaxonomyController(config) {
+  const domainEl = document.getElementById(config.domainId);
+  const specialtyEl = document.getElementById(config.specialtyId);
+  const subspecialtyEl = document.getElementById(config.subspecialtyId);
+  const summaryEl = config.summaryId ? document.getElementById(config.summaryId) : null;
+  if (!domainEl || !specialtyEl || !subspecialtyEl) return null;
+
+  const controller = {
+    data: null,
+    async init() {
+      this.data = await fetchMedicalTaxonomy();
+      setSelectOptions(domainEl, this.data.domains, config.domainPlaceholder || 'Select domain');
+      setSelectOptions(specialtyEl, [], config.specialtyPlaceholder || 'Select specialty');
+      setSelectOptions(subspecialtyEl, [], config.subspecialtyPlaceholder || 'Select subspecialty / topic');
+      this.updateSummary();
+    },
+    getSelectedDomain() {
+      const domainId = Number(domainEl.value) || 0;
+      return (this.data && this.data.domains || []).find((item) => Number(item.id) === domainId) || null;
+    },
+    getSelectedSpecialty() {
+      const domain = this.getSelectedDomain();
+      const specialtyId = Number(specialtyEl.value) || 0;
+      return (domain && domain.specialties || []).find((item) => Number(item.id) === specialtyId) || null;
+    },
+    refreshSpecialties() {
+      const domain = this.getSelectedDomain();
+      setSelectOptions(specialtyEl, domain ? domain.specialties : [], config.specialtyPlaceholder || 'Select specialty');
+      setSelectOptions(subspecialtyEl, [], config.subspecialtyPlaceholder || 'Select subspecialty / topic');
+      this.updateSummary();
+    },
+    refreshSubspecialties() {
+      const specialty = this.getSelectedSpecialty();
+      setSelectOptions(subspecialtyEl, specialty ? specialty.subspecialties : [], config.subspecialtyPlaceholder || 'Select subspecialty / topic');
+      this.updateSummary();
+    },
+    updateSummary() {
+      if (!summaryEl) return;
+      const domain = this.getSelectedDomain();
+      const specialty = this.getSelectedSpecialty();
+      const subspecialtyId = Number(subspecialtyEl.value) || 0;
+      const subspecialty = (specialty && specialty.subspecialties || []).find((item) => Number(item.id) === subspecialtyId) || null;
+      const parts = [];
+      if (domain && domain.name) parts.push(domain.name);
+      if (specialty && specialty.name) parts.push(specialty.name);
+      if (subspecialty && subspecialty.name) parts.push(subspecialty.name);
+      summaryEl.textContent = parts.length
+        ? `Selected: ${parts.join(' > ')}`
+        : (config.emptySummary || 'No taxonomy selection yet.');
+    },
+    setSelection(selection) {
+      const next = selection || {};
+      const domainId = Number(next.speciality_domain_id || next.domainId) || 0;
+      const specialtyId = Number(next.speciality_specialty_id || next.specialtyId) || 0;
+      const subspecialtyId = Number(next.speciality_subspecialty_id || next.subspecialtyId) || 0;
+      const legacyLabel = String(next.speciality_full_label || next.speciality || '').trim();
+      domainEl.value = domainId ? String(domainId) : '';
+      this.refreshSpecialties();
+      specialtyEl.value = specialtyId ? String(specialtyId) : '';
+      this.refreshSubspecialties();
+      subspecialtyEl.value = subspecialtyId ? String(subspecialtyId) : '';
+      if (!domainId && !specialtyId && !subspecialtyId && summaryEl && legacyLabel) {
+        summaryEl.textContent = `Current: ${legacyLabel}`;
+        return;
+      }
+      this.updateSummary();
+    },
+    getPayload() {
+      return {
+        specialityDomainId: Number(domainEl.value) || null,
+        specialitySpecialtyId: Number(specialtyEl.value) || null,
+        specialitySubspecialtyId: Number(subspecialtyEl.value) || null
+      };
+    }
+  };
+
+  domainEl.addEventListener('change', () => controller.refreshSpecialties());
+  specialtyEl.addEventListener('change', () => controller.refreshSubspecialties());
+  subspecialtyEl.addEventListener('change', () => controller.updateSummary());
+  return controller;
+}
 
 function initNotificationAudioUnlock() {
   if (notificationAudioUnlocked) return;
@@ -2077,6 +2181,38 @@ async function loadAdminFeatureSuggestions() {
   });
 }
 
+async function loadAdminMedicalTaxonomy() {
+  const box = document.getElementById('adminMedicalTaxonomy');
+  if (!box) return;
+  const res = await api('/api/admin/medical-taxonomy');
+  if (res.error) {
+    box.innerHTML = `<div class="muted">${escapeHtml(res.error || 'Unable to load taxonomy')}</div>`;
+    return;
+  }
+  const domains = Array.isArray(res.domains) ? res.domains : [];
+  const stats = res.stats || {};
+  const cards = domains.map((domain) => {
+    const specialties = Array.isArray(domain.specialties) ? domain.specialties : [];
+    const specialtyCards = specialties.map((specialty) => {
+      const subspecialties = Array.isArray(specialty.subspecialties) ? specialty.subspecialties : [];
+      return `<div class="card" style="padding:0.75rem;margin-top:0.6rem">
+        <strong>${escapeHtml(specialty.name || '')}</strong>
+        <div class="muted" style="margin-top:0.35rem">${subspecialties.length ? escapeHtml(subspecialties.map((item) => item.name).join(', ')) : 'No subspecialties configured'}</div>
+      </div>`;
+    }).join('');
+    return `<section class="card" style="padding:1rem;margin-top:0.8rem">
+      <h4 style="margin:0">${escapeHtml(domain.name || '')}</h4>
+      <p class="muted" style="margin:0.35rem 0 0">Specialties: ${specialties.length}</p>
+      ${specialtyCards || '<div class="muted" style="margin-top:0.6rem">No specialties configured</div>'}
+    </section>`;
+  }).join('');
+  box.innerHTML = `<div class="card" style="padding:1rem">
+    <strong>Catalog Stats</strong>
+    <p class="muted" style="margin:0.4rem 0 0">Domains: ${Number(stats.domains) || 0} | Specialties: ${Number(stats.specialties) || 0} | Subspecialties: ${Number(stats.subspecialties) || 0}</p>
+    <p class="muted" style="margin:0.4rem 0 0">Source: ${escapeHtml((res.meta && res.meta.filePath) || 'data/medical-taxonomy.json')}</p>
+  </div>${cards || '<div class="muted">No taxonomy data found.</div>'}`;
+}
+
 async function loadAdminClans() {
   const box = document.getElementById('adminClans');
   if (!box) return;
@@ -2129,7 +2265,8 @@ function initAdminTabs() {
     clans: 'adminTabClans',
     reports: 'adminTabReports',
     tickets: 'adminTabTickets',
-    features: 'adminTabFeatures'
+    features: 'adminTabFeatures',
+    taxonomy: 'adminTabTaxonomy'
   };
   const activate = (tab) => {
     tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -2145,6 +2282,7 @@ function initAdminTabs() {
     if (tab === 'reports') loadAdminReports();
     if (tab === 'tickets') loadAdminTickets();
     if (tab === 'features') loadAdminFeatureSuggestions();
+    if (tab === 'taxonomy') loadAdminMedicalTaxonomy();
   };
   tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
   activate('users');
@@ -2568,7 +2706,6 @@ async function loadProfileEditor() {
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
   const yearEl = document.getElementById('profileEditAcademicYear');
-  const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   if (nameEl) nameEl.value = res.user.name || '';
   if (nicknameEl) nicknameEl.value = res.user.nickname || '';
@@ -2589,8 +2726,8 @@ async function loadProfileEditor() {
   if (programTypeEl) programTypeEl.value = res.user.program_type || '';
   if (degreeEl) degreeEl.value = res.user.degree || '';
   if (yearEl) yearEl.value = res.user.academic_year || '';
-  if (specialityEl) specialityEl.value = res.user.speciality || '';
   if (bioEl) bioEl.value = res.user.bio || '';
+  if (profileTaxonomyController) profileTaxonomyController.setSelection(res.user);
 }
 
 async function handleProfileEditSubmit(e) {
@@ -2615,7 +2752,6 @@ async function handleProfileEditSubmit(e) {
   const programTypeEl = document.getElementById('profileEditProgramType');
   const degreeEl = document.getElementById('profileEditDegree');
   const yearEl = document.getElementById('profileEditAcademicYear');
-  const specialityEl = document.getElementById('profileEditSpeciality');
   const bioEl = document.getElementById('profileEditBio');
   const name = nameEl ? nameEl.value.trim() : '';
   const nickname = nicknameEl ? nicknameEl.value.trim() : '';
@@ -2636,12 +2772,12 @@ async function handleProfileEditSubmit(e) {
   const programType = programTypeEl ? programTypeEl.value.trim() : '';
   const degree = degreeEl ? degreeEl.value.trim() : '';
   const academicYear = yearEl ? yearEl.value.trim() : '';
-  const speciality = specialityEl ? specialityEl.value.trim() : '';
   const bio = bioEl ? bioEl.value.trim() : '';
+  const taxonomyPayload = profileTaxonomyController ? profileTaxonomyController.getPayload() : {};
   const btn = form.querySelector('button[type="submit"]');
   setLoading(form, true);
   if (btn) btn.textContent = 'Saving...';
-  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, placeFrom, country, state, pincode, contactCountryCode, contactNumber, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, speciality });
+  const res = await api('/api/profile', 'POST', { name, nickname, email, gender, dateOfBirth, placeFrom, country, state, pincode, contactCountryCode, contactNumber, privacyShowOnline, privacyDiscoverability, privacyInSuggestions, privacyRequestPolicy, bio, institute, programType, degree, academicYear, ...taxonomyPayload });
   setLoading(form, false);
   if (btn) btn.textContent = 'Save Changes';
   if (res && res.success) {
@@ -4772,12 +4908,11 @@ async function handleRegister(e) {
   const programTypeEl = document.getElementById('regProgramType');
   const degreeEl = document.getElementById('regDegree');
   const yearEl = document.getElementById('regAcademicYear');
-  const specialityEl = document.getElementById('regSpeciality');
   const institute = instituteEl ? instituteEl.value.trim() : '';
   const programType = programTypeEl ? programTypeEl.value.trim() : '';
   const degree = degreeEl ? degreeEl.value.trim() : '';
   const academicYear = yearEl ? yearEl.value.trim() : '';
-  const speciality = specialityEl ? specialityEl.value.trim() : '';
+  const taxonomyPayload = registerTaxonomyController ? registerTaxonomyController.getPayload() : {};
   
   if (!u || !p || !n || !email || !institute) {
     showToast('Please fill required registration fields', 'error');
@@ -4796,7 +4931,7 @@ async function handleRegister(e) {
   setLoading(form, true);
   submitBtn.textContent = 'Creating...';
   
-  const res = await api('/api/register','POST',{username:u,password:p,name:n,email,institute,programType,degree,academicYear,speciality});
+  const res = await api('/api/register','POST',{username:u,password:p,name:n,email,institute,programType,degree,academicYear,...taxonomyPayload});
   
   setLoading(form, false);
   submitBtn.textContent = 'Register';
@@ -5215,7 +5350,7 @@ async function handlePostImageSelection(e) {
   reader.readAsDataURL(file);
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
   upsertSavedListsTopButton(null);
   upsertActivityTopButton(null);
   upsertNotificationsTopButton(null);
@@ -5380,7 +5515,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   
   // Auth forms
-  if (document.getElementById('regForm')) document.getElementById('regForm').addEventListener('submit', handleRegister);
+  if (document.getElementById('regForm')) {
+    document.getElementById('regForm').addEventListener('submit', handleRegister);
+    registerTaxonomyController = createMedicalTaxonomyController({
+      domainId: 'regSpecialityDomain',
+      specialtyId: 'regSpecialitySpecialty',
+      subspecialtyId: 'regSpecialitySubspecialty',
+      summaryId: 'regSpecialitySummary',
+      emptySummary: 'Select a medical domain and specialty if relevant.'
+    });
+    if (registerTaxonomyController) {
+      registerTaxonomyController.init().catch((err) => {
+        showToast(err.message || 'Unable to load specialties', 'error');
+      });
+    }
+  }
   if (document.getElementById('loginForm')) document.getElementById('loginForm').addEventListener('submit', handleLogin);
   if (document.getElementById('forgotForm')) {
     document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
@@ -5388,6 +5537,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
+    profileTaxonomyController = createMedicalTaxonomyController({
+      domainId: 'profileEditSpecialityDomain',
+      specialtyId: 'profileEditSpecialitySpecialty',
+      subspecialtyId: 'profileEditSpecialitySubspecialty',
+      summaryId: 'profileSpecialitySummary',
+      emptySummary: 'No taxonomy selection yet.'
+    });
+    if (profileTaxonomyController) {
+      await profileTaxonomyController.init().catch((err) => {
+        showToast(err.message || 'Unable to load specialties', 'error');
+      });
+    }
     loadProfileEditor();
     const suggestBtn = document.getElementById('specialitySuggestBtn');
     if (suggestBtn) suggestBtn.addEventListener('click', suggestSpeciality);
@@ -5429,6 +5590,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (isAdmin && document.getElementById('adminClans')) loadAdminClans();
     if (isAdmin && document.getElementById('adminTickets')) loadAdminTickets();
     if (isAdmin && document.getElementById('adminFeatureSuggestions')) loadAdminFeatureSuggestions();
+    if (isAdmin && document.getElementById('adminMedicalTaxonomy')) loadAdminMedicalTaxonomy();
     const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
     if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
     const clansSearchBtn = document.getElementById('adminClansSearchBtn');
@@ -5439,6 +5601,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if (ticketsSearchBtn) ticketsSearchBtn.onclick = () => loadAdminTickets();
     const featureSuggestionsSearchBtn = document.getElementById('adminFeatureSuggestionsSearchBtn');
     if (featureSuggestionsSearchBtn) featureSuggestionsSearchBtn.onclick = () => loadAdminFeatureSuggestions();
+    const taxonomySyncBtn = document.getElementById('adminTaxonomySyncBtn');
+    if (taxonomySyncBtn) {
+      taxonomySyncBtn.onclick = async () => {
+        taxonomySyncBtn.disabled = true;
+        const res = await api('/api/admin/medical-taxonomy/sync', 'POST', {});
+        taxonomySyncBtn.disabled = false;
+        if (res && res.success) {
+          medicalTaxonomyCache = null;
+          if (registerTaxonomyController) await registerTaxonomyController.init().catch(() => {});
+          if (profileTaxonomyController) await profileTaxonomyController.init().catch(() => {});
+          loadAdminMedicalTaxonomy();
+          showToast('Medical taxonomy synced');
+        } else {
+          showToast((res && res.error) || 'Unable to sync taxonomy', 'error');
+        }
+      };
+    }
     applyIconifyAudit();
   })();
 });

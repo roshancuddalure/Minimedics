@@ -35,7 +35,16 @@
         </select>
         <input id="regDegree" placeholder="Degree (MBBS/MD/MS/DM/MCh...)" />
         <input id="regAcademicYear" placeholder="Year (1st/2nd/3rd...)" />
-        <input id="regSpeciality" placeholder="Speciality (optional)" />
+        <select id="regSpecialityDomain">
+          <option value="">Select domain (optional)</option>
+        </select>
+        <select id="regSpecialitySpecialty">
+          <option value="">Select specialty</option>
+        </select>
+        <select id="regSpecialitySubspecialty">
+          <option value="">Select subspecialty / topic</option>
+        </select>
+        <p id="regSpecialitySummary" class="muted">Select a medical domain and specialty if relevant.</p>
         <input id="regPass" type="password" placeholder="Password" required />
         <div class="row">
           <button class="btn primary" type="submit">Register</button>

@@ -76,7 +76,16 @@
           </select>
           <input id="profileEditDegree" type="text" maxlength="80" placeholder="Degree (MBBS/MD/MS/DM/MCh...)" />
           <input id="profileEditAcademicYear" type="text" maxlength="40" placeholder="Academic year" />
-          <input id="profileEditSpeciality" type="text" maxlength="80" placeholder="Speciality" />
+          <select id="profileEditSpecialityDomain">
+            <option value="">Select domain</option>
+          </select>
+          <select id="profileEditSpecialitySpecialty">
+            <option value="">Select specialty</option>
+          </select>
+          <select id="profileEditSpecialitySubspecialty">
+            <option value="">Select subspecialty / topic</option>
+          </select>
+          <p id="profileSpecialitySummary" class="muted">Your current taxonomy selection will appear here.</p>
           <textarea id="profileEditBio" maxlength="400" placeholder="Bio (max 400 chars)"></textarea>
           <div class="row" style="justify-content:flex-start">
             <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Speciality not listed? Suggest one" />
