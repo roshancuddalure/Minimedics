@@ -113,6 +113,32 @@ const EMAIL_FROM = typeof process.env.EMAIL_FROM === 'string' && process.env.EMA
 const APP_NAME = typeof process.env.APP_NAME === 'string' && process.env.APP_NAME.trim()
 	? process.env.APP_NAME.trim()
 	: 'Mednecta';
+const DAILY_FEEDBACK_TIMEZONE = typeof process.env.DAILY_FEEDBACK_TIMEZONE === 'string' && process.env.DAILY_FEEDBACK_TIMEZONE.trim()
+	? process.env.DAILY_FEEDBACK_TIMEZONE.trim()
+	: 'Asia/Kolkata';
+const DAILY_FEEDBACK_HOUR = Number(process.env.DAILY_FEEDBACK_HOUR || 6);
+const MAIL_PROTOCOLS = {
+	verification_email: {
+		label: 'Email verification',
+		description: 'Welcome verification email sent after registration.',
+		category: 'auth'
+	},
+	password_reset_email: {
+		label: 'Forgot password',
+		description: 'Password reset email sent when a user requests account recovery.',
+		category: 'auth'
+	},
+	reminder_due_email: {
+		label: 'Reminder due',
+		description: 'Reminder email sent when a tagged reminder becomes due.',
+		category: 'engagement'
+	},
+	daily_feedback_email: {
+		label: 'Daily summary',
+		description: 'Daily morning summary email with activity, rewards, reminders, and streak CTA.',
+		category: 'engagement'
+	}
+};
 
 function createVerificationToken() {
 	return crypto.randomBytes(32).toString('hex');
@@ -201,8 +227,6 @@ function getPasswordPolicyError(password) {
 }
 
 async function sendVerificationEmail(toEmail, verifyUrl) {
-	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
-	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
 	if (!toEmail) throw new Error('Recipient email is missing');
 	if (!verifyUrl) throw new Error('Verification URL is missing');
 	const html = `
@@ -217,48 +241,11 @@ async function sendVerificationEmail(toEmail, verifyUrl) {
 				<p style="margin:0;color:#475569">If you did not create this account, you can ignore this email.</p>
 			</div>
 		`;
-	const body = JSON.stringify({
-		from: EMAIL_FROM,
-		to: [toEmail],
-		subject: `Verify your ${APP_NAME} account`,
-		html
-	});
-	const result = await new Promise((resolve, reject) => {
-		const req = https.request('https://api.resend.com/emails', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${apiKey}`,
-				'Content-Type': 'application/json',
-				'Content-Length': Buffer.byteLength(body)
-			}
-		}, (res) => {
-			let raw = '';
-			res.on('data', (chunk) => { raw += chunk; });
-			res.on('end', () => {
-				let json = null;
-				try {
-					json = raw ? JSON.parse(raw) : null;
-				} catch (e) {
-					json = null;
-				}
-				resolve({ statusCode: res.statusCode || 0, json, raw });
-			});
-		});
-		req.on('error', reject);
-		req.write(body);
-		req.end();
-	});
-	if (result.statusCode < 200 || result.statusCode >= 300) {
-		const details = result.json && (result.json.message || result.json.error)
-			? `${result.json.message || result.json.error}`
-			: (result.raw || '').slice(0, 300);
-		throw new Error(`Resend API error (${result.statusCode})${details ? ` - ${details}` : ''}`);
-	}
+	const sent = await sendHtmlEmail('verification_email', toEmail, `Verify your ${APP_NAME} account`, html, { verifyUrl });
+	if (!sent) throw new Error('Verification email is disabled or could not be sent');
 }
 
 async function sendPasswordResetEmail(toEmail, resetUrl) {
-	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
-	if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
 	if (!toEmail) throw new Error('Recipient email is missing');
 	if (!resetUrl) throw new Error('Reset URL is missing');
 	const html = `
@@ -273,39 +260,8 @@ async function sendPasswordResetEmail(toEmail, resetUrl) {
 				<p style="margin:0;color:#475569">This link expires in 15 minutes. If you did not request this, ignore this email.</p>
 			</div>
 		`;
-	const body = JSON.stringify({
-		from: EMAIL_FROM,
-		to: [toEmail],
-		subject: `Reset your ${APP_NAME} password`,
-		html
-	});
-	const result = await new Promise((resolve, reject) => {
-		const req = https.request('https://api.resend.com/emails', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${apiKey}`,
-				'Content-Type': 'application/json',
-				'Content-Length': Buffer.byteLength(body)
-			}
-		}, (res) => {
-			let raw = '';
-			res.on('data', (chunk) => { raw += chunk; });
-			res.on('end', () => {
-				let json = null;
-				try { json = raw ? JSON.parse(raw) : null; } catch (e) { json = null; }
-				resolve({ statusCode: res.statusCode || 0, json, raw });
-			});
-		});
-		req.on('error', reject);
-		req.write(body);
-		req.end();
-	});
-	if (result.statusCode < 200 || result.statusCode >= 300) {
-		const details = result.json && (result.json.message || result.json.error)
-			? `${result.json.message || result.json.error}`
-			: (result.raw || '').slice(0, 300);
-		throw new Error(`Resend API error (${result.statusCode})${details ? ` - ${details}` : ''}`);
-	}
+	const sent = await sendHtmlEmail('password_reset_email', toEmail, `Reset your ${APP_NAME} password`, html, { resetUrl });
+	if (!sent) throw new Error('Password reset email is disabled or could not be sent');
 }
 
 const pool = new Pool({
@@ -798,6 +754,47 @@ async function evaluateProfileAwards(userId) {
 	if (complete) await grantXpRule(userId, 'PROFILE_COMPLETE').catch(() => {});
 }
 
+async function seedMailProtocols() {
+	const now = Date.now();
+	for (const [key, config] of Object.entries(MAIL_PROTOCOLS)) {
+		await runAsync(`INSERT INTO mail_protocols (protocol_key, label, description, category, enabled, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (protocol_key) DO UPDATE
+			SET label = EXCLUDED.label,
+				description = EXCLUDED.description,
+				category = EXCLUDED.category`, [key, config.label, config.description, config.category || 'general', 1, now, now]);
+	}
+}
+
+async function getMailProtocolRow(protocolKey) {
+	const key = String(protocolKey || '').trim();
+	if (!key || !MAIL_PROTOCOLS[key]) return null;
+	await seedMailProtocols();
+	return getAsync('SELECT protocol_key, label, description, category, enabled, updated_at, updated_by FROM mail_protocols WHERE protocol_key = ?', [key]);
+}
+
+async function isMailProtocolEnabled(protocolKey) {
+	const row = await getMailProtocolRow(protocolKey);
+	if (!row) return false;
+	return Number(row.enabled) !== 0;
+}
+
+async function logMailProtocolDelivery(protocolKey, payload = {}) {
+	const key = String(protocolKey || '').trim();
+	if (!key) return;
+	await runAsync(`INSERT INTO mail_delivery_logs (protocol_key, user_id, email, subject, status, error_message, meta_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+		key,
+		Number(payload.userId) || null,
+		payload.email ? String(payload.email).trim() : null,
+		payload.subject ? String(payload.subject).trim() : null,
+		String(payload.status || 'unknown').trim() || 'unknown',
+		payload.errorMessage ? String(payload.errorMessage).slice(0, 500) : null,
+		JSON.stringify(payload.meta && typeof payload.meta === 'object' ? payload.meta : {}),
+		Date.now()
+	]).catch(() => {});
+}
+
 async function evaluatePostOwnerMilestones(postId) {
 	const row = await getAsync(`SELECT p.id, p.user_id,
 		(SELECT COUNT(*)::int FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
@@ -894,8 +891,7 @@ async function evaluateChatThreadMilestones(userA, userB) {
 }
 
 async function sendReminderEmail(toEmail, viewerName, actorName, reminderTitle, reminderNote, reminderUrl, whenLabel) {
-	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
-	if (!apiKey || !toEmail || !reminderUrl) return false;
+	if (!toEmail || !reminderUrl) return false;
 	const html = `
 		<div style="font-family:Arial,sans-serif;background:#f4f8ff;padding:28px;color:#10233b">
 			<div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid rgba(15,159,154,0.12);box-shadow:0 18px 42px rgba(16,35,59,0.12)">
@@ -913,10 +909,73 @@ async function sendReminderEmail(toEmail, viewerName, actorName, reminderTitle, 
 			</div>
 		</div>
 	`;
+	return sendHtmlEmail('reminder_due_email', toEmail, `${APP_NAME} reminder: ${reminderTitle}`, html, {
+		reminderTitle,
+		reminderUrl,
+		whenLabel
+	});
+}
+
+function getTimeZoneDateParts(ts = Date.now(), timeZone = DAILY_FEEDBACK_TIMEZONE) {
+	const formatter = new Intl.DateTimeFormat('en-CA', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false
+	});
+	const parts = formatter.formatToParts(new Date(ts));
+	const read = (type) => (parts.find((part) => part.type === type) || {}).value || '';
+	return {
+		year: read('year'),
+		month: read('month'),
+		day: read('day'),
+		hour: Number(read('hour')) || 0,
+		minute: Number(read('minute')) || 0
+	};
+}
+
+function getTimeZoneDayKey(ts = Date.now(), timeZone = DAILY_FEEDBACK_TIMEZONE) {
+	const parts = getTimeZoneDateParts(ts, timeZone);
+	return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function shouldRunDailyFeedback(ts = Date.now(), timeZone = DAILY_FEEDBACK_TIMEZONE) {
+	const parts = getTimeZoneDateParts(ts, timeZone);
+	return parts.hour === DAILY_FEEDBACK_HOUR;
+}
+
+async function sendHtmlEmail(protocolKey, toEmail, subject, html, meta = {}) {
+	const apiKey = typeof process.env.RESEND_API_KEY === 'string' ? process.env.RESEND_API_KEY.trim() : '';
+	if (!toEmail || !subject || !html) return false;
+	const enabled = await isMailProtocolEnabled(protocolKey).catch(() => false);
+	if (!enabled) {
+		await logMailProtocolDelivery(protocolKey, {
+			userId: meta.userId,
+			email: toEmail,
+			subject,
+			status: 'disabled',
+			meta
+		});
+		return false;
+	}
+	if (!apiKey) {
+		await logMailProtocolDelivery(protocolKey, {
+			userId: meta.userId,
+			email: toEmail,
+			subject,
+			status: 'failed',
+			errorMessage: 'RESEND_API_KEY is not configured',
+			meta
+		});
+		return false;
+	}
 	const body = JSON.stringify({
 		from: EMAIL_FROM,
 		to: [toEmail],
-		subject: `${APP_NAME} reminder: ${reminderTitle}`,
+		subject,
 		html
 	});
 	const result = await new Promise((resolve, reject) => {
@@ -935,8 +994,152 @@ async function sendReminderEmail(toEmail, viewerName, actorName, reminderTitle, 
 		req.on('error', reject);
 		req.write(body);
 		req.end();
+	}).catch((error) => ({ statusCode: 0, raw: '', error }));
+	const success = result.statusCode >= 200 && result.statusCode < 300;
+	await logMailProtocolDelivery(protocolKey, {
+		userId: meta.userId,
+		email: toEmail,
+		subject,
+		status: success ? 'sent' : 'failed',
+		errorMessage: success ? '' : String((result.error && result.error.message) || result.raw || `HTTP ${result.statusCode || 0}`),
+		meta
 	});
-	return result.statusCode >= 200 && result.statusCode < 300;
+	return success;
+}
+
+function formatDigestDateTime(ts, timeZone = DAILY_FEEDBACK_TIMEZONE) {
+	if (!ts) return 'Not scheduled';
+	try {
+		return new Intl.DateTimeFormat('en-IN', {
+			timeZone,
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		}).format(new Date(Number(ts)));
+	} catch (e) {
+		return new Date(Number(ts)).toLocaleString();
+	}
+}
+
+function buildDailyFeedbackEmailHtml(user, summary, reminders, loginUrl) {
+	const reminderMarkup = reminders.length
+		? reminders.map((item) => `<div style="padding:14px 16px;border:1px solid rgba(16,35,59,0.1);border-radius:16px;background:#f7fbff;margin:0 0 10px">
+			<div style="font-weight:700;color:#10233b;margin:0 0 6px">${item.title}</div>
+			<div style="font-size:14px;color:#48627e;margin:0 0 6px">${item.when}</div>
+			<div style="font-size:14px;color:#48627e">${item.context}</div>
+		</div>`).join('')
+		: `<div style="padding:16px;border:1px dashed rgba(15,159,154,0.28);border-radius:16px;background:#f8fffe;color:#48627e">No reminders due in the next 2 days.</div>`;
+	const rewardMarkup = summary.recentRewards.length
+		? summary.recentRewards.map((item) => `<li style="margin:0 0 8px"><strong>+${item.xp} XP</strong> for ${item.label} <span style="color:#64748b">(${item.when})</span></li>`).join('')
+		: '<li>No new XP rewards in the last 24 hours.</li>';
+	return `
+		<div style="font-family:Arial,sans-serif;background:#eef6ff;padding:28px;color:#10233b">
+			<div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid rgba(15,159,154,0.12);box-shadow:0 20px 46px rgba(16,35,59,0.12)">
+				<div style="padding:28px 30px;background:linear-gradient(135deg,#0f9f9a,#0b7b78);color:#ffffff">
+					<div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.84">Daily Feedback</div>
+					<h2 style="margin:10px 0 8px;font-size:30px;line-height:1.15">Good morning ${user.name || user.username || 'there'}</h2>
+					<p style="margin:0;max-width:46ch;font-size:15px;line-height:1.6;opacity:0.92">Here is your Mednecta snapshot for the last 24 hours, plus what needs attention next.</p>
+				</div>
+				<div style="padding:28px 30px">
+					<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 20px">
+						<div style="padding:14px 16px;border-radius:16px;background:#f7fbff;border:1px solid rgba(16,35,59,0.08)"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.08em">Level</div><div style="font-size:24px;font-weight:700">${Number(user.level) || 1}</div></div>
+						<div style="padding:14px 16px;border-radius:16px;background:#f7fbff;border:1px solid rgba(16,35,59,0.08)"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.08em">XP</div><div style="font-size:24px;font-weight:700">${Number(user.xp) || 0}</div></div>
+						<div style="padding:14px 16px;border-radius:16px;background:#f7fbff;border:1px solid rgba(16,35,59,0.08)"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.08em">Streak</div><div style="font-size:24px;font-weight:700">${Number(user.login_streak_count) || 0} days</div></div>
+						<div style="padding:14px 16px;border-radius:16px;background:#f7fbff;border:1px solid rgba(16,35,59,0.08)"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.08em">Title</div><div style="font-size:18px;font-weight:700">${user.title || 'Rookie Medic'}</div></div>
+					</div>
+
+					<div style="padding:18px 20px;border-radius:18px;background:#fbfdff;border:1px solid rgba(16,35,59,0.08);margin:0 0 18px">
+						<h3 style="margin:0 0 10px;font-size:18px">Activity in the last 24 hours</h3>
+						<p style="margin:0 0 10px;color:#48627e">You earned <strong>${summary.xpEarned24h} XP</strong>, created <strong>${summary.postsCreated24h}</strong> posts, added <strong>${summary.commentsCreated24h}</strong> comments, and answered <strong>${summary.quizCorrect24h}</strong> quiz items correctly.</p>
+						<ul style="margin:0;padding-left:18px;color:#10233b">${rewardMarkup}</ul>
+					</div>
+
+					<div style="padding:18px 20px;border-radius:18px;background:#fbfdff;border:1px solid rgba(16,35,59,0.08);margin:0 0 18px">
+						<h3 style="margin:0 0 10px;font-size:18px">Upcoming reminders</h3>
+						${reminderMarkup}
+					</div>
+
+					<div style="padding:20px 22px;border-radius:20px;background:linear-gradient(135deg,rgba(15,159,154,0.12),rgba(245,158,11,0.12));border:1px solid rgba(15,159,154,0.18)">
+						<h3 style="margin:0 0 10px;font-size:18px">Keep the streak alive</h3>
+						<p style="margin:0 0 14px;color:#36506b">Log in today to claim your daily login bonus, keep your streak moving, and continue building XP.</p>
+						<a href="${loginUrl}" style="display:inline-block;padding:12px 18px;background:#0f9f9a;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:700">Open Mednecta</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	`;
+}
+
+async function sendDailyFeedbackEmail(user, summary, reminders, loginUrl) {
+	const html = buildDailyFeedbackEmailHtml(user, summary, reminders, loginUrl);
+	return sendHtmlEmail('daily_feedback_email', user.email, `${APP_NAME} daily feedback`, html, {
+		userId: user.id,
+		reminderCount: reminders.length,
+		xpEarned24h: summary.xpEarned24h
+	});
+}
+
+async function processDailyFeedbackDigests() {
+	const now = Date.now();
+	if (!shouldRunDailyFeedback(now)) return;
+	const digestDay = getTimeZoneDayKey(now);
+	const users = await allAsync(`SELECT id, username, name, email, xp, level, title, login_streak_count
+		FROM users
+		WHERE COALESCE(email_verified, 0) = 1
+		AND COALESCE(account_blocked, 0) = 0
+		AND email IS NOT NULL
+		AND TRIM(email) <> ''`);
+	for (const user of users) {
+		const alreadySent = await getAsync('SELECT id FROM daily_digest_sends WHERE user_id = ? AND digest_day = ?', [user.id, digestDay]).catch(() => null);
+		if (alreadySent) continue;
+		const sinceTs = now - (24 * 60 * 60 * 1000);
+		const untilTs = now + (2 * 24 * 60 * 60 * 1000);
+		const [xpRows, postsRow, commentsRow, quizRow, reminderRows] = await Promise.all([
+			allAsync(`SELECT activity, xp_delta, created_at FROM xp_events
+				WHERE user_id = ? AND created_at >= ?
+				ORDER BY created_at DESC
+				LIMIT 6`, [user.id, sinceTs]).catch(() => []),
+			getAsync('SELECT COUNT(*)::int AS cnt FROM posts WHERE user_id = ? AND created_at >= ?', [user.id, sinceTs]).catch(() => ({ cnt: 0 })),
+			getAsync('SELECT COUNT(*)::int AS cnt FROM post_comments WHERE user_id = ? AND created_at >= ?', [user.id, sinceTs]).catch(() => ({ cnt: 0 })),
+			getAsync('SELECT COUNT(*)::int AS cnt FROM quiz_attempts WHERE user_id = ? AND is_correct = 1 AND created_at >= ?', [user.id, sinceTs]).catch(() => ({ cnt: 0 })),
+			allAsync(`SELECT DISTINCT p.id, p.content, p.reminder_note, p.reminder_at,
+					CASE WHEN p.user_id = ? THEN 'Created by you' ELSE 'Assigned to you' END AS context_label
+				FROM posts p
+				LEFT JOIN post_reminder_targets prt ON prt.post_id = p.id AND prt.tagged_user_id = ?
+				LEFT JOIN reminder_completions rc ON rc.post_id = p.id AND rc.user_id = ?
+				WHERE p.reminder_at IS NOT NULL
+				AND p.reminder_at BETWEEN ? AND ?
+				AND (p.user_id = ? OR prt.tagged_user_id = ?)
+				AND (p.user_id = ? OR rc.id IS NULL)
+				ORDER BY p.reminder_at ASC
+				LIMIT 6`, [user.id, user.id, user.id, now, untilTs, user.id, user.id, user.id]).catch(() => [])
+		]);
+		const summary = {
+			xpEarned24h: xpRows.reduce((sum, row) => sum + (Number(row.xp_delta) || 0), 0),
+			postsCreated24h: Number(postsRow && postsRow.cnt) || 0,
+			commentsCreated24h: Number(commentsRow && commentsRow.cnt) || 0,
+			quizCorrect24h: Number(quizRow && quizRow.cnt) || 0,
+			recentRewards: xpRows.map((row) => ({
+				label: formatXpRuleLabel(row.activity || ''),
+				xp: Number(row.xp_delta) || 0,
+				when: formatDigestDateTime(row.created_at)
+			}))
+		};
+		const reminders = reminderRows.map((row) => ({
+			title: String(getPlainTextFromRichText(row.content || '') || row.reminder_note || 'Reminder').trim().slice(0, 120) || 'Reminder',
+			when: formatDigestDateTime(row.reminder_at),
+			context: String(row.context_label || 'Upcoming reminder')
+		}));
+		const loginUrl = `${getPublicBaseUrl()}/login.html`;
+		const sent = await sendDailyFeedbackEmail(user, summary, reminders, loginUrl).catch((e) => {
+			console.error(`Daily feedback email error for user ${user.id}:`, e.message || e);
+			return false;
+		});
+		if (sent) {
+			await runAsync(`INSERT INTO daily_digest_sends (user_id, digest_day, sent_at)
+				VALUES (?, ?, ?)
+				ON CONFLICT (user_id, digest_day) DO NOTHING`, [user.id, digestDay, Date.now()]).catch(() => {});
+		}
+	}
 }
 
 async function processDueReminderNotifications() {
@@ -2363,6 +2566,35 @@ async function initializeDatabase() {
 		created_at BIGINT NOT NULL,
 		seen_at BIGINT
 	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS daily_digest_sends (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		digest_day TEXT NOT NULL,
+		sent_at BIGINT NOT NULL,
+		UNIQUE(user_id, digest_day)
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS mail_protocols (
+		id BIGSERIAL PRIMARY KEY,
+		protocol_key TEXT NOT NULL UNIQUE,
+		label TEXT NOT NULL,
+		description TEXT,
+		category TEXT NOT NULL DEFAULT 'general',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		updated_by BIGINT,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS mail_delivery_logs (
+		id BIGSERIAL PRIMARY KEY,
+		protocol_key TEXT NOT NULL,
+		user_id BIGINT,
+		email TEXT,
+		subject TEXT,
+		status TEXT NOT NULL,
+		error_message TEXT,
+		meta_json TEXT,
+		created_at BIGINT NOT NULL
+	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS story_views (
 		id BIGSERIAL PRIMARY KEY,
 		story_id BIGINT NOT NULL,
@@ -2539,6 +2771,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE speciality_suggestions ADD COLUMN IF NOT EXISTS reviewed_at BIGINT`);
 	await runAsync(`UPDATE speciality_suggestions SET suggestion_type = COALESCE(NULLIF(TRIM(suggestion_type), ''), 'speciality')`);
 	await runAsync(`UPDATE speciality_suggestions SET status = COALESCE(NULLIF(TRIM(status), ''), 'open')`);
+	await seedMailProtocols();
 	await syncMedicalTaxonomyCatalog();
 	await backfillUserMedicalTaxonomy();
 	await backfillInstituteRegistry();
@@ -3373,6 +3606,57 @@ app.post('/api/admin/institute-submissions/:id/reject', requireAdmin, async (req
 		res.json({ success: true });
 	} catch (e) {
 		console.error('Institute submission reject error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/mail-protocols', requireAdmin, async (req, res) => {
+	try {
+		await seedMailProtocols();
+		const rows = await allAsync(`SELECT mp.protocol_key, mp.label, mp.description, mp.category, mp.enabled, mp.updated_at,
+				COALESCE(sent.sent_count, 0) AS sent_count,
+				COALESCE(disabled.disabled_count, 0) AS disabled_count,
+				last_log.last_sent_at,
+				last_log.last_status
+			FROM mail_protocols mp
+			LEFT JOIN (
+				SELECT protocol_key, COUNT(*)::int AS sent_count
+				FROM mail_delivery_logs
+				WHERE status = 'sent' AND created_at >= ?
+				GROUP BY protocol_key
+			) sent ON sent.protocol_key = mp.protocol_key
+			LEFT JOIN (
+				SELECT protocol_key, COUNT(*)::int AS disabled_count
+				FROM mail_delivery_logs
+				WHERE status = 'disabled' AND created_at >= ?
+				GROUP BY protocol_key
+			) disabled ON disabled.protocol_key = mp.protocol_key
+			LEFT JOIN (
+				SELECT DISTINCT ON (protocol_key) protocol_key, created_at AS last_sent_at, status AS last_status
+				FROM mail_delivery_logs
+				ORDER BY protocol_key, created_at DESC
+			) last_log ON last_log.protocol_key = mp.protocol_key
+			ORDER BY mp.category ASC, mp.label ASC`, [Date.now() - (7 * 24 * 60 * 60 * 1000), Date.now() - (7 * 24 * 60 * 60 * 1000)]);
+		res.json({ protocols: rows });
+	} catch (e) {
+		console.error('Admin mail protocols load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/mail-protocols/:key', requireAdmin, async (req, res) => {
+	const protocolKey = String(req.params.key || '').trim();
+	const enabled = Number(req.body.enabled) ? 1 : 0;
+	if (!MAIL_PROTOCOLS[protocolKey]) return res.status(404).json({ error: 'Unknown mail protocol' });
+	try {
+		await seedMailProtocols();
+		const updated = await runAsync(`UPDATE mail_protocols
+			SET enabled = ?, updated_by = ?, updated_at = ?
+			WHERE protocol_key = ?`, [enabled, req.session.userId, Date.now(), protocolKey]);
+		if (!updated.changes) return res.status(404).json({ error: 'Mail protocol not found' });
+		res.json({ success: true, enabled: Boolean(enabled) });
+	} catch (e) {
+		console.error('Admin mail protocol update error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -6074,9 +6358,13 @@ initializeDatabase()
 		await pool.query('SELECT 1');
 		console.log('PostgreSQL connected');
 		processDueReminderNotifications().catch((e) => console.error('Initial reminder processor error:', e));
+		processDailyFeedbackDigests().catch((e) => console.error('Initial daily feedback processor error:', e));
 		setInterval(() => {
 			processDueReminderNotifications().catch((e) => console.error('Reminder processor error:', e));
 		}, 60 * 1000);
+		setInterval(() => {
+			processDailyFeedbackDigests().catch((e) => console.error('Daily feedback processor error:', e));
+		}, 15 * 60 * 1000);
 		server.listen(PORT, () => {
 			console.log(`Server listening on http://localhost:${PORT}`);
 		});

@@ -2578,6 +2578,86 @@ async function loadAdminTaxonomySuggestions() {
   });
 }
 
+async function loadAdminMailProtocols() {
+  const box = document.getElementById('adminMailProtocols');
+  if (!box) return;
+  const res = await api('/api/admin/mail-protocols');
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load mail protocols.</div>';
+    return;
+  }
+  const protocols = Array.isArray(res.protocols) ? res.protocols : [];
+  if (!protocols.length) {
+    box.innerHTML = '<div class="muted">No mail protocols found.</div>';
+    return;
+  }
+  const rows = protocols.map((item) => {
+    const key = escapeHtml(item.protocol_key || '');
+    const enabled = Number(item.enabled) !== 0;
+    const volumeLabel = `${Number(item.sent_count) || 0} sent / 7d`;
+    const blockedLabel = `${Number(item.disabled_count) || 0} blocked / 7d`;
+    const lastEvent = item.last_sent_at ? `${formatDateTime(item.last_sent_at)} (${escapeHtml(item.last_status || 'sent')})` : 'Never';
+    return `<tr data-mail-protocol-key="${key}">
+      <td>
+        <strong>${escapeHtml(item.label || key)}</strong>
+        <div class="muted">${key}</div>
+      </td>
+      <td>${escapeHtml(item.category || 'general')}</td>
+      <td>${escapeHtml(item.description || '')}</td>
+      <td>
+        <div>${volumeLabel}</div>
+        <div class="muted">${blockedLabel}</div>
+      </td>
+      <td>${lastEvent}</td>
+      <td>
+        <label class="mail-protocol-switch">
+          <input class="admin-mail-enabled" type="checkbox" ${enabled ? 'checked' : ''} />
+          <span>${enabled ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      </td>
+      <td><button class="btn secondary tiny-btn admin-mail-save-btn" type="button">Save</button></td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<div class="card admin-catalog-card">
+    <h4 style="margin:0 0 0.55rem">Automated Mail Protocols</h4>
+    <p class="muted admin-catalog-note">Turn protocols on or off to control spend without touching code. New managed mail flows should be registered in the backend registry so they appear here automatically.</p>
+  </div>
+  <div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>Protocol</th>
+          <th>Category</th>
+          <th>Description</th>
+          <th>Usage</th>
+          <th>Last event</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-mail-save-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const protocolKey = String(row.getAttribute('data-mail-protocol-key') || '').trim();
+      const enabled = Boolean((row.querySelector('.admin-mail-enabled') || {}).checked);
+      if (!protocolKey) return;
+      btn.disabled = true;
+      const updateRes = await api(`/api/admin/mail-protocols/${encodeURIComponent(protocolKey)}`, 'POST', { enabled });
+      btn.disabled = false;
+      if (updateRes && updateRes.success) {
+        showToast(`Mail protocol ${enabled ? 'enabled' : 'disabled'}`);
+        loadAdminMailProtocols();
+      } else {
+        showToast((updateRes && updateRes.error) || 'Unable to update mail protocol', 'error');
+      }
+    });
+  });
+}
+
 function renderAdminInstituteManager(institutes) {
   const box = document.getElementById('adminInstituteManager');
   if (!box) return;
@@ -3056,6 +3136,7 @@ function initAdminTabs() {
     reports: 'adminTabReports',
     tickets: 'adminTabTickets',
     features: 'adminTabFeatures',
+    mail: 'adminTabMail',
     taxonomy: 'adminTabTaxonomy'
   };
   const activate = (tab) => {
@@ -3075,6 +3156,7 @@ function initAdminTabs() {
       loadAdminFeatureSuggestions();
       loadAdminTaxonomySuggestions();
     }
+    if (tab === 'mail') loadAdminMailProtocols();
     if (tab === 'taxonomy') loadAdminMedicalTaxonomy();
   };
   tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
@@ -6181,7 +6263,6 @@ async function loadProfile() {
       <div class="xp-hero-metrics">
         <div class="xp-chip"><span class="iconify" data-icon="lucide:sword"></span> Level ${level}</div>
         <div class="xp-chip"><span class="iconify" data-icon="lucide:zap"></span> ${xp} XP</div>
-        <a class="xp-chip xp-chip-link" href="/xp-history.html"><span class="iconify" data-icon="lucide:scroll-text"></span> XP History</a>
       </div>
       <div class="xp-track" role="progressbar" aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100">
         <div class="xp-track-fill" style="width:${progress.percent}%"></div>
@@ -6291,6 +6372,19 @@ async function handlePostImageSelection(e) {
   reader.readAsDataURL(file);
 }
 
+async function handleLogout() {
+  const res = await api('/api/logout', 'POST', {});
+  if (res && res.error) {
+    showToast(res.error || 'Unable to logout', 'error');
+    return;
+  }
+  if (celebrationPollInterval) {
+    window.clearInterval(celebrationPollInterval);
+    celebrationPollInterval = null;
+  }
+  location.href = '/login.html';
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   upsertSavedListsTopButton(null);
   upsertActivityTopButton(null);
@@ -6302,6 +6396,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   initFileUploadControls();
   initStaticActionIcons();
   applyIconifyAudit();
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
   
   // Initialize search bar
   const searchInput = document.getElementById('searchInput');
@@ -6566,6 +6662,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (isAdmin && document.getElementById('adminTickets')) loadAdminTickets();
     if (isAdmin && document.getElementById('adminFeatureSuggestions')) loadAdminFeatureSuggestions();
     if (isAdmin && document.getElementById('adminTaxonomySuggestions')) loadAdminTaxonomySuggestions();
+    if (isAdmin && document.getElementById('adminMailProtocols')) loadAdminMailProtocols();
     if (isAdmin && document.getElementById('adminMedicalTaxonomy')) loadAdminMedicalTaxonomy();
     if (isAdmin && document.getElementById('adminInstitutes')) loadAdminInstitutes();
     if (isAdmin && document.getElementById('adminInstituteSubmissions')) loadAdminInstituteSubmissions();

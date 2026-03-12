@@ -2510,6 +2510,20 @@ button {
   margin: 0;
 }
 
+.mail-protocol-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mail-protocol-switch input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   .admin-catalog-grid {
     grid-template-columns: 1fr;
