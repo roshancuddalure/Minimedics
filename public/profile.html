@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -15,89 +15,260 @@
   <div class="container">
     <header class="hero">
       <div class="brand">
-        <span class="eyebrow">Profile Settings</span>
+        <span class="eyebrow">Profile</span>
         <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
-        <p class="muted">Update your profile details and identity information.</p>
+        <p class="muted">Shape how people discover you.</p>
       </div>
       <div class="actions">
         <button id="themeToggle" class="btn secondary">Dark</button>
-        <a class="btn" href="/dashboard">Back to Dashboard</a>
-        <a class="btn" href="/help-center.html">Help Center</a>
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/help-center.html">Help</a>
         <a class="btn" href="/reach-us.html">Reach Us</a>
       </div>
     </header>
 
-    <main class="stack" style="margin-top:1rem">
-      <section class="card">
-        <h3>Edit Profile</h3>
-        <form id="profileEditForm" class="form">
-          <input id="profileEditName" type="text" maxlength="120" placeholder="Full name" />
-          <input id="profileEditNickname" type="text" maxlength="60" placeholder="Nickname" />
-          <input id="profileEditEmail" type="email" placeholder="Email" />
-          <select id="profileEditGender">
-            <option value="">Gender</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
-            <option value="prefer_not_to_say">Prefer not to say</option>
-          </select>
-          <input id="profileEditDob" type="date" />
-          <input id="profileEditPlaceFrom" type="text" maxlength="120" placeholder="Place from" />
-          <input id="profileEditCountry" type="text" maxlength="80" placeholder="Country" />
-          <input id="profileEditState" type="text" maxlength="80" placeholder="State" />
-          <input id="profileEditPincode" type="text" maxlength="20" placeholder="Pincode / ZIP" />
-          <div class="row" style="justify-content:flex-start">
-            <input id="profileEditContactCountryCode" type="text" maxlength="6" placeholder="Country code (e.g. +91)" />
-            <input id="profileEditContactNumber" type="text" maxlength="20" placeholder="Contact number" />
+    <main class="profile-editor-layout">
+      <aside class="card profile-editor-sidebar">
+        <span class="eyebrow">Edit Flow</span>
+        <h3>Profile Studio</h3>
+        <p class="muted">Clean sections. Faster scanning. Less form fatigue.</p>
+        <div class="profile-editor-side-list">
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionIdentity"><span class="iconify" data-icon="lucide:user-round"></span><span>Identity</span></button>
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionLocation"><span class="iconify" data-icon="lucide:map-pinned"></span><span>Location</span></button>
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionPrivacy"><span class="iconify" data-icon="lucide:shield-check"></span><span>Privacy</span></button>
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionAcademic"><span class="iconify" data-icon="lucide:graduation-cap"></span><span>Academic</span></button>
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionTaxonomy"><span class="iconify" data-icon="lucide:stethoscope"></span><span>Taxonomy</span></button>
+          <button class="profile-editor-side-item" type="button" data-profile-nav="profileSectionSuggest"><span class="iconify" data-icon="lucide:lightbulb"></span><span>Suggest</span></button>
+        </div>
+      </aside>
+
+      <section class="card profile-editor-main">
+        <div class="profile-editor-head">
+          <div>
+            <span class="eyebrow">Settings</span>
+            <h3>Edit Profile</h3>
           </div>
-          <select id="privacyShowOnline">
-            <option value="connections">Who can see me online - Connections</option>
-            <option value="everyone">Who can see me online - Everyone</option>
-            <option value="nobody">Who can see me online - Nobody</option>
-          </select>
-          <select id="privacyDiscoverability">
-            <option value="everyone">Who can find me online - Everyone</option>
-            <option value="nobody">Who can find me online - Nobody</option>
-          </select>
-          <select id="privacyInSuggestions">
-            <option value="everyone">Who can find me in suggestions - Everyone</option>
-            <option value="nobody">Who can find me in suggestions - Nobody</option>
-          </select>
-          <select id="privacyRequestPolicy">
-            <option value="everyone">Who can send me requests - Everyone</option>
-            <option value="link_only">Who can send me requests - Profile Link Only</option>
-            <option value="nobody">Who can send me requests - Nobody</option>
-          </select>
-          <input id="profileEditInstitute" type="text" maxlength="180" placeholder="College / Institute / Workplace" />
-          <select id="profileEditProgramType">
-            <option value="">Program type</option>
-            <option value="student">Student</option>
-            <option value="professional">Working Professional</option>
-          </select>
-          <input id="profileEditDegree" type="text" maxlength="80" placeholder="Degree (MBBS/MD/MS/DM/MCh...)" />
-          <input id="profileEditAcademicYear" type="text" maxlength="40" placeholder="Academic year" />
-          <select id="profileEditSpecialityDomain">
-            <option value="">Select domain</option>
-          </select>
-          <select id="profileEditSpecialitySpecialty">
-            <option value="">Select specialty</option>
-          </select>
-          <select id="profileEditSpecialitySubspecialty">
-            <option value="">Select subspecialty / topic</option>
-          </select>
-          <p id="profileSpecialitySummary" class="muted">Your current taxonomy selection will appear here.</p>
-          <textarea id="profileEditBio" maxlength="400" placeholder="Bio (max 400 chars)"></textarea>
-          <div class="row" style="justify-content:flex-start">
-            <select id="specialitySuggestionType">
-              <option value="speciality">Suggest specialty</option>
-              <option value="domain">Suggest domain</option>
-              <option value="subspeciality">Suggest subspecialty</option>
-              <option value="topic">Suggest topic tag</option>
-            </select>
-            <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Domain / specialty / topic not listed? Suggest one" />
-            <button id="specialitySuggestBtn" class="btn secondary" type="button">Suggest</button>
-          </div>
-          <div class="row">
+        </div>
+
+        <form id="profileEditForm" class="profile-editor-form">
+          <section id="profileSectionIdentity" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:badge-info"></span>
+              <div>
+                <h4>Identity</h4>
+                <p class="muted">Core details</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:user-round"></span><span>Name</span></span>
+                <input id="profileEditName" type="text" maxlength="120" placeholder="Full name" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:signature"></span><span>Nickname</span></span>
+                <input id="profileEditNickname" type="text" maxlength="60" placeholder="Nickname" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:mail"></span><span>Email</span></span>
+                <input id="profileEditEmail" type="email" placeholder="Email" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:venus-and-mars"></span><span>Gender</span></span>
+                <select id="profileEditGender">
+                  <option value="">Gender</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                  <option value="prefer_not_to_say">Prefer not to say</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:cake"></span><span>DOB</span></span>
+                <input id="profileEditDob" type="date" />
+              </label>
+              <label class="profile-field profile-field-span-2">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:pen-line"></span><span>Bio</span></span>
+                <textarea id="profileEditBio" maxlength="400" placeholder="Bio"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section id="profileSectionLocation" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:map"></span>
+              <div>
+                <h4>Location</h4>
+                <p class="muted">Where you're from</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:map-pin"></span><span>Place</span></span>
+                <input id="profileEditPlaceFrom" type="text" maxlength="120" placeholder="Place" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:globe"></span><span>Country</span></span>
+                <input id="profileEditCountry" type="text" maxlength="80" placeholder="Country" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:map"></span><span>State</span></span>
+                <input id="profileEditState" type="text" maxlength="80" placeholder="State" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:map-pinned"></span><span>PIN</span></span>
+                <input id="profileEditPincode" type="text" maxlength="20" placeholder="Pincode / ZIP" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:flag"></span><span>Code</span></span>
+                <input id="profileEditContactCountryCode" type="text" maxlength="6" placeholder="+91" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:phone"></span><span>Phone</span></span>
+                <input id="profileEditContactNumber" type="text" maxlength="20" placeholder="Contact number" />
+              </label>
+            </div>
+          </section>
+
+          <section id="profileSectionPrivacy" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:shield-check"></span>
+              <div>
+                <h4>Privacy</h4>
+                <p class="muted">Visibility controls</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:activity"></span><span>Online</span></span>
+                <select id="privacyShowOnline">
+                  <option value="connections">Connections</option>
+                  <option value="everyone">Everyone</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:search"></span><span>Search</span></span>
+                <select id="privacyDiscoverability">
+                  <option value="everyone">Everyone</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:users-round"></span><span>Suggest</span></span>
+                <select id="privacyInSuggestions">
+                  <option value="everyone">Everyone</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:user-plus"></span><span>Requests</span></span>
+                <select id="privacyRequestPolicy">
+                  <option value="everyone">Everyone</option>
+                  <option value="link_only">Link only</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section id="profileSectionAcademic" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:graduation-cap"></span>
+              <div>
+                <h4>Academic</h4>
+                <p class="muted">Training context</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field profile-field-span-2">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:building-2"></span><span>Institute</span></span>
+                <input id="profileEditInstitute" type="text" maxlength="180" placeholder="College / Institute / Workplace" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:briefcase-medical"></span><span>Status</span></span>
+                <select id="profileEditProgramType">
+                  <option value="">Program type</option>
+                  <option value="student">Student</option>
+                  <option value="professional">Working Professional</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:book-open-text"></span><span>Degree</span></span>
+                <input id="profileEditDegree" type="text" maxlength="80" placeholder="Degree" />
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:calendar-range"></span><span>Year</span></span>
+                <input id="profileEditAcademicYear" type="text" maxlength="40" placeholder="Academic year" />
+              </label>
+            </div>
+          </section>
+
+          <section id="profileSectionTaxonomy" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:stethoscope"></span>
+              <div>
+                <h4>Medical Focus</h4>
+                <p class="muted">Taxonomy selection</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:building-2"></span><span>Domain</span></span>
+                <select id="profileEditSpecialityDomain">
+                  <option value="">Select domain</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:stethoscope"></span><span>Specialty</span></span>
+                <select id="profileEditSpecialitySpecialty">
+                  <option value="">Select specialty</option>
+                </select>
+              </label>
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:tags"></span><span>Topic</span></span>
+                <select id="profileEditSpecialitySubspecialty">
+                  <option value="">Select subspecialty / topic</option>
+                </select>
+              </label>
+              <div class="profile-note-card profile-field-span-2">
+                <div class="profile-note-head">
+                  <span class="iconify" data-icon="lucide:radar"></span>
+                  <span>Current fit</span>
+                </div>
+                <p id="profileSpecialitySummary" class="muted">Your current taxonomy selection will appear here.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="profileSectionSuggest" class="profile-editor-section">
+            <div class="profile-editor-section-head">
+              <span class="profile-editor-section-icon iconify" data-icon="lucide:lightbulb"></span>
+              <div>
+                <h4>Suggest</h4>
+                <p class="muted">Missing taxonomy item</p>
+              </div>
+            </div>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:list-plus"></span><span>Type</span></span>
+                <select id="specialitySuggestionType">
+                  <option value="speciality">Specialty</option>
+                  <option value="domain">Domain</option>
+                  <option value="subspeciality">Subspecialty</option>
+                  <option value="topic">Topic</option>
+                </select>
+              </label>
+              <label class="profile-field profile-field-span-2">
+                <span class="profile-field-meta"><span class="iconify" data-icon="lucide:pen-square"></span><span>Suggestion</span></span>
+                <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Add missing item" />
+              </label>
+              <div class="row profile-editor-submit-row">
+                <button id="specialitySuggestBtn" class="btn secondary" type="button">Suggest</button>
+              </div>
+            </div>
+          </section>
+
+          <div class="row profile-editor-submit-row">
             <button class="btn primary" type="submit">Save Changes</button>
           </div>
         </form>
@@ -110,10 +281,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-

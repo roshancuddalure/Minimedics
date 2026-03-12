@@ -284,6 +284,38 @@ function buildCompactTaxonomyMarkup(user) {
   </div>`;
 }
 
+function initProfileEditorNav() {
+  const navButtons = Array.from(document.querySelectorAll('[data-profile-nav]'));
+  if (!navButtons.length) return;
+  const sectionIds = navButtons.map((btn) => btn.getAttribute('data-profile-nav')).filter(Boolean);
+  const sections = sectionIds.map((id) => document.getElementById(id)).filter(Boolean);
+  const setActive = (sectionId) => {
+    navButtons.forEach((btn) => btn.classList.toggle('is-active', btn.getAttribute('data-profile-nav') === sectionId));
+  };
+  navButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-profile-nav');
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActive(targetId);
+    });
+  });
+  if ('IntersectionObserver' in window && sections.length) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (visible && visible.target && visible.target.id) setActive(visible.target.id);
+    }, {
+      rootMargin: '-20% 0px -55% 0px',
+      threshold: [0.2, 0.45, 0.7]
+    });
+    sections.forEach((section) => observer.observe(section));
+  }
+  if (sectionIds.length) setActive(sectionIds[0]);
+}
+
 function initNotificationAudioUnlock() {
   if (notificationAudioUnlocked) return;
   const unlock = () => {
@@ -5914,6 +5946,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   }
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
+    initProfileEditorNav();
     profileTaxonomyController = createMedicalTaxonomyController({
       domainId: 'profileEditSpecialityDomain',
       specialtyId: 'profileEditSpecialitySpecialty',
