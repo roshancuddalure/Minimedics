@@ -261,16 +261,19 @@ function createMedicalTaxonomyController(config) {
 
 function getUserTaxonomyParts(user) {
   const parts = [];
-  if (user && user.speciality_domain_name) parts.push({ label: user.speciality_domain_name, kind: 'Domain' });
-  if (user && user.speciality_specialty_name) parts.push({ label: user.speciality_specialty_name, kind: 'Specialty' });
-  if (user && user.speciality_subspecialty_name) parts.push({ label: user.speciality_subspecialty_name, kind: 'Topic' });
+  if (user && user.speciality_domain_name) parts.push({ label: user.speciality_domain_name, kind: 'Domain', icon: 'lucide:building-2' });
+  if (user && user.speciality_specialty_name) parts.push({ label: user.speciality_specialty_name, kind: 'Specialty', icon: 'lucide:stethoscope' });
+  if (user && user.speciality_subspecialty_name) parts.push({ label: user.speciality_subspecialty_name, kind: 'Topic', icon: 'lucide:tags' });
   return parts;
 }
 
 function buildCompactTaxonomyMarkup(user) {
   const parts = getUserTaxonomyParts(user);
   if (!parts.length) return '';
-  const items = parts.map((part) => `<span class="taxonomy-pill"><strong>${escapeHtml(part.kind)}</strong>${escapeHtml(part.label)}</span>`).join('');
+  const items = parts.map((part) => `<div class="taxonomy-pill" aria-label="${escapeHtml(part.kind)}: ${escapeHtml(part.label)}">
+    <span class="taxonomy-item-icon iconify" data-icon="${escapeHtml(part.icon)}"></span>
+    <span class="taxonomy-item-value">${escapeHtml(part.label)}</span>
+  </div>`).join('');
   return `<div class="taxonomy-compact-card">
     <div class="taxonomy-compact-head">
       <span class="iconify" data-icon="lucide:stethoscope"></span>
