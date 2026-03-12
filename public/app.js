@@ -60,6 +60,25 @@ function initBrandMasthead() {
   const brands = Array.from(document.querySelectorAll('.brand'));
   if (!brands.length) return;
   brands.forEach((brand) => {
+    if (!brand.dataset.homeLinkBound) {
+      brand.dataset.homeLinkBound = '1';
+      brand.setAttribute('role', 'link');
+      brand.setAttribute('tabindex', '0');
+      brand.setAttribute('aria-label', 'Go to home page');
+      brand.classList.add('brand-home-link');
+      brand.addEventListener('click', async (evt) => {
+        const target = evt.target;
+        if (target && typeof target.closest === 'function' && target.closest('a, button, input, select, textarea, label')) return;
+        const homePath = await resolveHomePath().catch(() => '/');
+        window.location.href = homePath || '/';
+      });
+      brand.addEventListener('keydown', async (evt) => {
+        if (evt.key !== 'Enter' && evt.key !== ' ') return;
+        evt.preventDefault();
+        const homePath = await resolveHomePath().catch(() => '/');
+        window.location.href = homePath || '/';
+      });
+    }
     if (brand.querySelector('.brand-logo')) return;
     const h1 = brand.querySelector('.brand-wordmark');
     if (!h1) return;

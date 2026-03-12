@@ -164,6 +164,21 @@ button {
   display: none;
 }
 
+.brand-home-link {
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.brand-home-link:hover {
+  transform: translateY(-1px);
+}
+
+.brand-home-link:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 74%, white);
+  outline-offset: 6px;
+  border-radius: 16px;
+}
+
 .brand .wm-med {
   color: #0b4b8f;
 }
