@@ -6206,6 +6206,10 @@ app.get('/activity', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'activity.html'));
 });
 
+app.get('/my-activity', requireAuth, (req, res) => {
+	res.sendFile(path.join(__dirname, 'public', 'my-activity.html'));
+});
+
 app.get('/saved', requireAuth, (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'saved.html'));
 });

@@ -6178,6 +6178,42 @@ async function loadXpHistory() {
   box.innerHTML = rows;
 }
 
+async function loadMyActivityPage() {
+  const box = document.getElementById('myActivityFeed');
+  if (!box) return;
+  const totalEl = document.getElementById('myActivityTotalCount');
+  const latestEl = document.getElementById('myActivityLatestPost');
+  box.innerHTML = '<div class="muted center" style="padding:40px">Loading your posts...</div>';
+  const meRes = await api('/api/me');
+  const me = meRes.user || null;
+  if (!me || !me.id) {
+    box.innerHTML = '<div class="muted" style="padding:20px;text-align:center">Login required.</div>';
+    if (totalEl) totalEl.textContent = '0';
+    if (latestEl) latestEl.textContent = 'Unavailable';
+    return;
+  }
+  cachedMe = me;
+  window.__me = me;
+  const res = await api(`/api/user/${encodeURIComponent(me.id)}/posts`);
+  if (res.error) {
+    box.innerHTML = `<div class="muted" style="padding:20px;text-align:center">${escapeHtml(res.error || 'Unable to load your posts')}</div>`;
+    if (totalEl) totalEl.textContent = '0';
+    if (latestEl) latestEl.textContent = 'Unavailable';
+    return;
+  }
+  const posts = Array.isArray(res.posts) ? res.posts : [];
+  if (totalEl) totalEl.textContent = String(posts.length);
+  if (latestEl) latestEl.textContent = posts.length ? formatDateTime(posts[0].publish_at || posts[0].created_at, 'No posts') : 'No posts';
+  if (!posts.length) {
+    box.innerHTML = '<div class="muted" style="padding:40px;text-align:center">You have not posted anything yet.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  posts.forEach((post) => {
+    box.appendChild(renderPostCard({ ...post, user_id: me.id, username: me.username, name: me.name, profile_picture: me.profile_picture }, me));
+  });
+}
+
 async function handleFeatureSuggestionSubmit(e) {
   e.preventDefault();
   const form = e.target;
@@ -6280,6 +6316,7 @@ async function loadProfile() {
     </div>
     ${bio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${bio}</p></div>` : ''}
     <div class="row" style="justify-content:flex-start;margin-top:0.4rem">
+      <a class="btn secondary tiny-btn" href="/my-activity">Your Activity</a>
       <a class="btn tiny-btn" href="/profile">Edit Profile Details</a>
       <a class="btn secondary tiny-btn" href="/xp-history.html">XP History</a>
       <button id="openSettingsBtn" class="btn secondary tiny-btn" type="button" title="Settings">Settings</button>
@@ -6641,6 +6678,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       el.addEventListener('change', loadXpHistory);
     });
   }
+  if (document.getElementById('myActivityFeed')) loadMyActivityPage();
   
   // Profile display
   loadProfile();
