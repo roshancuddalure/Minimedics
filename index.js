@@ -1063,6 +1063,9 @@ function normalizeSuggestionValue(value) {
 	return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PROFILE_CONTACT_CHANGE_COOLDOWN_MS = 180 * DAY_MS;
+
 const INSTITUTE_TOKEN_STOPWORDS = new Set([
 	'of',
 	'the',
@@ -1711,6 +1714,75 @@ async function attachMedicalTaxonomyToUser(user) {
 	}
 }
 
+function getProfileFieldValueForLock(user, field) {
+	if (!user) return '';
+	const value = user[field];
+	return typeof value === 'string' ? value.trim() : '';
+}
+
+function buildProfileEditLocks(user) {
+	const immutableFields = {
+		name: 'Name',
+		email: 'Email',
+		gender: 'Gender',
+		date_of_birth: 'DOB',
+		place_from: 'Place',
+		country: 'Country',
+		state: 'State',
+		pincode: 'PIN'
+	};
+	const fieldLocks = {};
+	Object.keys(immutableFields).forEach((field) => {
+		const currentValue = getProfileFieldValueForLock(user, field);
+		fieldLocks[field] = {
+			label: immutableFields[field],
+			locked: Boolean(currentValue),
+			currentValue
+		};
+	});
+	const currentCountryCode = getProfileFieldValueForLock(user, 'contact_country_code');
+	const currentContactNumber = getProfileFieldValueForLock(user, 'contact_number');
+	const hasContact = Boolean(currentCountryCode || currentContactNumber);
+	const contactChangedAt = Number(user && user.profile_contact_changed_at) || null;
+	const nextContactChangeAt = hasContact && contactChangedAt ? contactChangedAt + PROFILE_CONTACT_CHANGE_COOLDOWN_MS : null;
+	const contactLocked = Boolean(hasContact && nextContactChangeAt && Date.now() < nextContactChangeAt);
+	return {
+		fields: fieldLocks,
+		contact: {
+			locked: contactLocked,
+			currentCountryCode,
+			currentContactNumber,
+			lastChangedAt: contactChangedAt,
+			nextChangeAt: contactLocked ? nextContactChangeAt : null
+		}
+	};
+}
+
+function assertImmutableProfileField(currentUser, field, nextValue, label) {
+	const currentValue = getProfileFieldValueForLock(currentUser, field);
+	const proposedValue = typeof nextValue === 'string' ? nextValue.trim() : '';
+	if (!currentValue) return;
+	if (currentValue === proposedValue) return;
+	throw new Error(`${label} can only be set once. Contact support if this needs correction.`);
+}
+
+function resolveNextContactChangeTimestamp(currentUser, nextCountryCode, nextContactNumber) {
+	const currentCountryCode = getProfileFieldValueForLock(currentUser, 'contact_country_code');
+	const currentContactNumber = getProfileFieldValueForLock(currentUser, 'contact_number');
+	const proposedCountryCode = typeof nextCountryCode === 'string' ? nextCountryCode.trim() : '';
+	const proposedContactNumber = typeof nextContactNumber === 'string' ? nextContactNumber.trim() : '';
+	const hasCurrentContact = Boolean(currentCountryCode || currentContactNumber);
+	const isChanged = currentCountryCode !== proposedCountryCode || currentContactNumber !== proposedContactNumber;
+	if (!isChanged) return Number(currentUser && currentUser.profile_contact_changed_at) || null;
+	if (!hasCurrentContact) return Date.now();
+	const lastChangedAt = Number(currentUser && currentUser.profile_contact_changed_at) || 0;
+	const nextAllowedAt = lastChangedAt + PROFILE_CONTACT_CHANGE_COOLDOWN_MS;
+	if (lastChangedAt && Date.now() < nextAllowedAt) {
+		throw new Error(`Phone details can be changed once every 6 months. Next change available after ${new Date(nextAllowedAt).toISOString().slice(0, 10)}.`);
+	}
+	return Date.now();
+}
+
 function pushSuggestionReason(reasons, message) {
 	const text = typeof message === 'string' ? message.trim() : '';
 	if (!text || reasons.includes(text)) return;
@@ -1882,6 +1954,7 @@ async function initializeDatabase() {
 		pincode TEXT,
 		contact_country_code TEXT,
 		contact_number TEXT,
+		profile_contact_changed_at BIGINT,
 		institute TEXT,
 		institute_id BIGINT,
 		institute_raw_name TEXT,
@@ -1923,6 +1996,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pincode TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_country_code TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_number TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_contact_changed_at BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute_id BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute_raw_name TEXT`);
@@ -1953,6 +2027,10 @@ async function initializeDatabase() {
 	await runAsync(`UPDATE users SET xp = COALESCE(xp, 0)`);
 	await runAsync(`UPDATE users SET level = CASE WHEN level IS NULL OR level < 1 THEN 1 ELSE level END`);
 	await runAsync(`UPDATE users SET title = COALESCE(title, 'Rookie Medic')`);
+	await runAsync(`UPDATE users
+		SET profile_contact_changed_at = ?
+		WHERE profile_contact_changed_at IS NULL
+		AND (COALESCE(TRIM(contact_country_code), '') <> '' OR COALESCE(TRIM(contact_number), '') <> '')`, [Date.now()]);
 	await runAsync(`CREATE TABLE IF NOT EXISTS domains (
 		id BIGSERIAL PRIMARY KEY,
 		slug TEXT UNIQUE NOT NULL,
@@ -2793,10 +2871,11 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, profile_contact_changed_at, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		const safeUser = applyProfileFieldDecryption(user);
 		await attachMedicalTaxonomyToUser(safeUser);
+		safeUser.profile_edit_locks = buildProfileEditLocks(safeUser);
 		res.json({ user: safeUser });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
@@ -2857,6 +2936,32 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 		return res.status(400).json({ error: 'Add both country code and contact number' });
 	}
 	try {
+		const currentUserEncrypted = await getAsync(`SELECT
+			id,
+			name,
+			email,
+			gender,
+			date_of_birth,
+			place_from,
+			country,
+			state,
+			pincode,
+			contact_country_code,
+			contact_number,
+			profile_contact_changed_at
+			FROM users
+			WHERE id = ?`, [req.session.userId]);
+		if (!currentUserEncrypted) return res.status(404).json({ error: 'User not found' });
+		const currentUser = applyProfileFieldDecryption(currentUserEncrypted);
+		assertImmutableProfileField(currentUser, 'name', name, 'Name');
+		assertImmutableProfileField(currentUser, 'email', email, 'Email');
+		assertImmutableProfileField(currentUser, 'gender', gender, 'Gender');
+		assertImmutableProfileField(currentUser, 'date_of_birth', dateOfBirth, 'DOB');
+		assertImmutableProfileField(currentUser, 'place_from', placeFrom, 'Place');
+		assertImmutableProfileField(currentUser, 'country', country, 'Country');
+		assertImmutableProfileField(currentUser, 'state', state, 'State');
+		assertImmutableProfileField(currentUser, 'pincode', pincode, 'PIN');
+		const nextContactChangedAt = resolveNextContactChangeTimestamp(currentUser, contactCountryCode, contactNumber);
 		const taxonomySelection = await resolveMedicalTaxonomySelection(req.body);
 		const instituteSelection = await resolveInstituteReference(institute, req.session.userId);
 		await runAsync(`UPDATE users SET
@@ -2874,6 +2979,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 			pincode = ?,
 			contact_country_code = ?,
 			contact_number = ?,
+			profile_contact_changed_at = ?,
 			institute = ?,
 			institute_id = ?,
 			institute_raw_name = ?,
@@ -2888,12 +2994,12 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 			privacy_discoverability = ?,
 			privacy_in_suggestions = ?,
 			privacy_request_policy = ?
-			WHERE id = ?`, [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), instituteSelection.canonicalName || institute || null, instituteSelection.instituteId, institute || null, programType || null, degree || null, academicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+			WHERE id = ?`, [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), nextContactChangedAt, instituteSelection.canonicalName || institute || null, instituteSelection.instituteId, institute || null, programType || null, degree || null, academicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		await evaluateProfileAwards(req.session.userId).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
 		const profileError = String(e && e.message || '').toLowerCase();
-		if (profileError.includes('taxonomy') || profileError.includes('selection') || profileError.includes('mismatch')) {
+		if (profileError.includes('taxonomy') || profileError.includes('selection') || profileError.includes('mismatch') || profileError.includes('can only be set once') || profileError.includes('6 months')) {
 			return res.status(400).json({ error: e.message });
 		}
 		res.status(500).json({ error: 'Server error' });

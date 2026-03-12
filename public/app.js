@@ -3419,7 +3419,61 @@ async function loadProfileEditor() {
   if (degreeEl) degreeEl.value = res.user.degree || '';
   if (yearEl) yearEl.value = res.user.academic_year || '';
   if (bioEl) bioEl.value = res.user.bio || '';
+  applyProfileEditLocks(res.user.profile_edit_locks || null);
   if (profileTaxonomyController) profileTaxonomyController.setSelection(res.user);
+}
+
+function upsertProfileFieldLockNote(fieldEl, message) {
+  if (!fieldEl) return;
+  const fieldWrap = fieldEl.closest('.profile-field');
+  if (!fieldWrap) return;
+  let note = fieldWrap.querySelector('.profile-field-lock-note');
+  if (!message) {
+    if (note) note.remove();
+    fieldWrap.classList.remove('is-locked');
+    return;
+  }
+  fieldWrap.classList.add('is-locked');
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'profile-field-lock-note';
+    fieldWrap.appendChild(note);
+  }
+  note.textContent = message;
+}
+
+function setProfileFieldLock(fieldId, locked, message) {
+  const fieldEl = document.getElementById(fieldId);
+  if (!fieldEl) return;
+  fieldEl.disabled = Boolean(locked);
+  if (locked && message) fieldEl.title = message;
+  else fieldEl.removeAttribute('title');
+  upsertProfileFieldLockNote(fieldEl, locked ? message : '');
+}
+
+function applyProfileEditLocks(locks) {
+  const fieldLocks = locks && locks.fields ? locks.fields : {};
+  const immutableMap = [
+    ['profileEditName', 'name'],
+    ['profileEditEmail', 'email'],
+    ['profileEditGender', 'gender'],
+    ['profileEditDob', 'date_of_birth'],
+    ['profileEditPlaceFrom', 'place_from'],
+    ['profileEditCountry', 'country'],
+    ['profileEditState', 'state'],
+    ['profileEditPincode', 'pincode']
+  ];
+  immutableMap.forEach(([fieldId, lockKey]) => {
+    const lock = fieldLocks[lockKey] || {};
+    setProfileFieldLock(fieldId, Boolean(lock.locked), lock.locked ? `${lock.label || 'This field'} is locked after first save.` : '');
+  });
+  const contactLock = locks && locks.contact ? locks.contact : {};
+  let contactMessage = '';
+  if (contactLock.locked && contactLock.nextChangeAt) {
+    contactMessage = `Phone can be updated again after ${formatDateTime(contactLock.nextChangeAt, '')}.`;
+  }
+  setProfileFieldLock('profileEditContactCountryCode', Boolean(contactLock.locked), contactMessage);
+  setProfileFieldLock('profileEditContactNumber', Boolean(contactLock.locked), contactMessage);
 }
 
 async function handleProfileEditSubmit(e) {

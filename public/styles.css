@@ -724,6 +724,7 @@ button {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  min-width: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--line));
   border-radius: 18px;
   background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
@@ -763,12 +764,19 @@ button {
   box-sizing: border-box;
   align-self: stretch;
   min-height: 140px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .composer-content-row {
   display: grid;
   gap: 0.72rem;
   width: 100%;
+  min-width: 0;
 }
 
 .composer-quick-actions {
@@ -1013,6 +1021,7 @@ button {
 .composer-tools {
   min-height: 320px;
   width: 100%;
+  min-width: 0;
 }
 
 .composer-tools > .mode-fields:not(.hidden) {
@@ -1020,6 +1029,7 @@ button {
   gap: 0.75rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
+  min-width: 0;
 }
 
 .composer-tools > .mode-fields.hidden {
@@ -1865,6 +1875,20 @@ button {
 .profile-field textarea {
   min-height: 120px;
   resize: vertical;
+}
+
+.profile-field.is-locked input,
+.profile-field.is-locked select,
+.profile-field.is-locked textarea {
+  opacity: 0.72;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.profile-field-lock-note {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  line-height: 1.35;
 }
 
 .profile-editor-section {
