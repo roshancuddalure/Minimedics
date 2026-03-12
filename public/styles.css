@@ -281,6 +281,191 @@ button {
   margin-top: 0.7rem;
 }
 
+.xp-history-layout {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.xp-history-overview,
+.xp-history-panel {
+  overflow: hidden;
+}
+
+.xp-history-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.xp-history-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: linear-gradient(145deg, color-mix(in oklab, var(--accent) 9%, transparent), color-mix(in oklab, var(--surface) 88%, transparent));
+}
+
+.xp-history-stat .iconify {
+  flex: 0 0 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--accent);
+}
+
+.xp-history-stat strong,
+.xp-history-stat span {
+  display: block;
+}
+
+.xp-history-stat strong {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.xp-history-stat span:last-child {
+  font-size: 0.84rem;
+  color: var(--text-dim);
+}
+
+.xp-history-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(2, minmax(150px, 0.7fr)) minmax(180px, 0.9fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.xp-history-search,
+.xp-history-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+}
+
+.xp-history-search .iconify,
+.xp-history-filter-field .iconify {
+  flex: 0 0 1rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--text-dim);
+}
+
+.xp-history-search input,
+.xp-history-filter-field input,
+.xp-history-filter-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.xp-history-filter-select {
+  padding-right: 0.7rem;
+}
+
+.xp-history-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.xp-history-meta {
+  margin-top: 0.9rem;
+  font-size: 0.92rem;
+  color: var(--text-dim);
+}
+
+.xp-history-list {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.xp-history-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.95rem;
+  align-items: flex-start;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+}
+
+.xp-history-delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  padding: 0.72rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.xp-history-delta.positive {
+  color: color-mix(in oklab, #0f766e 92%, var(--text));
+  background: color-mix(in oklab, #14b8a6 18%, white);
+}
+
+.xp-history-delta.negative {
+  color: color-mix(in oklab, #b91c1c 88%, var(--text));
+  background: color-mix(in oklab, #ef4444 14%, white);
+}
+
+.xp-history-item-body {
+  min-width: 0;
+}
+
+.xp-history-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.xp-history-item-head strong {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.xp-history-item-head span {
+  flex: 0 0 auto;
+  font-size: 0.84rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.xp-history-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.xp-history-item-meta span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.xp-history-empty {
+  padding: 1rem 0.2rem;
+}
+
 .activity-entry-head {
   display: flex;
   align-items: center;
@@ -1498,6 +1683,126 @@ button {
 
 .quiz-popup-wrong .quiz-popup-title {
   color: #f87171;
+}
+
+.celebration-backdrop {
+  z-index: 13000;
+  backdrop-filter: blur(12px);
+  background: color-mix(in oklab, #07111c 50%, transparent);
+}
+
+.celebration-card {
+  position: relative;
+  width: min(460px, calc(100vw - 2rem));
+  padding: 1.5rem 1.3rem 1.25rem;
+  overflow: hidden;
+  text-align: center;
+  border-radius: 28px;
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--line-soft));
+  background:
+    radial-gradient(circle at top, color-mix(in oklab, #f59e0b 18%, transparent), transparent 42%),
+    linear-gradient(155deg, color-mix(in oklab, var(--accent) 16%, var(--surface)), color-mix(in oklab, var(--card) 92%, white));
+  box-shadow: 0 30px 70px rgba(5, 16, 32, 0.28);
+  transform: translateY(18px) scale(0.94);
+  opacity: 0;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+
+.celebration-backdrop.show .celebration-card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.celebration-close {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 2;
+}
+
+.celebration-badge {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 0.85rem;
+  border-radius: 28px;
+  color: white;
+  background: linear-gradient(145deg, color-mix(in oklab, var(--accent) 82%, white), color-mix(in oklab, #f59e0b 48%, var(--accent)));
+  box-shadow: 0 18px 32px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.celebration-badge .iconify {
+  width: 2rem;
+  height: 2rem;
+}
+
+.celebration-card h3 {
+  margin: 0.2rem 0 0.5rem;
+  font-size: clamp(1.45rem, 3vw, 1.9rem);
+  line-height: 1.15;
+}
+
+.celebration-card .muted {
+  margin: 0 auto;
+  max-width: 30ch;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: color-mix(in oklab, var(--text) 82%, var(--text-dim));
+}
+
+.celebration-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.celebration-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line-soft));
+  background: color-mix(in oklab, white 72%, var(--accent) 10%);
+  color: color-mix(in oklab, var(--text) 92%, var(--accent));
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.celebration-burst {
+  position: absolute;
+  inset: auto;
+  border-radius: 999px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.celebration-burst-a {
+  top: -22px;
+  left: -18px;
+  width: 160px;
+  height: 160px;
+  background: radial-gradient(circle, color-mix(in oklab, #f59e0b 34%, transparent), transparent 68%);
+  animation: celebrationFloat 4.4s ease-in-out infinite;
+}
+
+.celebration-burst-b {
+  right: -36px;
+  bottom: -40px;
+  width: 190px;
+  height: 190px;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 34%, transparent), transparent 70%);
+  animation: celebrationFloat 4.8s ease-in-out infinite reverse;
+}
+
+@keyframes celebrationFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -8px, 0) scale(1.06); }
 }
 
 .connection-status {
@@ -3721,6 +4026,22 @@ button {
 }
 
 @media (max-width: 640px) {
+  .celebration-card {
+    width: min(100vw - 1rem, 420px);
+    padding: 1.25rem 1rem 1rem;
+    border-radius: 24px;
+  }
+
+  .celebration-badge {
+    width: 76px;
+    height: 76px;
+    border-radius: 24px;
+  }
+
+  .celebration-card .muted {
+    font-size: 0.94rem;
+  }
+
   .profile-head {
     align-items: flex-start;
   }
@@ -3755,6 +4076,39 @@ button {
 
   .gamified-profile-card {
     gap: 0.88rem;
+  }
+
+  .xp-history-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .xp-history-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .xp-history-toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .xp-history-toolbar-actions .btn {
+    flex: 1 1 0;
+  }
+
+  .xp-history-item {
+    grid-template-columns: 1fr;
+  }
+
+  .xp-history-delta {
+    min-width: 0;
+    justify-self: flex-start;
+  }
+
+  .xp-history-item-head {
+    flex-direction: column;
+  }
+
+  .xp-history-item-head span {
+    text-align: left;
   }
 }
 

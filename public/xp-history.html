@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>XP History - Mednecta</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+  <link rel="shortcut icon" href="/favicon.ico?v=2" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="light-mode">
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <div class="container">
+    <header class="hero">
+      <div class="brand">
+        <span class="eyebrow">XP History</span>
+        <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
+        <p class="muted">Review every XP transaction, reason, and timestamp with search and date filters.</p>
+      </div>
+      <div class="actions">
+        <button id="themeToggle" class="btn secondary">Dark</button>
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/profile">Profile</a>
+        <a class="btn" href="/activity">Suggest Us</a>
+      </div>
+    </header>
+
+    <main class="xp-history-layout">
+      <section class="card xp-history-overview">
+        <div class="saved-page-head">
+          <div>
+            <p class="eyebrow">Ledger</p>
+            <h3>XP transactions</h3>
+            <p class="muted">Track every XP gain with cleaner filters, quick search, and a timeline-friendly view.</p>
+          </div>
+        </div>
+        <div class="xp-history-stats">
+          <article class="xp-history-stat">
+            <span class="iconify" data-icon="lucide:scroll-text"></span>
+            <div>
+              <strong id="xpHistoryTotalCount">0</strong>
+              <span>Transactions</span>
+            </div>
+          </article>
+          <article class="xp-history-stat">
+            <span class="iconify" data-icon="lucide:zap"></span>
+            <div>
+              <strong id="xpHistoryNetXp">0 XP</strong>
+              <span>Net XP shown</span>
+            </div>
+          </article>
+          <article class="xp-history-stat">
+            <span class="iconify" data-icon="lucide:filter"></span>
+            <div>
+              <strong id="xpHistoryFilterSummary">All records</strong>
+              <span>Active view</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="card xp-history-panel">
+        <div class="xp-history-toolbar">
+          <label class="xp-history-search">
+            <span class="iconify" data-icon="lucide:search"></span>
+            <input id="xpHistorySearch" type="text" maxlength="120" placeholder="Search reason or reference" />
+          </label>
+          <label class="xp-history-filter-field">
+            <span class="iconify" data-icon="lucide:calendar-range"></span>
+            <input id="xpHistoryStart" type="date" />
+          </label>
+          <label class="xp-history-filter-field">
+            <span class="iconify" data-icon="lucide:calendar-days"></span>
+            <input id="xpHistoryEnd" type="date" />
+          </label>
+          <label class="xp-history-filter-field xp-history-filter-select">
+            <span class="iconify" data-icon="lucide:arrow-up-down"></span>
+            <select id="xpHistorySort">
+              <option value="date_desc">Newest first</option>
+              <option value="date_asc">Oldest first</option>
+              <option value="xp_desc">Highest XP first</option>
+              <option value="xp_asc">Lowest XP first</option>
+            </select>
+          </label>
+          <div class="xp-history-toolbar-actions">
+            <button id="xpHistoryResetBtn" class="btn secondary tiny-btn" type="button">Reset</button>
+            <button id="xpHistoryApplyBtn" class="btn tiny-btn" type="button">Apply</button>
+          </div>
+        </div>
+        <div id="xpHistoryMeta" class="xp-history-meta"></div>
+        <div id="xpHistoryBox" class="xp-history-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

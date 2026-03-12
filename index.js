@@ -454,6 +454,42 @@ function getYesterdayDayKey(ts = Date.now()) {
 	return getDayKey(ts - 24 * 60 * 60 * 1000);
 }
 
+function formatXpRuleLabel(ruleKey = '') {
+	const customLabels = {
+		XP_REACH_100: '100 XP milestone',
+		XP_REACH_1000: '1,000 XP milestone',
+		XP_REACH_5000: '5,000 XP milestone',
+		LOGIN_STREAK_3: '3-day login streak',
+		LOGIN_STREAK_7: '7-day login streak',
+		LOGIN_STREAK_14: '14-day login streak',
+		LOGIN_STREAK_30: '30-day login streak',
+		LOGIN_STREAK_60: '60-day login streak',
+		LOGIN_STREAK_90: '90-day login streak'
+	};
+	const safeKey = String(ruleKey || '').trim();
+	if (!safeKey) return 'Achievement unlocked';
+	if (customLabels[safeKey]) return customLabels[safeKey];
+	return safeKey
+		.toLowerCase()
+		.split('_')
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(' ');
+}
+
+async function queueUserCelebration(userId, payload = {}) {
+	const safeUserId = Number(userId) || 0;
+	if (!safeUserId) return null;
+	const kind = String(payload.kind || 'achievement').trim() || 'achievement';
+	const title = String(payload.title || '').trim() || 'Achievement unlocked';
+	const message = String(payload.message || '').trim() || '';
+	const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
+	const createdAt = Date.now();
+	await runAsync(`INSERT INTO user_celebrations (user_id, kind, title, message, meta_json, created_at, seen_at)
+		VALUES (?, ?, ?, ?, ?, ?, NULL)`, [safeUserId, kind, title, message, JSON.stringify(meta), createdAt]);
+	return { kind, title, message, meta, createdAt };
+}
+
 function normalizeAwardScope(refType = '', refId = 0, scopeKey = '') {
 	return {
 		refType: String(refType || ''),
@@ -618,8 +654,11 @@ async function grantXpRule(userId, ruleKey, options = {}) {
 		const xpToday = await getUserDayXp(safeUserId, now);
 		if (xpToday >= XP_DAILY_CAP) return null;
 	}
-	const user = await getAsync('SELECT xp FROM users WHERE id = ?', [safeUserId]);
+	const user = await getAsync('SELECT xp, level, title FROM users WHERE id = ?', [safeUserId]);
 	if (!user) return null;
+	const prevXp = Number(user.xp) || 0;
+	const prevLevel = Number(user.level) || getLevelFromXp(prevXp);
+	const prevTitle = String(user.title || getTitleForLevel(prevLevel));
 	const nextXp = (Number(user.xp) || 0) + Number(rule.xp);
 	const nextLevel = getLevelFromXp(nextXp);
 	const nextTitle = getTitleForLevel(nextLevel);
@@ -630,6 +669,30 @@ async function grantXpRule(userId, ruleKey, options = {}) {
 	if (rule.type === 'MILESTONE') await markRuleAward(safeUserId, ruleKey, refType, refId, scopeKey || 'milestone');
 	if (rule.type === 'STREAK') await markRuleAward(safeUserId, ruleKey, '', 0, scopeKey || 'streak');
 	if (options.markScopeOnce) await markRuleAward(safeUserId, ruleKey, refType, refId, scopeKey || 'scope');
+	if (rule.type === 'MILESTONE') {
+		await queueUserCelebration(safeUserId, {
+			kind: 'milestone',
+			title: formatXpRuleLabel(ruleKey),
+			message: `You earned +${Number(rule.xp)} XP for hitting a new milestone.`,
+			meta: { ruleKey, xpGained: Number(rule.xp), xpTotal: nextXp }
+		}).catch(() => {});
+	}
+	if (nextLevel > prevLevel) {
+		await queueUserCelebration(safeUserId, {
+			kind: 'level_up',
+			title: `Level ${nextLevel} reached`,
+			message: `You advanced from Level ${prevLevel} to Level ${nextLevel}${nextTitle && nextTitle !== prevTitle ? ` and unlocked ${nextTitle}.` : '.'}`,
+			meta: {
+				level: nextLevel,
+				previousLevel: prevLevel,
+				title: nextTitle,
+				previousTitle: prevTitle,
+				ruleKey,
+				xpGained: Number(rule.xp),
+				xpTotal: nextXp
+			}
+		}).catch(() => {});
+	}
 	await evaluateUserXpMilestones(safeUserId).catch(() => {});
 	return { xp: nextXp, level: nextLevel, title: nextTitle, gained: Number(rule.xp), ruleKey };
 }
@@ -2290,6 +2353,16 @@ async function initializeDatabase() {
 		created_at BIGINT NOT NULL,
 		UNIQUE(user_id, rule_key, ref_type, ref_id, scope_key)
 	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS user_celebrations (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
+		kind TEXT NOT NULL,
+		title TEXT NOT NULL,
+		message TEXT,
+		meta_json TEXT,
+		created_at BIGINT NOT NULL,
+		seen_at BIGINT
+	)`);
 	await runAsync(`CREATE TABLE IF NOT EXISTS story_views (
 		id BIGSERIAL PRIMARY KEY,
 		story_id BIGINT NOT NULL,
@@ -2657,13 +2730,29 @@ app.post('/api/login', (req, res) => {
 			db.run('UPDATE users SET last_login = ?, last_xp_login_day = ?, last_login_streak_day = ?, login_streak_count = ? WHERE id = ?', [ts, today, today, nextStreak, user.id], async (dayErr) => {
 				if (!dayErr) {
 					try {
-						await grantXpRule(user.id, 'LOGIN_DAILY', { refType: 'login', scopeKey: today });
-						if (nextStreak >= 3) await grantXpRule(user.id, 'LOGIN_STREAK_3', { scopeKey: `streak-3:${today}` });
-						if (nextStreak >= 7) await grantXpRule(user.id, 'LOGIN_STREAK_7', { scopeKey: `streak-7:${today}` });
-						if (nextStreak >= 14) await grantXpRule(user.id, 'LOGIN_STREAK_14', { scopeKey: `streak-14:${today}` });
-						if (nextStreak >= 30) await grantXpRule(user.id, 'LOGIN_STREAK_30', { scopeKey: `streak-30:${today}` });
-						if (nextStreak >= 60) await grantXpRule(user.id, 'LOGIN_STREAK_60', { scopeKey: `streak-60:${today}` });
-						if (nextStreak >= 90) await grantXpRule(user.id, 'LOGIN_STREAK_90', { scopeKey: `streak-90:${today}` });
+						let loginBonusXp = 0;
+						const dailyAward = await grantXpRule(user.id, 'LOGIN_DAILY', { refType: 'login', scopeKey: today });
+						if (dailyAward) loginBonusXp += Number(dailyAward.gained) || 0;
+						const streakAwards = [];
+						if (nextStreak >= 3) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_3', { scopeKey: `streak-3:${today}` }));
+						if (nextStreak >= 7) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_7', { scopeKey: `streak-7:${today}` }));
+						if (nextStreak >= 14) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_14', { scopeKey: `streak-14:${today}` }));
+						if (nextStreak >= 30) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_30', { scopeKey: `streak-30:${today}` }));
+						if (nextStreak >= 60) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_60', { scopeKey: `streak-60:${today}` }));
+						if (nextStreak >= 90) streakAwards.push(await grantXpRule(user.id, 'LOGIN_STREAK_90', { scopeKey: `streak-90:${today}` }));
+						loginBonusXp += streakAwards.reduce((sum, award) => sum + (Number(award && award.gained) || 0), 0);
+						if (lastStreakDay !== today) {
+							await queueUserCelebration(user.id, {
+								kind: 'streak',
+								title: `Day ${nextStreak} streak`,
+								message: `Welcome back. You are on a ${nextStreak}-day login streak${loginBonusXp ? ` and earned +${loginBonusXp} XP today.` : '.'}`,
+								meta: {
+									streakCount: nextStreak,
+									bonusXp: loginBonusXp,
+									dayKey: today
+								}
+							}).catch(() => {});
+						}
 					} catch (xpErr) {
 						console.error('Login XP error:', xpErr);
 					}
@@ -2809,6 +2898,41 @@ app.post('/api/xp/dashboard-open', requireAuth, async (req, res) => {
 			await grantXpRule(req.session.userId, 'DASHBOARD_OPEN_DAILY', { refType: 'dashboard', scopeKey: today }).catch(() => {});
 		}
 		return res.json({ success: true });
+	} catch (e) {
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/xp/celebrations/consume', requireAuth, async (req, res) => {
+	try {
+		const rows = await allAsync(`SELECT id, kind, title, message, meta_json, created_at
+			FROM user_celebrations
+			WHERE user_id = ? AND seen_at IS NULL
+			ORDER BY created_at ASC
+			LIMIT 12`, [req.session.userId]);
+		const ids = rows.map((row) => Number(row.id) || 0).filter((id) => id > 0);
+		if (ids.length) {
+			const seenAt = Date.now();
+			const placeholders = ids.map(() => '?').join(',');
+			await runAsync(`UPDATE user_celebrations SET seen_at = ? WHERE user_id = ? AND id IN (${placeholders})`, [seenAt, req.session.userId, ...ids]);
+		}
+		const celebrations = rows.map((row) => {
+			let meta = {};
+			try {
+				meta = row.meta_json ? JSON.parse(row.meta_json) : {};
+			} catch (e) {
+				meta = {};
+			}
+			return {
+				id: Number(row.id) || 0,
+				kind: String(row.kind || 'achievement'),
+				title: String(row.title || 'Achievement unlocked'),
+				message: String(row.message || ''),
+				meta,
+				created_at: Number(row.created_at) || 0
+			};
+		});
+		return res.json({ celebrations });
 	} catch (e) {
 		return res.status(500).json({ error: 'Server error' });
 	}
@@ -5092,8 +5216,50 @@ app.post('/api/saved-post/:id/list', requireAuth, async (req, res) => {
 
 app.get('/api/xp/history', requireAuth, async (req, res) => {
 	try {
-		const rows = await allAsync('SELECT * FROM xp_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [req.session.userId]);
-		res.json({ events: rows });
+		const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+		const sort = typeof req.query.sort === 'string' ? req.query.sort.trim().toLowerCase() : 'date_desc';
+		const start = typeof req.query.start === 'string' ? req.query.start.trim() : '';
+		const end = typeof req.query.end === 'string' ? req.query.end.trim() : '';
+		const limitRaw = Number(req.query.limit);
+		const limit = Math.max(20, Math.min(500, Number.isFinite(limitRaw) ? limitRaw : 200));
+		let startTs = null;
+		let endTs = null;
+		if (start && /^\d{4}-\d{2}-\d{2}$/.test(start)) startTs = new Date(`${start}T00:00:00.000Z`).getTime();
+		if (end && /^\d{4}-\d{2}-\d{2}$/.test(end)) endTs = new Date(`${end}T23:59:59.999Z`).getTime();
+		const where = ['user_id = ?'];
+		const params = [req.session.userId];
+		if (q) {
+			where.push('(LOWER(COALESCE(activity, \'\')) LIKE LOWER(?) OR LOWER(COALESCE(ref_type, \'\')) LIKE LOWER(?))');
+			params.push(`%${q}%`, `%${q}%`);
+		}
+		if (startTs) {
+			where.push('created_at >= ?');
+			params.push(startTs);
+		}
+		if (endTs) {
+			where.push('created_at <= ?');
+			params.push(endTs);
+		}
+		const orderBy = sort === 'xp_asc'
+			? 'xp_delta ASC, created_at DESC'
+			: sort === 'xp_desc'
+				? 'xp_delta DESC, created_at DESC'
+				: sort === 'date_asc'
+					? 'created_at ASC, id ASC'
+					: 'created_at DESC, id DESC';
+		const rows = await allAsync(`SELECT id, activity, xp_delta, ref_type, ref_id, created_at
+			FROM xp_events
+			WHERE ${where.join(' AND ')}
+			ORDER BY ${orderBy}
+			LIMIT ${limit}`, params);
+		const totalRow = await getAsync(`SELECT COUNT(*)::int AS cnt
+			FROM xp_events
+			WHERE ${where.join(' AND ')}`, params);
+		res.json({
+			events: rows,
+			total: Number(totalRow && totalRow.cnt) || 0,
+			filters: { q, sort, start, end, limit }
+		});
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
 	}

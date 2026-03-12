@@ -158,6 +158,9 @@ let medicalTaxonomyCache = null;
 let registerTaxonomyController = null;
 let profileTaxonomyController = null;
 let activeComposerModalId = null;
+let celebrationPollInterval = null;
+let celebrationQueue = [];
+let celebrationShowing = false;
 
 async function fetchMedicalTaxonomy(force = false) {
   if (!force && medicalTaxonomyCache) return medicalTaxonomyCache;
@@ -1107,6 +1110,104 @@ function showQuizResultPopup(isCorrect, correctText) {
     popup.classList.remove('show');
     setTimeout(() => popup.remove(), 220);
   }, 1800);
+}
+
+function getCelebrationIcon(kind) {
+  const key = String(kind || '').toLowerCase();
+  if (key === 'streak') return 'lucide:flame';
+  if (key === 'level_up') return 'lucide:sparkles';
+  if (key === 'milestone') return 'lucide:trophy';
+  return 'lucide:award';
+}
+
+function ensureCelebrationModal() {
+  let modal = document.getElementById('celebrationModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'celebrationModal';
+  modal.className = 'modal-backdrop celebration-backdrop hidden';
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML = `<section class="modal-card celebration-card" role="dialog" aria-modal="true" aria-labelledby="celebrationTitle">
+    <button id="celebrationCloseBtn" class="btn secondary tiny-btn celebration-close" type="button" aria-label="Close celebration"></button>
+    <div class="celebration-burst celebration-burst-a"></div>
+    <div class="celebration-burst celebration-burst-b"></div>
+    <div class="celebration-badge"><span id="celebrationIcon" class="iconify" data-icon="lucide:award"></span></div>
+    <p id="celebrationEyebrow" class="eyebrow">Achievement</p>
+    <h3 id="celebrationTitle">Achievement unlocked</h3>
+    <p id="celebrationMessage" class="muted"></p>
+    <div id="celebrationMeta" class="celebration-meta"></div>
+  </section>`;
+  document.body.appendChild(modal);
+  const closeBtn = document.getElementById('celebrationCloseBtn');
+  if (closeBtn) {
+    setActionButtonLabel(closeBtn, 'Close', 'close');
+    closeBtn.addEventListener('click', closeCelebrationModal);
+  }
+  modal.addEventListener('click', (evt) => {
+    if (evt.target === modal) closeCelebrationModal();
+  });
+  return modal;
+}
+
+function closeCelebrationModal() {
+  const modal = document.getElementById('celebrationModal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  celebrationShowing = false;
+  window.setTimeout(showNextCelebration, 120);
+}
+
+function buildCelebrationMeta(meta, kind) {
+  const safeMeta = meta && typeof meta === 'object' ? meta : {};
+  const bits = [];
+  if (Number(safeMeta.xpGained || safeMeta.bonusXp)) bits.push(`+${Number(safeMeta.xpGained || safeMeta.bonusXp)} XP`);
+  if (kind === 'streak' && Number(safeMeta.streakCount)) bits.push(`${Number(safeMeta.streakCount)} days`);
+  if (kind === 'level_up' && Number(safeMeta.level)) bits.push(`Level ${Number(safeMeta.level)}`);
+  if (safeMeta.title && kind === 'level_up') bits.push(String(safeMeta.title));
+  return bits.map((value) => `<span class="celebration-meta-chip">${escapeHtml(value)}</span>`).join('');
+}
+
+function showNextCelebration() {
+  if (celebrationShowing || !celebrationQueue.length) return;
+  const item = celebrationQueue.shift();
+  if (!item) return;
+  celebrationShowing = true;
+  const modal = ensureCelebrationModal();
+  const icon = document.getElementById('celebrationIcon');
+  const eyebrow = document.getElementById('celebrationEyebrow');
+  const title = document.getElementById('celebrationTitle');
+  const message = document.getElementById('celebrationMessage');
+  const meta = document.getElementById('celebrationMeta');
+  const kind = String(item.kind || 'achievement');
+  if (icon) icon.setAttribute('data-icon', getCelebrationIcon(kind));
+  if (eyebrow) eyebrow.textContent = kind === 'streak' ? 'Daily Streak' : (kind === 'level_up' ? 'Level Up' : (kind === 'milestone' ? 'Milestone' : 'Achievement'));
+  if (title) title.textContent = String(item.title || 'Achievement unlocked');
+  if (message) message.textContent = String(item.message || '');
+  if (meta) meta.innerHTML = buildCelebrationMeta(item.meta || {}, kind);
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => modal.classList.add('show'));
+  window.setTimeout(() => {
+    if (celebrationShowing) closeCelebrationModal();
+  }, 4200);
+}
+
+async function consumePendingCelebrations() {
+  if (!cachedMe || !cachedMe.id) return;
+  const res = await api('/api/xp/celebrations/consume', 'POST', {});
+  if (!res || res.error || !Array.isArray(res.celebrations) || !res.celebrations.length) return;
+  celebrationQueue.push(...res.celebrations);
+  showNextCelebration();
+}
+
+function startCelebrationPolling() {
+  if (!cachedMe || !cachedMe.id || celebrationPollInterval) return;
+  consumePendingCelebrations().catch(() => {});
+  celebrationPollInterval = window.setInterval(() => {
+    consumePendingCelebrations().catch(() => {});
+  }, 8000);
 }
 
 function renderQuizBlock(post) {
@@ -5915,6 +6016,86 @@ async function loadMyFeatureSuggestions() {
     </article>`).join('');
 }
 
+function formatXpActivityLabel(activity) {
+  const key = String(activity || '').trim();
+  if (!key) return 'XP update';
+  return key
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+async function loadXpHistory() {
+  const box = document.getElementById('xpHistoryBox');
+  if (!box) return;
+  const metaEl = document.getElementById('xpHistoryMeta');
+  const qEl = document.getElementById('xpHistorySearch');
+  const startEl = document.getElementById('xpHistoryStart');
+  const endEl = document.getElementById('xpHistoryEnd');
+  const sortEl = document.getElementById('xpHistorySort');
+  const totalCountEl = document.getElementById('xpHistoryTotalCount');
+  const netXpEl = document.getElementById('xpHistoryNetXp');
+  const filterSummaryEl = document.getElementById('xpHistoryFilterSummary');
+  const q = qEl ? qEl.value.trim() : '';
+  const start = startEl ? startEl.value.trim() : '';
+  const end = endEl ? endEl.value.trim() : '';
+  const sort = sortEl ? sortEl.value.trim() : 'date_desc';
+  box.innerHTML = '<div class="muted xp-history-empty">Loading XP history...</div>';
+  const res = await api(`/api/xp/history?q=${encodeURIComponent(q)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&sort=${encodeURIComponent(sort)}&limit=250`);
+  if (res.error) {
+    if (metaEl) metaEl.textContent = '';
+    if (totalCountEl) totalCountEl.textContent = '0';
+    if (netXpEl) netXpEl.textContent = '0 XP';
+    if (filterSummaryEl) filterSummaryEl.textContent = 'Unavailable';
+    box.innerHTML = '<div class="muted xp-history-empty">Unable to load XP history.</div>';
+    return;
+  }
+  const events = Array.isArray(res.events) ? res.events : [];
+  const total = Number(res.total) || events.length;
+  const netXp = events.reduce((sum, event) => sum + (Number(event.xp_delta) || 0), 0);
+  const activeFilters = [];
+  if (q) activeFilters.push(`Search: ${q}`);
+  if (start) activeFilters.push(`From ${start}`);
+  if (end) activeFilters.push(`To ${end}`);
+  const sortLabels = {
+    date_desc: 'Newest first',
+    date_asc: 'Oldest first',
+    xp_desc: 'Highest XP first',
+    xp_asc: 'Lowest XP first'
+  };
+  activeFilters.push(sortLabels[sort] || 'Newest first');
+  if (totalCountEl) totalCountEl.textContent = String(total);
+  if (netXpEl) netXpEl.textContent = `${netXp > 0 ? '+' : ''}${netXp} XP`;
+  if (filterSummaryEl) filterSummaryEl.textContent = activeFilters.join(' • ');
+  if (metaEl) metaEl.textContent = `Showing ${events.length} of ${total} transactions`;
+  if (!events.length) {
+    box.innerHTML = '<div class="muted xp-history-empty">No XP transactions found for this filter.</div>';
+    return;
+  }
+  const rows = events.map((event) => {
+    const activityLabel = formatXpActivityLabel(event.activity);
+    const ref = [event.ref_type, event.ref_id].filter(Boolean).join(' #');
+    const delta = Number(event.xp_delta) || 0;
+    const deltaClass = delta >= 0 ? 'xp-history-delta positive' : 'xp-history-delta negative';
+    return `<article class="xp-history-item">
+      <div class="${deltaClass}">${delta > 0 ? '+' : ''}${delta} XP</div>
+      <div class="xp-history-item-body">
+        <div class="xp-history-item-head">
+          <strong>${escapeHtml(activityLabel)}</strong>
+          <span>${formatDateTime(event.created_at, 'Unknown')}</span>
+        </div>
+        <div class="xp-history-item-meta">
+          <span class="iconify" data-icon="lucide:link-2"></span>
+          <span>${escapeHtml(ref || 'No reference')}</span>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+  box.innerHTML = rows;
+}
+
 async function handleFeatureSuggestionSubmit(e) {
   e.preventDefault();
   const form = e.target;
@@ -5958,6 +6139,10 @@ async function loadProfile() {
   upsertGlobalChatLauncher(cachedMe);
   holder.classList.remove('hidden');
   if (!res.user) {
+    if (celebrationPollInterval) {
+      window.clearInterval(celebrationPollInterval);
+      celebrationPollInterval = null;
+    }
     holder.innerHTML = `<div class="profile card guest-profile">
       <h3>Welcome to Mednecta</h3>
       <p class="muted">Build social connections, turn posts into reminders, and collaborate with your medical community in one place.</p>
@@ -5968,6 +6153,7 @@ async function loadProfile() {
     </div>`;
     return;
   }
+  startCelebrationPolling();
   const last = res.user.last_login ? formatDateTimeShort(res.user.last_login, 'Never') : 'Never';
   const picUrl = getProfilePictureUrl(res.user);
   const displayName = escapeHtml(res.user.name || res.user.username);
@@ -5995,6 +6181,7 @@ async function loadProfile() {
       <div class="xp-hero-metrics">
         <div class="xp-chip"><span class="iconify" data-icon="lucide:sword"></span> Level ${level}</div>
         <div class="xp-chip"><span class="iconify" data-icon="lucide:zap"></span> ${xp} XP</div>
+        <a class="xp-chip xp-chip-link" href="/xp-history.html"><span class="iconify" data-icon="lucide:scroll-text"></span> XP History</a>
       </div>
       <div class="xp-track" role="progressbar" aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100">
         <div class="xp-track-fill" style="width:${progress.percent}%"></div>
@@ -6013,6 +6200,7 @@ async function loadProfile() {
     ${bio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${bio}</p></div>` : ''}
     <div class="row" style="justify-content:flex-start;margin-top:0.4rem">
       <a class="btn tiny-btn" href="/profile">Edit Profile Details</a>
+      <a class="btn secondary tiny-btn" href="/xp-history.html">XP History</a>
       <button id="openSettingsBtn" class="btn secondary tiny-btn" type="button" title="Settings">Settings</button>
     </div>
     ${adminActions}
@@ -6327,6 +6515,36 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('featureSuggestionForm').addEventListener('submit', handleFeatureSuggestionSubmit);
     loadMyFeatureSuggestions();
   }
+  if (document.getElementById('xpHistoryBox')) {
+    loadXpHistory();
+    const xpHistoryApplyBtn = document.getElementById('xpHistoryApplyBtn');
+    if (xpHistoryApplyBtn) xpHistoryApplyBtn.addEventListener('click', loadXpHistory);
+    const xpHistoryResetBtn = document.getElementById('xpHistoryResetBtn');
+    if (xpHistoryResetBtn) {
+      xpHistoryResetBtn.addEventListener('click', () => {
+        ['xpHistorySearch', 'xpHistoryStart', 'xpHistoryEnd'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        const sortEl = document.getElementById('xpHistorySort');
+        if (sortEl) sortEl.value = 'date_desc';
+        loadXpHistory();
+      });
+    }
+    let xpHistorySearchTimer = null;
+    const searchEl = document.getElementById('xpHistorySearch');
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        clearTimeout(xpHistorySearchTimer);
+        xpHistorySearchTimer = setTimeout(loadXpHistory, 220);
+      });
+    }
+    ['xpHistoryStart', 'xpHistoryEnd', 'xpHistorySort'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', loadXpHistory);
+    });
+  }
   
   // Profile display
   loadProfile();
@@ -6334,6 +6552,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const meRes = await api('/api/me');
     cachedMe = meRes.user || null;
     window.__me = cachedMe;
+    if (cachedMe && cachedMe.id) startCelebrationPolling();
     if (document.getElementById('storiesBar')) loadStories();
     upsertSavedListsTopButton(cachedMe);
     upsertActivityTopButton(cachedMe);
