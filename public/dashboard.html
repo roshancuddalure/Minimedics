@@ -105,34 +105,10 @@
             </div>
           </div>
           <form id="postForm">
-            <div class="composer-input-shell">
-              <label class="composer-main-label" for="postContent">Post message</label>
-              <div class="rich-editor-toolbar composer-rich-toolbar">
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="bold" aria-label="Bold" title="Bold"><span class="iconify" data-icon="lucide:bold"></span></button>
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="italic" aria-label="Italic" title="Italic"><span class="iconify" data-icon="lucide:italic"></span></button>
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="underline" aria-label="Underline" title="Underline"><span class="iconify" data-icon="lucide:underline"></span></button>
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="insertUnorderedList" aria-label="Bullet list" title="Bullet list"><span class="iconify" data-icon="lucide:list"></span></button>
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="link" aria-label="Add link" title="Add link"><span class="iconify" data-icon="lucide:link-2"></span></button>
-                <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="unlink" aria-label="Remove link" title="Remove link"><span class="iconify" data-icon="lucide:unlink-2"></span></button>
-              </div>
-              <div id="postContent" class="rich-editor composer-rich-editor" contenteditable="true" data-placeholder="What's on your mind? Share a quick case pearl, update, or question."></div>
-            </div>
-            <div class="post-mode-bar post-mode-bar-rich">
+            <div class="post-mode-bar post-mode-bar-rich composer-mode-row">
+              <button id="postModeGeneral" class="btn tiny-btn post-mode-btn" type="button">General</button>
               <button id="postModeReminder" class="btn tiny-btn post-mode-btn" type="button">Reminder Mode</button>
               <button id="postModeQuiz" class="btn tiny-btn post-mode-btn" type="button">Quiz Mode</button>
-            </div>
-            <div class="composer-quick-actions">
-              <button id="postPrivacyBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Privacy" title="Privacy"></button>
-              <button id="postScheduleBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Schedule" title="Schedule"></button>
-              <div class="file-upload composer-inline-upload">
-                <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
-                <button class="btn secondary tiny-btn file-upload-trigger composer-action-btn" type="button" data-file-trigger="postImage">Image</button>
-                <span id="postImageName" class="file-upload-name">No file selected</span>
-              </div>
-            </div>
-            <div class="composer-meta-chips">
-              <div id="postPrivacySummary" class="composer-meta-chip">Public</div>
-              <div id="postScheduleSummary" class="composer-meta-chip">Post now</div>
             </div>
             <select id="postVisibility" class="hidden" aria-hidden="true">
               <option value="public">Public</option>
@@ -141,8 +117,23 @@
               <option value="private">Private (Only Me)</option>
             </select>
             <input id="postPublishAt" class="hidden" type="datetime-local" aria-hidden="true" />
-            <div id="postImagePreview" class="post-image-preview hidden"></div>
-            <div class="composer-tools">
+            <div class="composer-content-row">
+              <div id="postImagePreview" class="post-image-preview hidden"></div>
+              <div class="composer-tools">
+              <div id="generalModeFields" class="mode-fields">
+                <div class="composer-input-shell tool-card composer-general-card">
+                  <label class="composer-main-label" for="postContent">Post message</label>
+                  <div class="rich-editor-toolbar composer-rich-toolbar">
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="bold" aria-label="Bold" title="Bold"><span class="iconify" data-icon="lucide:bold"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="italic" aria-label="Italic" title="Italic"><span class="iconify" data-icon="lucide:italic"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="underline" aria-label="Underline" title="Underline"><span class="iconify" data-icon="lucide:underline"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="insertUnorderedList" aria-label="Bullet list" title="Bullet list"><span class="iconify" data-icon="lucide:list"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="link" aria-label="Add link" title="Add link"><span class="iconify" data-icon="lucide:link-2"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn" type="button" data-post-editor-action="unlink" aria-label="Remove link" title="Remove link"><span class="iconify" data-icon="lucide:unlink-2"></span></button>
+                  </div>
+                  <div id="postContent" class="rich-editor composer-rich-editor" contenteditable="true" data-placeholder="What's on your mind? Share a quick case pearl, update, or question."></div>
+                </div>
+              </div>
               <div id="reminderModeFields" class="mode-fields hidden">
                 <div class="tool-group tool-card">
                   <label class="tool-label" for="postReminderAt">Reminder Date & Time</label>
@@ -187,27 +178,50 @@
                 </div>
                 <div class="tool-group tool-card composer-span-two">
                   <label class="tool-label">Correct Answer Explanation</label>
-                  <div class="rich-editor-toolbar">
-                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="bold">Bold</button>
-                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="italic">Italic</button>
-                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="underline">Underline</button>
-                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="link">Add Link</button>
-                    <button class="btn secondary tiny-btn rich-editor-btn" type="button" data-editor-action="unlink">Remove Link</button>
+                  <div class="rich-editor-toolbar composer-rich-toolbar quiz-rich-toolbar">
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="bold" aria-label="Bold" title="Bold"><span class="iconify" data-icon="lucide:bold"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="italic" aria-label="Italic" title="Italic"><span class="iconify" data-icon="lucide:italic"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="underline" aria-label="Underline" title="Underline"><span class="iconify" data-icon="lucide:underline"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="insertUnorderedList" aria-label="Bullet list" title="Bullet list"><span class="iconify" data-icon="lucide:list"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="link" aria-label="Add link" title="Add link"><span class="iconify" data-icon="lucide:link-2"></span></button>
+                    <button class="btn secondary tiny-btn composer-rich-btn rich-editor-btn" type="button" data-editor-action="unlink" aria-label="Remove link" title="Remove link"><span class="iconify" data-icon="lucide:unlink-2"></span></button>
                   </div>
                   <div id="quizExplanationEditor" class="rich-editor" contenteditable="true" data-placeholder="Add why this answer is correct. You can include a trusted hyperlink."></div>
                   <div class="tool-hint">Visible after the quiz is attempted.</div>
                 </div>
               </div>
             </div>
-            <div class="row composer-submit-row">
-              <button class="btn primary" type="submit">Post</button>
+            </div>
+            <div class="composer-footer-row">
+              <div class="composer-footer-left">
+                <div class="composer-quick-actions">
+                  <div class="file-upload composer-inline-upload">
+                    <input id="postImage" class="file-upload-input" type="file" accept="image/*" />
+                    <button class="btn secondary tiny-btn file-upload-trigger composer-action-btn" type="button" data-file-trigger="postImage">Image</button>
+                    <span id="postImageName" class="file-upload-name">No file selected</span>
+                  </div>
+                </div>
+              </div>
+              <div class="composer-state-actions">
+                <div class="composer-state-group">
+                  <button id="postPrivacyBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Privacy" title="Privacy"></button>
+                  <div id="postPrivacySummary" class="composer-meta-chip">Public</div>
+                </div>
+                <div class="composer-state-group">
+                  <button id="postScheduleBtn" class="btn secondary tiny-btn composer-action-btn" type="button" aria-label="Schedule" title="Schedule"></button>
+                  <div id="postScheduleSummary" class="composer-meta-chip">Post now</div>
+                </div>
+              </div>
+              <div class="composer-submit-slot">
+                <button class="btn primary" type="submit">Post</button>
+              </div>
             </div>
           </form>
           <div id="postPrivacyModal" class="modal-backdrop hidden" aria-hidden="true">
             <section class="modal-card composer-modal-card" role="dialog" aria-modal="true" aria-labelledby="postPrivacyModalTitle">
               <div class="modal-head">
                 <h3 id="postPrivacyModalTitle">Post Privacy</h3>
-                <button id="closePostPrivacyModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
+                <button id="closePostPrivacyModalBtn" class="btn secondary tiny-btn composer-modal-close" type="button" aria-label="Close privacy popup" title="Close"></button>
               </div>
               <div class="composer-modal-copy">
                 <p class="muted" style="margin:0">Choose who should be able to see this post.</p>
@@ -255,7 +269,7 @@
             <section class="modal-card composer-modal-card" role="dialog" aria-modal="true" aria-labelledby="postScheduleModalTitle">
               <div class="modal-head">
                 <h3 id="postScheduleModalTitle">Schedule Post</h3>
-                <button id="closePostScheduleModalBtn" class="btn secondary tiny-btn" type="button">Close</button>
+                <button id="closePostScheduleModalBtn" class="btn secondary tiny-btn composer-modal-close" type="button" aria-label="Close schedule popup" title="Close"></button>
               </div>
               <div class="composer-modal-copy">
                 <p class="muted" style="margin:0">Pick a go-live time or leave it empty to publish immediately.</p>
@@ -377,6 +391,40 @@
             <h4>Medical Taxonomy</h4>
             <div class="row" style="justify-content:flex-start">
               <button id="adminTaxonomySyncBtn" class="btn secondary tiny-btn" type="button">Sync From Data File</button>
+            </div>
+            <div class="section-gap">
+              <h4>Institute Registry</h4>
+              <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap">
+                <div style="min-width:220px;flex:1 1 220px">
+                  <label class="muted" for="adminInstituteSearch">Find institute</label>
+                  <input id="adminInstituteSearch" type="text" placeholder="Search canonical names..." />
+                </div>
+                <button id="adminInstituteSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+              </div>
+              <div id="adminInstituteManager" class="section-gap"></div>
+              <div id="adminInstitutes" class="section-gap"></div>
+            </div>
+            <div class="section-gap">
+              <h4>Institute Review Queue</h4>
+              <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap">
+                <div style="min-width:220px;flex:1 1 220px">
+                  <label class="muted" for="adminInstituteSubmissionSearch">Find submission</label>
+                  <input id="adminInstituteSubmissionSearch" type="text" placeholder="Search pending institute names..." />
+                </div>
+                <div style="min-width:180px;flex:0 1 180px">
+                  <label class="muted" for="adminInstituteSubmissionStatus">Status</label>
+                  <select id="adminInstituteSubmissionStatus">
+                    <option value="">All status</option>
+                    <option value="pending">Pending</option>
+                    <option value="reviewing">Reviewing</option>
+                    <option value="approved">Approved</option>
+                    <option value="implemented">Implemented</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <button id="adminInstituteSubmissionSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+              </div>
+              <div id="adminInstituteSubmissions" class="section-gap"></div>
             </div>
             <div id="adminTaxonomyManager" class="section-gap"></div>
             <div id="adminMedicalTaxonomy" class="section-gap"></div>

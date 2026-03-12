@@ -1063,6 +1063,326 @@ function normalizeSuggestionValue(value) {
 	return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+const INSTITUTE_TOKEN_STOPWORDS = new Set([
+	'of',
+	'the',
+	'and',
+	'for',
+	'at',
+	'in',
+	'on',
+	'to',
+	'campus'
+]);
+
+function normalizeInstituteName(value) {
+	if (typeof value !== 'string') return '';
+	return value
+		.normalize('NFKD')
+		.toLowerCase()
+		.replace(/&/g, ' and ')
+		.replace(/\bmed\b/g, ' medical ')
+		.replace(/\bmedclg\b/g, ' medical college ')
+		.replace(/\binst\b/g, ' institute ')
+		.replace(/\buniv\b/g, ' university ')
+		.replace(/\buni\b/g, ' university ')
+		.replace(/\bcoll\b/g, ' college ')
+		.replace(/\bhosp\b/g, ' hospital ')
+		.replace(/\bgovt\b/g, ' government ')
+		.replace(/\bgov\b/g, ' government ')
+		.replace(/\bdept\b/g, ' department ')
+		.replace(/\bctr\b/g, ' center ')
+		.replace(/[^a-z0-9]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function tokenizeInstituteName(value) {
+	const normalized = normalizeInstituteName(value);
+	if (!normalized) return [];
+	return normalized
+		.split(' ')
+		.map((part) => part.trim())
+		.filter((part) => part && !INSTITUTE_TOKEN_STOPWORDS.has(part));
+}
+
+function buildInstituteTokenSignature(value) {
+	return [...new Set(tokenizeInstituteName(value))].sort().join(' ');
+}
+
+function buildInstituteBigrams(value) {
+	const compact = normalizeInstituteName(value).replace(/\s+/g, '');
+	if (!compact) return [];
+	if (compact.length < 2) return [compact];
+	const bigrams = [];
+	for (let index = 0; index < compact.length - 1; index += 1) {
+		bigrams.push(compact.slice(index, index + 2));
+	}
+	return bigrams;
+}
+
+function getOverlapRatio(sourceTokens, targetTokens) {
+	const left = new Set(Array.isArray(sourceTokens) ? sourceTokens : []);
+	const right = new Set(Array.isArray(targetTokens) ? targetTokens : []);
+	if (!left.size || !right.size) return 0;
+	let overlap = 0;
+	left.forEach((token) => {
+		if (right.has(token)) overlap += 1;
+	});
+	return overlap / Math.max(left.size, right.size);
+}
+
+function getDiceCoefficient(leftValue, rightValue) {
+	const left = buildInstituteBigrams(leftValue);
+	const right = buildInstituteBigrams(rightValue);
+	if (!left.length || !right.length) return 0;
+	const remaining = new Map();
+	right.forEach((item) => {
+		remaining.set(item, (remaining.get(item) || 0) + 1);
+	});
+	let matches = 0;
+	left.forEach((item) => {
+		const count = remaining.get(item) || 0;
+		if (count > 0) {
+			matches += 1;
+			remaining.set(item, count - 1);
+		}
+	});
+	return (2 * matches) / (left.length + right.length);
+}
+
+function getInstituteSimilarity(leftValue, rightValue) {
+	const leftNormalized = normalizeInstituteName(leftValue);
+	const rightNormalized = normalizeInstituteName(rightValue);
+	if (!leftNormalized || !rightNormalized) return 0;
+	if (leftNormalized === rightNormalized) return 1;
+	const leftTokens = tokenizeInstituteName(leftNormalized);
+	const rightTokens = tokenizeInstituteName(rightNormalized);
+	const overlap = getOverlapRatio(leftTokens, rightTokens);
+	const dice = getDiceCoefficient(leftNormalized, rightNormalized);
+	const containsBonus = leftNormalized.includes(rightNormalized) || rightNormalized.includes(leftNormalized) ? 0.04 : 0;
+	return Math.min(1, (dice * 0.62) + (overlap * 0.34) + containsBonus);
+}
+
+function isStrongInstituteMatch(score, tokenOverlap) {
+	return score >= 0.965 || (score >= 0.93 && tokenOverlap >= 0.72) || (score >= 0.9 && tokenOverlap >= 0.86);
+}
+
+async function createInstituteAlias(instituteId, aliasName, aliasType = 'manual', confidence = null) {
+	const safeAlias = typeof aliasName === 'string' ? aliasName.trim() : '';
+	if (!instituteId || !safeAlias) return;
+	const normalizedAlias = normalizeInstituteName(safeAlias);
+	if (!normalizedAlias) return;
+	await runAsync(`INSERT INTO institute_aliases (institute_id, alias_name, normalized_name, alias_type, confidence, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (normalized_name) DO UPDATE SET
+			institute_id = EXCLUDED.institute_id,
+			alias_name = EXCLUDED.alias_name,
+			alias_type = EXCLUDED.alias_type,
+			confidence = EXCLUDED.confidence`, [instituteId, safeAlias, normalizedAlias, aliasType, confidence, Date.now()]);
+}
+
+async function createInstituteRecord(canonicalName, options = {}) {
+	const safeCanonicalName = typeof canonicalName === 'string' ? canonicalName.trim() : '';
+	if (!safeCanonicalName) throw new Error('Institute name is required');
+	if (safeCanonicalName.length > 180) throw new Error('Institute name is too long');
+	const normalizedName = normalizeInstituteName(safeCanonicalName);
+	if (!normalizedName) throw new Error('Invalid institute name');
+	const existing = await getAsync('SELECT id, canonical_name, normalized_name, status, website_url FROM institutes WHERE normalized_name = ?', [normalizedName]);
+	if (existing) return existing;
+	const created = await getAsync(`INSERT INTO institutes (canonical_name, normalized_name, token_signature, website_url, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		RETURNING id, canonical_name, normalized_name, status, website_url`, [
+		safeCanonicalName,
+		normalizedName,
+		buildInstituteTokenSignature(safeCanonicalName),
+		typeof options.websiteUrl === 'string' ? options.websiteUrl.trim() || null : null,
+		typeof options.status === 'string' ? options.status.trim() || 'seeded' : 'seeded',
+		Date.now(),
+		Date.now()
+	]);
+	await createInstituteAlias(created.id, safeCanonicalName, options.aliasType || 'canonical', 1);
+	return created;
+}
+
+async function syncUsersForInstitute(instituteId) {
+	if (!instituteId) return;
+	const institute = await getAsync('SELECT id, canonical_name FROM institutes WHERE id = ?', [instituteId]);
+	if (!institute) return;
+	await runAsync('UPDATE users SET institute = ? WHERE institute_id = ?', [institute.canonical_name, instituteId]);
+}
+
+async function queueInstituteSubmission(rawName, normalizedName, userId, matchedInstituteId = null, confidence = null) {
+	const safeRawName = typeof rawName === 'string' ? rawName.trim() : '';
+	if (!safeRawName || !normalizedName) return null;
+	const existing = await getAsync(`SELECT id, raw_name, status, matched_institute_id
+		FROM institute_submissions
+		WHERE normalized_name = ?
+		AND COALESCE(user_id, 0) = COALESCE(?, 0)
+		AND status IN ('pending', 'reviewing')
+		ORDER BY created_at DESC
+		LIMIT 1`, [normalizedName, userId || null]);
+	if (existing) {
+		if (!existing.matched_institute_id && matchedInstituteId) {
+			await runAsync('UPDATE institute_submissions SET matched_institute_id = ?, confidence = ? WHERE id = ?', [matchedInstituteId, confidence, existing.id]);
+		}
+		return existing;
+	}
+	return getAsync(`INSERT INTO institute_submissions (user_id, raw_name, normalized_name, matched_institute_id, confidence, status, created_at)
+		VALUES (?, ?, ?, ?, ?, 'pending', ?)
+		RETURNING id, status`, [userId || null, safeRawName, normalizedName, matchedInstituteId, confidence, Date.now()]);
+}
+
+async function findBestInstituteMatch(rawName) {
+	const normalizedName = normalizeInstituteName(rawName);
+	if (!normalizedName) return null;
+	const exact = await getAsync(`SELECT i.id, i.canonical_name, i.normalized_name, i.website_url, i.status
+		FROM institutes i
+		WHERE i.normalized_name = ?
+		AND i.status IN ('active', 'seeded')
+		LIMIT 1`, [normalizedName]);
+	if (exact) {
+		return {
+			matchType: 'exact',
+			score: 1,
+			tokenOverlap: 1,
+			institute: exact
+		};
+	}
+	const alias = await getAsync(`SELECT i.id, i.canonical_name, i.normalized_name, i.website_url, i.status
+		FROM institute_aliases a
+		JOIN institutes i ON i.id = a.institute_id
+		WHERE a.normalized_name = ?
+		AND i.status IN ('active', 'seeded')
+		LIMIT 1`, [normalizedName]);
+	if (alias) {
+		return {
+			matchType: 'alias',
+			score: 0.995,
+			tokenOverlap: 1,
+			institute: alias
+		};
+	}
+	const requestedTokens = tokenizeInstituteName(rawName);
+	const candidates = await allAsync(`SELECT id, canonical_name, normalized_name, token_signature, website_url, status
+		FROM institutes
+		WHERE status IN ('active', 'seeded')
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 2000`);
+	let best = null;
+	for (const candidate of candidates) {
+		const candidateTokens = String(candidate.token_signature || '').split(' ').filter(Boolean);
+		const tokenOverlap = getOverlapRatio(requestedTokens, candidateTokens);
+		const namesOverlap = normalizedName.includes(candidate.normalized_name) || candidate.normalized_name.includes(normalizedName);
+		if (tokenOverlap < 0.34 && !namesOverlap) continue;
+		const score = getInstituteSimilarity(normalizedName, candidate.normalized_name);
+		if (!best || score > best.score) {
+			best = {
+				matchType: 'fuzzy',
+				score,
+				tokenOverlap,
+				institute: candidate
+			};
+		}
+	}
+	return best;
+}
+
+async function resolveInstituteReference(rawName, userId, options = {}) {
+	const safeRawName = typeof rawName === 'string' ? rawName.trim() : '';
+	if (!safeRawName) {
+		return {
+			canonicalName: null,
+			instituteId: null,
+			rawName: null,
+			status: 'empty',
+			matchType: 'empty',
+			submissionId: null
+		};
+	}
+	if (safeRawName.length > 180) throw new Error('Institute name is too long');
+	const normalizedName = normalizeInstituteName(safeRawName);
+	if (!normalizedName) throw new Error('Invalid institute name');
+	const match = await findBestInstituteMatch(safeRawName);
+	if (match && match.institute && (match.matchType !== 'fuzzy' || isStrongInstituteMatch(match.score, match.tokenOverlap))) {
+		if (normalizeInstituteName(safeRawName) !== normalizeInstituteName(match.institute.canonical_name)) {
+			await createInstituteAlias(match.institute.id, safeRawName, match.matchType === 'fuzzy' ? 'auto_fuzzy' : 'auto_exact', match.score);
+		}
+		return {
+			canonicalName: match.institute.canonical_name,
+			instituteId: Number(match.institute.id) || null,
+			rawName: safeRawName,
+			status: 'matched',
+			matchType: match.matchType,
+			score: match.score,
+			submissionId: null
+		};
+	}
+	if (options.allowCreateCanonical) {
+		const created = await createInstituteRecord(safeRawName, {
+			status: options.seedStatus || 'seeded',
+			aliasType: options.aliasType || 'legacy_seed',
+			websiteUrl: options.websiteUrl || null
+		});
+		return {
+			canonicalName: created.canonical_name,
+			instituteId: Number(created.id) || null,
+			rawName: safeRawName,
+			status: 'seeded',
+			matchType: 'seed',
+			score: 1,
+			submissionId: null
+		};
+	}
+	const submission = options.createSubmission === false
+		? null
+		: await queueInstituteSubmission(safeRawName, normalizedName, userId, match && match.institute ? match.institute.id : null, match ? match.score : null);
+	return {
+		canonicalName: safeRawName,
+		instituteId: null,
+		rawName: safeRawName,
+		status: submission ? 'pending_review' : 'unmatched',
+		matchType: match ? match.matchType : 'none',
+		score: match ? match.score : 0,
+		submissionId: submission ? Number(submission.id) || null : null
+	};
+}
+
+async function backfillInstituteRegistry() {
+	const rows = await allAsync(`SELECT DISTINCT institute
+		FROM users
+		WHERE COALESCE(TRIM(institute), '') <> ''
+		ORDER BY institute ASC`);
+	for (const row of rows) {
+		const label = typeof row.institute === 'string' ? row.institute.trim() : '';
+		if (!label) continue;
+		await resolveInstituteReference(label, null, {
+			allowCreateCanonical: true,
+			createSubmission: false,
+			seedStatus: 'seeded',
+			aliasType: 'legacy_seed'
+		});
+	}
+	const users = await allAsync(`SELECT id, institute, institute_id, institute_raw_name
+		FROM users
+		WHERE COALESCE(TRIM(institute), '') <> ''`);
+	for (const user of users) {
+		const fallback = String(user.institute_raw_name || user.institute || '').trim();
+		if (!fallback) continue;
+		const resolved = await resolveInstituteReference(fallback, user.id, { createSubmission: false });
+		await runAsync(`UPDATE users
+			SET institute = ?,
+				institute_id = ?,
+				institute_raw_name = ?
+			WHERE id = ?`, [
+			resolved.canonicalName || fallback,
+			resolved.instituteId,
+			fallback,
+			user.id
+		]);
+	}
+}
+
 async function syncMedicalTaxonomyCatalog() {
 	const catalog = loadMedicalTaxonomy();
 	const flattened = flattenMedicalTaxonomy(catalog);
@@ -1563,6 +1883,8 @@ async function initializeDatabase() {
 		contact_country_code TEXT,
 		contact_number TEXT,
 		institute TEXT,
+		institute_id BIGINT,
+		institute_raw_name TEXT,
 		program_type TEXT,
 		degree TEXT,
 		academic_year TEXT,
@@ -1602,6 +1924,8 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_country_code TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_number TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute_id BIGINT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS institute_raw_name TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_type TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS degree TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS academic_year TEXT`);
@@ -1655,6 +1979,54 @@ async function initializeDatabase() {
 		is_active BOOLEAN DEFAULT TRUE,
 		updated_at BIGINT
 	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS institutes (
+		id BIGSERIAL PRIMARY KEY,
+		canonical_name TEXT NOT NULL,
+		normalized_name TEXT UNIQUE NOT NULL,
+		token_signature TEXT,
+		website_url TEXT,
+		status TEXT DEFAULT 'seeded',
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS institute_aliases (
+		id BIGSERIAL PRIMARY KEY,
+		institute_id BIGINT NOT NULL REFERENCES institutes(id) ON DELETE CASCADE,
+		alias_name TEXT NOT NULL,
+		normalized_name TEXT UNIQUE NOT NULL,
+		alias_type TEXT DEFAULT 'manual',
+		confidence REAL,
+		created_at BIGINT NOT NULL
+	)`);
+	await runAsync(`CREATE TABLE IF NOT EXISTS institute_submissions (
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+		raw_name TEXT NOT NULL,
+		normalized_name TEXT NOT NULL,
+		matched_institute_id BIGINT REFERENCES institutes(id) ON DELETE SET NULL,
+		confidence REAL,
+		status TEXT DEFAULT 'pending',
+		reviewed_by BIGINT,
+		reviewed_at BIGINT,
+		created_at BIGINT NOT NULL
+	)`);
+	await runAsync(`ALTER TABLE institutes ADD COLUMN IF NOT EXISTS token_signature TEXT`);
+	await runAsync(`ALTER TABLE institutes ADD COLUMN IF NOT EXISTS website_url TEXT`);
+	await runAsync(`ALTER TABLE institutes ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'seeded'`);
+	await runAsync(`ALTER TABLE institutes ADD COLUMN IF NOT EXISTS updated_at BIGINT`);
+	await runAsync(`ALTER TABLE institute_aliases ADD COLUMN IF NOT EXISTS alias_type TEXT DEFAULT 'manual'`);
+	await runAsync(`ALTER TABLE institute_aliases ADD COLUMN IF NOT EXISTS confidence REAL`);
+	await runAsync(`ALTER TABLE institute_submissions ADD COLUMN IF NOT EXISTS matched_institute_id BIGINT`);
+	await runAsync(`ALTER TABLE institute_submissions ADD COLUMN IF NOT EXISTS confidence REAL`);
+	await runAsync(`ALTER TABLE institute_submissions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`);
+	await runAsync(`ALTER TABLE institute_submissions ADD COLUMN IF NOT EXISTS reviewed_by BIGINT`);
+	await runAsync(`ALTER TABLE institute_submissions ADD COLUMN IF NOT EXISTS reviewed_at BIGINT`);
+	await runAsync(`UPDATE institutes
+		SET token_signature = COALESCE(NULLIF(TRIM(token_signature), ''), ''),
+			status = COALESCE(NULLIF(TRIM(status), ''), 'seeded'),
+			updated_at = COALESCE(updated_at, created_at, ?)`, [Date.now()]);
+	await runAsync(`UPDATE institute_submissions
+		SET status = COALESCE(NULLIF(TRIM(status), ''), 'pending')`);
 
 	await runAsync(`CREATE TABLE IF NOT EXISTS posts (
 		id BIGSERIAL PRIMARY KEY,
@@ -2018,6 +2390,7 @@ async function initializeDatabase() {
 	await runAsync(`UPDATE speciality_suggestions SET status = COALESCE(NULLIF(TRIM(status), ''), 'open')`);
 	await syncMedicalTaxonomyCatalog();
 	await backfillUserMedicalTaxonomy();
+	await backfillInstituteRegistry();
 }
 
 async function ensureSuperAdmin() {
@@ -2120,6 +2493,7 @@ app.post('/api/register', async (req, res) => {
 	
 	try {
 		const taxonomySelection = await resolveMedicalTaxonomySelection(req.body);
+		const instituteSelection = await resolveInstituteReference(safeInstitute, null, { createSubmission: false });
 		const countRow = await getAsync('SELECT COUNT(*) as cnt FROM users');
 		const isFirstUser = Number(countRow && countRow.cnt) === 0;
 		const hash = await bcrypt.hash(password, 10);
@@ -2127,11 +2501,14 @@ app.post('/api/register', async (req, res) => {
 		const verifyToken = createVerificationToken();
 		const created = await runAsync(
 			`INSERT INTO users
-				(username, password, name, email, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, role, email_verified, email_verify_token)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			[username, hash, name || '', safeEmail || null, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, role, 0, verifyToken]
+				(username, password, name, email, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, role, email_verified, email_verify_token)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[username, hash, name || '', safeEmail || null, instituteSelection.canonicalName || safeInstitute || null, instituteSelection.instituteId, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, role, 0, verifyToken]
 		);
 		const userId = created.lastID;
+		if (userId && !instituteSelection.instituteId) {
+			await queueInstituteSubmission(safeInstitute, normalizeInstituteName(safeInstitute), userId, null, null).catch(() => {});
+		}
 		const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
 		const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
 		console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
@@ -2326,7 +2703,7 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
 	if (!req.session.userId) return res.json({ user: null });
-	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], async (err, user) => {
+	db.get('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, role, email_verified, last_login, profile_picture, xp, level, title FROM users WHERE id = ?', [req.session.userId], async (err, user) => {
 		if (err) return res.status(500).json({ error: 'Server error' });
 		if (!user) return res.json({ user: null });
 		const safeUser = applyProfileFieldDecryption(user);
@@ -2416,7 +2793,7 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 
 app.get('/api/profile', requireAuth, async (req, res) => {
 	try {
-		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
+		const user = await getAsync('SELECT id, username, name, nickname, email, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, privacy_show_online, privacy_discoverability, privacy_in_suggestions, privacy_request_policy, profile_picture FROM users WHERE id = ?', [req.session.userId]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		const safeUser = applyProfileFieldDecryption(user);
 		await attachMedicalTaxonomyToUser(safeUser);
@@ -2481,6 +2858,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 	}
 	try {
 		const taxonomySelection = await resolveMedicalTaxonomySelection(req.body);
+		const instituteSelection = await resolveInstituteReference(institute, req.session.userId);
 		await runAsync(`UPDATE users SET
 			name = ?,
 			nickname = ?,
@@ -2497,6 +2875,8 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 			contact_country_code = ?,
 			contact_number = ?,
 			institute = ?,
+			institute_id = ?,
+			institute_raw_name = ?,
 			program_type = ?,
 			degree = ?,
 			academic_year = ?,
@@ -2508,7 +2888,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 			privacy_discoverability = ?,
 			privacy_in_suggestions = ?,
 			privacy_request_policy = ?
-			WHERE id = ?`, [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), institute || null, programType || null, degree || null, academicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
+			WHERE id = ?`, [name || null, nickname || null, email || null, gender || null, encryptValue(dateOfBirth || null), bio || null, statusDescription || null, achievements || null, placeFrom || null, country || null, state || null, encryptValue(pincode || null), encryptValue(contactCountryCode || null), encryptValue(contactNumber || null), instituteSelection.canonicalName || institute || null, instituteSelection.instituteId, institute || null, programType || null, degree || null, academicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, privacyShowOnline || 'connections', privacyDiscoverability || 'everyone', privacyInSuggestions || 'everyone', privacyRequestPolicy || 'everyone', req.session.userId]);
 		await evaluateProfileAwards(req.session.userId).catch(() => {});
 		res.json({ success: true });
 	} catch (e) {
@@ -2551,6 +2931,218 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 		res.json({ totalUsers: rows.length, users: rows });
 	} catch (e) {
 		console.error('Admin users API error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/institutes', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	try {
+		const rows = await allAsync(`SELECT
+			i.id,
+			i.canonical_name,
+			i.normalized_name,
+			i.website_url,
+			i.status,
+			i.created_at,
+			i.updated_at,
+			(SELECT COUNT(*) FROM institute_aliases a WHERE a.institute_id = i.id) AS alias_count,
+			(SELECT COUNT(*) FROM users u WHERE u.institute_id = i.id) AS user_count
+			FROM institutes i
+			WHERE (? = '' OR LOWER(i.canonical_name) LIKE LOWER(?) OR LOWER(COALESCE(i.website_url, '')) LIKE LOWER(?))
+			ORDER BY LOWER(i.canonical_name) ASC
+			LIMIT 800`, [q, `%${q}%`, `%${q}%`]);
+		res.json({ institutes: rows });
+	} catch (e) {
+		console.error('Admin institutes load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/institutes', requireAdmin, async (req, res) => {
+	const canonicalName = typeof req.body.canonicalName === 'string' ? req.body.canonicalName.trim() : '';
+	const websiteUrl = typeof req.body.websiteUrl === 'string' ? req.body.websiteUrl.trim() : '';
+	try {
+		const created = await createInstituteRecord(canonicalName, {
+			status: 'active',
+			websiteUrl,
+			aliasType: 'canonical'
+		});
+		await syncUsersForInstitute(created.id);
+		res.json({ success: true, institute: created });
+	} catch (e) {
+		res.status(400).json({ error: e.message || 'Unable to create institute' });
+	}
+});
+
+app.post('/api/admin/institutes/:id', requireAdmin, async (req, res) => {
+	const instituteId = Number(req.params.id);
+	const canonicalName = typeof req.body.canonicalName === 'string' ? req.body.canonicalName.trim() : '';
+	const websiteUrl = typeof req.body.websiteUrl === 'string' ? req.body.websiteUrl.trim() : '';
+	const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : '';
+	if (!instituteId) return res.status(400).json({ error: 'Invalid institute id' });
+	if (!canonicalName) return res.status(400).json({ error: 'Canonical name is required' });
+	if (status && !['active', 'seeded', 'archived'].includes(status)) return res.status(400).json({ error: 'Invalid institute status' });
+	try {
+		const existing = await getAsync('SELECT id, canonical_name, normalized_name FROM institutes WHERE id = ?', [instituteId]);
+		if (!existing) return res.status(404).json({ error: 'Institute not found' });
+		const nextNormalized = normalizeInstituteName(canonicalName);
+		const duplicate = await getAsync('SELECT id FROM institutes WHERE normalized_name = ? AND id <> ?', [nextNormalized, instituteId]);
+		if (duplicate) return res.status(400).json({ error: 'Another institute already uses that canonical name' });
+		if (existing.canonical_name && normalizeInstituteName(existing.canonical_name) !== nextNormalized) {
+			await createInstituteAlias(instituteId, existing.canonical_name, 'renamed', 1);
+		}
+		await runAsync(`UPDATE institutes
+			SET canonical_name = ?,
+				normalized_name = ?,
+				token_signature = ?,
+				website_url = ?,
+				status = ?,
+				updated_at = ?
+			WHERE id = ?`, [
+			canonicalName,
+			nextNormalized,
+			buildInstituteTokenSignature(canonicalName),
+			websiteUrl || null,
+			status || 'active',
+			Date.now(),
+			instituteId
+		]);
+		await createInstituteAlias(instituteId, canonicalName, 'canonical', 1);
+		await syncUsersForInstitute(instituteId);
+		const institute = await getAsync('SELECT id, canonical_name, normalized_name, website_url, status, updated_at FROM institutes WHERE id = ?', [instituteId]);
+		res.json({ success: true, institute });
+	} catch (e) {
+		console.error('Admin institute update error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/institutes/:id/alias', requireAdmin, async (req, res) => {
+	const instituteId = Number(req.params.id);
+	const aliasName = typeof req.body.aliasName === 'string' ? req.body.aliasName.trim() : '';
+	if (!instituteId) return res.status(400).json({ error: 'Invalid institute id' });
+	if (!aliasName) return res.status(400).json({ error: 'Alias name is required' });
+	try {
+		const institute = await getAsync('SELECT id FROM institutes WHERE id = ?', [instituteId]);
+		if (!institute) return res.status(404).json({ error: 'Institute not found' });
+		await createInstituteAlias(instituteId, aliasName, 'manual', 1);
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Admin institute alias error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.get('/api/admin/institute-submissions', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
+	try {
+		const rows = await allAsync(`SELECT
+			s.id,
+			s.user_id,
+			s.raw_name,
+			s.normalized_name,
+			s.matched_institute_id,
+			s.confidence,
+			s.status,
+			s.reviewed_by,
+			s.reviewed_at,
+			s.created_at,
+			u.username,
+			i.canonical_name AS matched_institute_name
+			FROM institute_submissions s
+			LEFT JOIN users u ON u.id = s.user_id
+			LEFT JOIN institutes i ON i.id = s.matched_institute_id
+			WHERE (? = '' OR s.status = ?)
+			AND (? = '' OR LOWER(s.raw_name) LIKE LOWER(?) OR LOWER(COALESCE(u.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(i.canonical_name, '')) LIKE LOWER(?))
+			ORDER BY s.created_at DESC
+			LIMIT 800`, [status, status, q, `%${q}%`, `%${q}%`, `%${q}%`]);
+		res.json({ submissions: rows });
+	} catch (e) {
+		console.error('Admin institute submissions load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/institute-submissions/:id/approve-match', requireAdmin, async (req, res) => {
+	const submissionId = Number(req.params.id);
+	const instituteId = Number(req.body.instituteId);
+	if (!submissionId || !instituteId) return res.status(400).json({ error: 'Invalid submission or institute id' });
+	try {
+		const submission = await getAsync('SELECT id, user_id, raw_name, status FROM institute_submissions WHERE id = ?', [submissionId]);
+		if (!submission) return res.status(404).json({ error: 'Submission not found' });
+		const institute = await getAsync('SELECT id, canonical_name FROM institutes WHERE id = ?', [instituteId]);
+		if (!institute) return res.status(404).json({ error: 'Institute not found' });
+		await createInstituteAlias(instituteId, submission.raw_name, 'approved_submission', 1);
+		if (submission.user_id) {
+			await runAsync(`UPDATE users
+				SET institute = ?,
+					institute_id = ?,
+					institute_raw_name = COALESCE(NULLIF(TRIM(institute_raw_name), ''), ?)
+				WHERE id = ?`, [institute.canonical_name, instituteId, submission.raw_name, submission.user_id]);
+		}
+		await runAsync(`UPDATE institute_submissions
+			SET matched_institute_id = ?,
+				status = 'approved',
+				reviewed_by = ?,
+				reviewed_at = ?
+			WHERE id = ?`, [instituteId, req.session.userId, Date.now(), submissionId]);
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Institute submission approve error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/institute-submissions/:id/create', requireAdmin, async (req, res) => {
+	const submissionId = Number(req.params.id);
+	const canonicalName = typeof req.body.canonicalName === 'string' ? req.body.canonicalName.trim() : '';
+	const websiteUrl = typeof req.body.websiteUrl === 'string' ? req.body.websiteUrl.trim() : '';
+	if (!submissionId) return res.status(400).json({ error: 'Invalid submission id' });
+	if (!canonicalName) return res.status(400).json({ error: 'Canonical name is required' });
+	try {
+		const submission = await getAsync('SELECT id, user_id, raw_name FROM institute_submissions WHERE id = ?', [submissionId]);
+		if (!submission) return res.status(404).json({ error: 'Submission not found' });
+		const institute = await createInstituteRecord(canonicalName, {
+			status: 'active',
+			websiteUrl,
+			aliasType: 'canonical'
+		});
+		await createInstituteAlias(institute.id, submission.raw_name, 'approved_submission', 1);
+		if (submission.user_id) {
+			await runAsync(`UPDATE users
+				SET institute = ?,
+					institute_id = ?,
+					institute_raw_name = COALESCE(NULLIF(TRIM(institute_raw_name), ''), ?)
+				WHERE id = ?`, [institute.canonical_name, institute.id, submission.raw_name, submission.user_id]);
+		}
+		await runAsync(`UPDATE institute_submissions
+			SET matched_institute_id = ?,
+				status = 'implemented',
+				reviewed_by = ?,
+				reviewed_at = ?
+			WHERE id = ?`, [institute.id, req.session.userId, Date.now(), submissionId]);
+		res.json({ success: true, institute });
+	} catch (e) {
+		console.error('Institute submission create error:', e);
+		res.status(400).json({ error: e.message || 'Unable to create institute' });
+	}
+});
+
+app.post('/api/admin/institute-submissions/:id/reject', requireAdmin, async (req, res) => {
+	const submissionId = Number(req.params.id);
+	if (!submissionId) return res.status(400).json({ error: 'Invalid submission id' });
+	try {
+		const updated = await runAsync(`UPDATE institute_submissions
+			SET status = 'rejected',
+				reviewed_by = ?,
+				reviewed_at = ?
+			WHERE id = ?`, [req.session.userId, Date.now(), submissionId]);
+		if (!updated.changes) return res.status(404).json({ error: 'Submission not found' });
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Institute submission reject error:', e);
 		res.status(500).json({ error: 'Server error' });
 	}
 });
@@ -3064,7 +3656,7 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], async (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], async (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		const safeUser = applyProfileFieldDecryption(user);
 		await attachMedicalTaxonomyToUser(safeUser);

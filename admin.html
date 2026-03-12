@@ -126,6 +126,40 @@
         <div class="row" style="justify-content:flex-start">
           <button id="adminTaxonomySyncBtn" class="btn secondary tiny-btn" type="button">Sync From Data File</button>
         </div>
+        <div class="section-gap">
+          <h3>Institute Registry</h3>
+          <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap">
+            <div style="min-width:220px;flex:1 1 220px">
+              <label class="muted" for="adminInstituteSearch">Find institute</label>
+              <input id="adminInstituteSearch" type="text" placeholder="Search canonical names..." />
+            </div>
+            <button id="adminInstituteSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+          </div>
+          <div id="adminInstituteManager" class="section-gap"></div>
+          <div id="adminInstitutes" class="section-gap"></div>
+        </div>
+        <div class="section-gap">
+          <h3>Institute Review Queue</h3>
+          <div class="row" style="justify-content:flex-start;align-items:flex-end;flex-wrap:wrap">
+            <div style="min-width:220px;flex:1 1 220px">
+              <label class="muted" for="adminInstituteSubmissionSearch">Find submission</label>
+              <input id="adminInstituteSubmissionSearch" type="text" placeholder="Search pending institute names..." />
+            </div>
+            <div style="min-width:180px;flex:0 1 180px">
+              <label class="muted" for="adminInstituteSubmissionStatus">Status</label>
+              <select id="adminInstituteSubmissionStatus">
+                <option value="">All status</option>
+                <option value="pending">Pending</option>
+                <option value="reviewing">Reviewing</option>
+                <option value="approved">Approved</option>
+                <option value="implemented">Implemented</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <button id="adminInstituteSubmissionSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+          </div>
+          <div id="adminInstituteSubmissions" class="section-gap"></div>
+        </div>
         <div id="adminTaxonomyManager" class="section-gap"></div>
         <div id="adminMedicalTaxonomy" class="section-gap"></div>
       </section>

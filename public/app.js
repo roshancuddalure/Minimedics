@@ -1237,7 +1237,9 @@ function syncQuizCorrectOptions() {
   const optionEls = Array.from(document.querySelectorAll('.quiz-option'));
   const nextOptions = ['<option value="">Select correct option</option>'];
   optionEls.forEach((el, index) => {
-    nextOptions.push(`<option value="${index}">Option ${index + 1}</option>`);
+    const rawLabel = String(el.value || '').trim();
+    const label = rawLabel || `Option ${index + 1}`;
+    nextOptions.push(`<option value="${index}">${escapeHtml(label)}</option>`);
   });
   const currentValue = select.value;
   select.innerHTML = nextOptions.join('');
@@ -1380,6 +1382,16 @@ function initPostComposerSettings() {
     scheduleBtn.innerHTML = '<span class="btn-iconify iconify" data-icon="lucide:calendar-clock" aria-hidden="true"></span>';
     scheduleBtn.classList.add('icon-only-btn');
   }
+  const closePrivacyBtn = document.getElementById('closePostPrivacyModalBtn');
+  if (closePrivacyBtn) {
+    closePrivacyBtn.innerHTML = '<span class="btn-iconify iconify" data-icon="lucide:x" aria-hidden="true"></span>';
+    closePrivacyBtn.classList.add('icon-only-btn');
+  }
+  const closeScheduleBtn = document.getElementById('closePostScheduleModalBtn');
+  if (closeScheduleBtn) {
+    closeScheduleBtn.innerHTML = '<span class="btn-iconify iconify" data-icon="lucide:x" aria-hidden="true"></span>';
+    closeScheduleBtn.classList.add('icon-only-btn');
+  }
   const currentPrivacy = String(visibilityInput && visibilityInput.value || 'public');
   Array.from(document.querySelectorAll('input[name="postPrivacyChoice"]')).forEach((input) => {
     input.checked = input.value === currentPrivacy;
@@ -1390,9 +1402,7 @@ function initPostComposerSettings() {
     if (publishAtPicker && publishAtInput) publishAtPicker.value = publishAtInput.value || '';
     openComposerModal('postScheduleModal');
   });
-  const closePrivacyBtn = document.getElementById('closePostPrivacyModalBtn');
   if (closePrivacyBtn) closePrivacyBtn.addEventListener('click', () => closeComposerModal('postPrivacyModal'));
-  const closeScheduleBtn = document.getElementById('closePostScheduleModalBtn');
   if (closeScheduleBtn) closeScheduleBtn.addEventListener('click', () => closeComposerModal('postScheduleModal'));
   if (privacyModal) {
     privacyModal.addEventListener('click', (evt) => {
@@ -1486,6 +1496,7 @@ async function initReminderTargetsComposer() {
 function setPostMode(nextMode) {
   postMode = nextMode;
   const modeButtons = [
+    { id: 'postModeGeneral', mode: null },
     { id: 'postModeReminder', mode: 'reminder' },
     { id: 'postModeQuiz', mode: 'quiz' }
   ];
@@ -1494,8 +1505,10 @@ function setPostMode(nextMode) {
     if (!btn) return;
     btn.classList.toggle('active', item.mode === postMode);
   });
+  const generalFields = document.getElementById('generalModeFields');
   const reminderFields = document.getElementById('reminderModeFields');
   const quizFields = document.getElementById('quizModeFields');
+  if (generalFields) generalFields.classList.toggle('hidden', postMode !== null);
   if (reminderFields) reminderFields.classList.toggle('hidden', postMode !== 'reminder');
   if (quizFields) quizFields.classList.toggle('hidden', postMode !== 'quiz');
   if (postMode !== 'reminder') {
@@ -1515,16 +1528,20 @@ function setPostMode(nextMode) {
     if (quizCorrectIndexInput) quizCorrectIndexInput.value = '';
     quizOptionEls.forEach((el) => { el.value = ''; });
     if (quizExplanationEditor) quizExplanationEditor.innerHTML = '';
+    syncQuizCorrectOptions();
   }
   updatePostComposerMeta();
 }
 
 function initPostModeSwitcher() {
+  const generalBtn = document.getElementById('postModeGeneral');
   const reminderBtn = document.getElementById('postModeReminder');
   const quizBtn = document.getElementById('postModeQuiz');
-  if (!reminderBtn || !quizBtn) return;
-  setButtonIconWithText(reminderBtn, 'Reminder Mode', 'notification');
-  setButtonIconWithText(quizBtn, 'Quiz Mode', 'quiz');
+  if (!generalBtn || !reminderBtn || !quizBtn) return;
+  setButtonIconWithText(generalBtn, 'post');
+  setButtonIconWithText(reminderBtn, 'notification');
+  setButtonIconWithText(quizBtn, 'quiz');
+  generalBtn.addEventListener('click', () => setPostMode(null));
   reminderBtn.addEventListener('click', () => setPostMode(postMode === 'reminder' ? null : 'reminder'));
   quizBtn.addEventListener('click', () => setPostMode(postMode === 'quiz' ? null : 'quiz'));
   setPostMode(null);
@@ -1873,6 +1890,8 @@ function renderPostCard(p, me, options = {}) {
     postImage.src = p.image;
     postImage.alt = 'Post attachment';
     postImage.loading = 'lazy';
+    postImage.style.cursor = 'zoom-in';
+    postImage.addEventListener('click', () => openChatImageViewer(p.image));
     el.appendChild(postImage);
   }
 
@@ -2458,6 +2477,277 @@ async function loadAdminTaxonomySuggestions() {
   });
 }
 
+function renderAdminInstituteManager(institutes) {
+  const box = document.getElementById('adminInstituteManager');
+  if (!box) return;
+  box.innerHTML = `<div class="card admin-catalog-card">
+    <h4 style="margin:0 0 0.75rem">Add Institute</h4>
+    <div class="admin-catalog-grid">
+      <div>
+        <label class="muted" for="adminInstituteCanonicalName">Canonical name</label>
+        <input id="adminInstituteCanonicalName" type="text" maxlength="180" placeholder="Official institute name" />
+      </div>
+      <div>
+        <label class="muted" for="adminInstituteWebsiteUrl">Website</label>
+        <input id="adminInstituteWebsiteUrl" type="url" maxlength="240" placeholder="https://example.edu" />
+      </div>
+      <div class="admin-catalog-action">
+        <button id="adminCreateInstituteBtn" class="btn tiny-btn" type="button">Create Institute</button>
+      </div>
+    </div>
+    <p class="muted admin-catalog-note">Use the official website spelling here. Variants can be added later as aliases.</p>
+  </div>`;
+  const createBtn = document.getElementById('adminCreateInstituteBtn');
+  if (!createBtn) return;
+  createBtn.onclick = async () => {
+    const canonicalNameEl = document.getElementById('adminInstituteCanonicalName');
+    const websiteUrlEl = document.getElementById('adminInstituteWebsiteUrl');
+    const canonicalName = canonicalNameEl ? canonicalNameEl.value.trim() : '';
+    const websiteUrl = websiteUrlEl ? websiteUrlEl.value.trim() : '';
+    if (!canonicalName) return showToast('Enter the institute name', 'error');
+    createBtn.disabled = true;
+    const res = await api('/api/admin/institutes', 'POST', { canonicalName, websiteUrl });
+    createBtn.disabled = false;
+    if (res && res.success) {
+      if (canonicalNameEl) canonicalNameEl.value = '';
+      if (websiteUrlEl) websiteUrlEl.value = '';
+      await loadAdminInstitutes();
+      await loadAdminInstituteSubmissions();
+      showToast('Institute created');
+    } else {
+      showToast((res && res.error) || 'Unable to create institute', 'error');
+    }
+  };
+}
+
+async function loadAdminInstitutes() {
+  const box = document.getElementById('adminInstitutes');
+  if (!box) return [];
+  const qEl = document.getElementById('adminInstituteSearch');
+  const q = qEl ? qEl.value.trim() : '';
+  const res = await api(`/api/admin/institutes?q=${encodeURIComponent(q)}`);
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load institutes.</div>';
+    return [];
+  }
+  const institutes = Array.isArray(res.institutes) ? res.institutes : [];
+  renderAdminInstituteManager(institutes);
+  if (!institutes.length) {
+    box.innerHTML = '<div class="muted">No institutes found.</div>';
+    return institutes;
+  }
+  const rows = institutes.map((item) => {
+    const instituteId = Number(item.id) || 0;
+    return `<tr data-institute-id="${instituteId}">
+      <td>
+        <input class="admin-institute-name" type="text" maxlength="180" value="${escapeHtml(item.canonical_name || '')}" />
+      </td>
+      <td>
+        <input class="admin-institute-website" type="url" maxlength="240" value="${escapeHtml(item.website_url || '')}" placeholder="https://example.edu" />
+      </td>
+      <td>
+        <select class="admin-institute-status">
+          <option value="active" ${item.status === 'active' ? 'selected' : ''}>active</option>
+          <option value="seeded" ${item.status === 'seeded' ? 'selected' : ''}>seeded</option>
+          <option value="archived" ${item.status === 'archived' ? 'selected' : ''}>archived</option>
+        </select>
+      </td>
+      <td>${Number(item.alias_count) || 0}</td>
+      <td>${Number(item.user_count) || 0}</td>
+      <td>${formatDateTime(item.updated_at || item.created_at, 'Never')}</td>
+      <td>
+        <div class="admin-inline-actions">
+          <button class="btn secondary tiny-btn admin-institute-save-btn" type="button">Save</button>
+          <button class="btn secondary tiny-btn admin-institute-alias-btn" type="button">Alias</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>Canonical Name</th>
+          <th>Website</th>
+          <th>Status</th>
+          <th>Aliases</th>
+          <th>Users</th>
+          <th>Updated</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-institute-save-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const instituteId = Number(row.getAttribute('data-institute-id'));
+      const canonicalName = String((row.querySelector('.admin-institute-name') || {}).value || '').trim();
+      const websiteUrl = String((row.querySelector('.admin-institute-website') || {}).value || '').trim();
+      const status = String((row.querySelector('.admin-institute-status') || {}).value || '').trim();
+      if (!instituteId || !canonicalName) return showToast('Institute name is required', 'error');
+      btn.disabled = true;
+      const updateRes = await api(`/api/admin/institutes/${instituteId}`, 'POST', { canonicalName, websiteUrl, status });
+      btn.disabled = false;
+      if (updateRes && updateRes.success) {
+        await loadAdminInstitutes();
+        await loadAdminInstituteSubmissions();
+        showToast('Institute updated');
+      } else {
+        showToast((updateRes && updateRes.error) || 'Unable to update institute', 'error');
+      }
+    });
+  });
+  Array.from(box.querySelectorAll('.admin-institute-alias-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const instituteId = Number(row.getAttribute('data-institute-id'));
+      if (!instituteId) return;
+      const aliasName = window.prompt('Add alias / spelling variant');
+      if (!aliasName || !aliasName.trim()) return;
+      btn.disabled = true;
+      const aliasRes = await api(`/api/admin/institutes/${instituteId}/alias`, 'POST', { aliasName: aliasName.trim() });
+      btn.disabled = false;
+      if (aliasRes && aliasRes.success) {
+        await loadAdminInstitutes();
+        showToast('Alias added');
+      } else {
+        showToast((aliasRes && aliasRes.error) || 'Unable to add alias', 'error');
+      }
+    });
+  });
+  return institutes;
+}
+
+async function loadAdminInstituteSubmissions() {
+  const box = document.getElementById('adminInstituteSubmissions');
+  if (!box) return;
+  const qEl = document.getElementById('adminInstituteSubmissionSearch');
+  const statusEl = document.getElementById('adminInstituteSubmissionStatus');
+  const q = qEl ? qEl.value.trim() : '';
+  const status = statusEl ? statusEl.value.trim() : '';
+  const [subRes, instituteRes] = await Promise.all([
+    api(`/api/admin/institute-submissions?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`),
+    api('/api/admin/institutes?q=')
+  ]);
+  if (subRes.error) {
+    box.innerHTML = '<div class="muted">Unable to load institute submissions.</div>';
+    return;
+  }
+  const submissions = Array.isArray(subRes.submissions) ? subRes.submissions : [];
+  const institutes = Array.isArray(instituteRes.institutes) ? instituteRes.institutes : [];
+  const instituteOptions = institutes.map((item) => `<option value="${Number(item.id) || 0}">${escapeHtml(item.canonical_name || '')}</option>`).join('');
+  if (!submissions.length) {
+    box.innerHTML = '<div class="muted">No institute submissions found.</div>';
+    return;
+  }
+  const rows = submissions.map((item) => {
+    const submissionId = Number(item.id) || 0;
+    const matchedId = Number(item.matched_institute_id) || 0;
+    return `<tr data-institute-submission-id="${submissionId}">
+      <td>${submissionId}</td>
+      <td>
+        <strong>${escapeHtml(item.raw_name || '')}</strong>
+        <div class="muted">${escapeHtml(item.username || 'Unknown')}</div>
+      </td>
+      <td>${matchedId ? escapeHtml(item.matched_institute_name || '') : '<span class="muted">No suggested match</span>'}</td>
+      <td>${item.confidence ? `${Math.round(Number(item.confidence) * 100)}%` : '<span class="muted">-</span>'}</td>
+      <td>${escapeHtml(item.status || 'pending')}</td>
+      <td>${formatDateTime(item.created_at)}</td>
+      <td>
+        <div class="admin-submission-controls">
+          <select class="admin-submission-match-select">
+            <option value="">Choose institute</option>
+            ${instituteOptions.replace(`value="${matchedId}"`, `value="${matchedId}" selected`)}
+          </select>
+          <input class="admin-submission-canonical" type="text" maxlength="180" value="${escapeHtml(item.matched_institute_name || item.raw_name || '')}" placeholder="Create official institute name" />
+          <input class="admin-submission-website" type="url" maxlength="240" placeholder="https://example.edu" />
+          <div class="admin-inline-actions">
+            <button class="btn secondary tiny-btn admin-submission-approve-btn" type="button">Approve Match</button>
+            <button class="btn secondary tiny-btn admin-submission-create-btn" type="button">Create New</button>
+            <button class="btn secondary tiny-btn admin-submission-reject-btn" type="button">Reject</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Submitted Name</th>
+          <th>Suggested Match</th>
+          <th>Confidence</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Review</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-submission-approve-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const submissionId = Number(row.getAttribute('data-institute-submission-id'));
+      const instituteId = Number((row.querySelector('.admin-submission-match-select') || {}).value) || 0;
+      if (!submissionId || !instituteId) return showToast('Select a matching institute first', 'error');
+      btn.disabled = true;
+      const res = await api(`/api/admin/institute-submissions/${submissionId}/approve-match`, 'POST', { instituteId });
+      btn.disabled = false;
+      if (res && res.success) {
+        await loadAdminInstitutes();
+        await loadAdminInstituteSubmissions();
+        showToast('Submission approved');
+      } else {
+        showToast((res && res.error) || 'Unable to approve match', 'error');
+      }
+    });
+  });
+  Array.from(box.querySelectorAll('.admin-submission-create-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const submissionId = Number(row.getAttribute('data-institute-submission-id'));
+      const canonicalName = String((row.querySelector('.admin-submission-canonical') || {}).value || '').trim();
+      const websiteUrl = String((row.querySelector('.admin-submission-website') || {}).value || '').trim();
+      if (!submissionId || !canonicalName) return showToast('Enter the official institute name first', 'error');
+      btn.disabled = true;
+      const res = await api(`/api/admin/institute-submissions/${submissionId}/create`, 'POST', { canonicalName, websiteUrl });
+      btn.disabled = false;
+      if (res && res.success) {
+        await loadAdminInstitutes();
+        await loadAdminInstituteSubmissions();
+        showToast('Institute created from submission');
+      } else {
+        showToast((res && res.error) || 'Unable to create institute', 'error');
+      }
+    });
+  });
+  Array.from(box.querySelectorAll('.admin-submission-reject-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const submissionId = Number(row.getAttribute('data-institute-submission-id'));
+      if (!submissionId) return;
+      btn.disabled = true;
+      const res = await api(`/api/admin/institute-submissions/${submissionId}/reject`, 'POST', {});
+      btn.disabled = false;
+      if (res && res.success) {
+        await loadAdminInstituteSubmissions();
+        showToast('Submission rejected');
+      } else {
+        showToast((res && res.error) || 'Unable to reject submission', 'error');
+      }
+    });
+  });
+}
+
 function renderAdminTaxonomyManager(overview) {
   const box = document.getElementById('adminTaxonomyManager');
   if (!box) return;
@@ -2586,6 +2876,8 @@ async function loadAdminMedicalTaxonomy() {
     return;
   }
   renderAdminTaxonomyManager(res);
+  loadAdminInstitutes();
+  loadAdminInstituteSubmissions();
   const domains = Array.isArray(res.domains) ? res.domains : [];
   const stats = res.stats || {};
   const cards = domains.map((domain) => {
@@ -6002,6 +6294,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (isAdmin && document.getElementById('adminFeatureSuggestions')) loadAdminFeatureSuggestions();
     if (isAdmin && document.getElementById('adminTaxonomySuggestions')) loadAdminTaxonomySuggestions();
     if (isAdmin && document.getElementById('adminMedicalTaxonomy')) loadAdminMedicalTaxonomy();
+    if (isAdmin && document.getElementById('adminInstitutes')) loadAdminInstitutes();
+    if (isAdmin && document.getElementById('adminInstituteSubmissions')) loadAdminInstituteSubmissions();
     const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
     if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
     const clansSearchBtn = document.getElementById('adminClansSearchBtn');
@@ -6014,6 +6308,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (featureSuggestionsSearchBtn) featureSuggestionsSearchBtn.onclick = () => loadAdminFeatureSuggestions();
     const taxonomySuggestionsSearchBtn = document.getElementById('adminTaxonomySuggestionsSearchBtn');
     if (taxonomySuggestionsSearchBtn) taxonomySuggestionsSearchBtn.onclick = () => loadAdminTaxonomySuggestions();
+    const instituteSearchBtn = document.getElementById('adminInstituteSearchBtn');
+    if (instituteSearchBtn) instituteSearchBtn.onclick = () => loadAdminInstitutes();
+    const instituteSubmissionSearchBtn = document.getElementById('adminInstituteSubmissionSearchBtn');
+    if (instituteSubmissionSearchBtn) instituteSubmissionSearchBtn.onclick = () => loadAdminInstituteSubmissions();
     const taxonomySyncBtn = document.getElementById('adminTaxonomySyncBtn');
     if (taxonomySyncBtn) {
       taxonomySyncBtn.onclick = async () => {
