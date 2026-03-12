@@ -35,6 +35,7 @@
           <button class="btn tiny-btn admin-tab-btn" data-tab="clans" type="button">Clans</button>
           <button class="btn tiny-btn admin-tab-btn" data-tab="reports" type="button">Reports</button>
           <button class="btn tiny-btn admin-tab-btn" data-tab="tickets" type="button">Tickets</button>
+          <button class="btn tiny-btn admin-tab-btn" data-tab="features" type="button">Features</button>
           <button class="btn tiny-btn admin-tab-btn" data-tab="taxonomy" type="button">Taxonomy</button>
         </div>
       </section>
@@ -88,6 +89,36 @@
           <button id="adminTicketsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
         </div>
         <div id="adminTickets" class="section-gap"></div>
+      </section>
+      <section id="adminTabFeatures" class="card hidden">
+        <h3>Feature Suggestions</h3>
+        <div class="row" style="justify-content:flex-start">
+          <input id="adminFeatureSuggestionsSearch" type="text" placeholder="Search suggestions..." />
+          <select id="adminFeatureSuggestionsStatus">
+            <option value="">All status</option>
+            <option value="open">Open</option>
+            <option value="approved">Approved</option>
+            <option value="implemented">Implemented</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button id="adminFeatureSuggestionsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+        </div>
+        <div id="adminFeatureSuggestions" class="section-gap"></div>
+        <div class="section-gap" style="margin-top:1.2rem">
+          <h3>Taxonomy Suggestions</h3>
+          <div class="row" style="justify-content:flex-start">
+            <input id="adminTaxonomySuggestionsSearch" type="text" placeholder="Search taxonomy suggestions..." />
+            <select id="adminTaxonomySuggestionsStatus">
+              <option value="">All status</option>
+              <option value="open">Open</option>
+              <option value="accepted">Accepted</option>
+              <option value="implemented">Implemented</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <button id="adminTaxonomySuggestionsSearchBtn" class="btn secondary tiny-btn" type="button">Search</button>
+          </div>
+          <div id="adminTaxonomySuggestions" class="section-gap"></div>
+        </div>
       </section>
       <section id="adminTabTaxonomy" class="card hidden">
         <h3>Medical Taxonomy</h3>

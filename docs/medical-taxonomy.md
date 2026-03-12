@@ -44,6 +44,8 @@ User linkage:
 - If a user selection is not saving, inspect the submitted `specialityDomainId`, `specialitySpecialtyId`, and `specialitySubspecialtyId`.
 - If legacy users are missing mappings, review `users.speciality` and the startup backfill behavior.
 - The startup sync is idempotent. Existing rows are updated by slug.
+- User-facing profile cards render compact taxonomy pills from the resolved domain, specialty, and subspecialty labels.
+- Taxonomy addition requests from profile settings are stored in `speciality_suggestions` with a typed status workflow and appear in the same admin suggestions area as feature suggestions.
 
 ## Design choices
 

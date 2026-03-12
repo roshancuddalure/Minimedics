@@ -1226,6 +1226,9 @@ async function resolveMedicalTaxonomySelection(selection) {
 		domainId: Number(row.domain_id) || null,
 		specialtyId: Number(row.specialty_id) || null,
 		subspecialtyId: Number(row.subspecialty_id) || null,
+		domainName: row.domain_name || '',
+		specialtyName: row.specialty_name || '',
+		subspecialtyName: row.subspecialty_name || '',
 		speciality: getTaxonomySearchLabel(row) || legacySpeciality || null,
 		fullLabel: getTaxonomyDisplayLabel(row) || legacySpeciality || null
 	};
@@ -1305,6 +1308,9 @@ async function attachMedicalTaxonomyToUser(user) {
 	}
 	try {
 		const resolved = await resolveMedicalTaxonomySelection(selection);
+		user.speciality_domain_name = resolved.domainName || '';
+		user.speciality_specialty_name = resolved.specialtyName || '';
+		user.speciality_subspecialty_name = resolved.subspecialtyName || '';
 		user.speciality_full_label = resolved.fullLabel || user.speciality || '';
 		return user;
 	} catch (e) {
@@ -1925,9 +1931,19 @@ async function initializeDatabase() {
 	await runAsync(`CREATE TABLE IF NOT EXISTS speciality_suggestions (
 		id BIGSERIAL PRIMARY KEY,
 		user_id BIGINT NOT NULL,
+		suggestion_type TEXT DEFAULT 'speciality',
 		suggestion TEXT NOT NULL,
+		status TEXT DEFAULT 'open',
+		reviewed_by BIGINT,
+		reviewed_at BIGINT,
 		created_at BIGINT
 	)`);
+	await runAsync(`ALTER TABLE speciality_suggestions ADD COLUMN IF NOT EXISTS suggestion_type TEXT DEFAULT 'speciality'`);
+	await runAsync(`ALTER TABLE speciality_suggestions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open'`);
+	await runAsync(`ALTER TABLE speciality_suggestions ADD COLUMN IF NOT EXISTS reviewed_by BIGINT`);
+	await runAsync(`ALTER TABLE speciality_suggestions ADD COLUMN IF NOT EXISTS reviewed_at BIGINT`);
+	await runAsync(`UPDATE speciality_suggestions SET suggestion_type = COALESCE(NULLIF(TRIM(suggestion_type), ''), 'speciality')`);
+	await runAsync(`UPDATE speciality_suggestions SET status = COALESCE(NULLIF(TRIM(status), ''), 'open')`);
 	await syncMedicalTaxonomyCatalog();
 	await backfillUserMedicalTaxonomy();
 }
@@ -2821,6 +2837,40 @@ app.post('/api/admin/feature-suggestions/:id/status', requireAdmin, async (req, 
 	}
 });
 
+app.get('/api/admin/speciality-suggestions', requireAdmin, async (req, res) => {
+	const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+	const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+	try {
+		const rows = await allAsync(`SELECT ss.id, ss.user_id, ss.suggestion_type, ss.suggestion, ss.status, ss.created_at, ss.reviewed_at, u.username, u.name
+			FROM speciality_suggestions ss
+			JOIN users u ON u.id = ss.user_id
+			WHERE (? = '' OR ss.status = ?)
+			AND (? = '' OR LOWER(ss.suggestion) LIKE LOWER(?) OR LOWER(COALESCE(ss.suggestion_type, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.username, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?))
+			ORDER BY ss.created_at DESC
+			LIMIT 500`, [status, status, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]);
+		res.json({ suggestions: rows });
+	} catch (e) {
+		console.error('Admin taxonomy suggestions load error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/admin/speciality-suggestions/:id/status', requireAdmin, async (req, res) => {
+	const id = Number(req.params.id);
+	const status = typeof req.body.status === 'string' ? req.body.status.trim().toLowerCase() : '';
+	if (!id) return res.status(400).json({ error: 'Invalid suggestion id' });
+	if (!['open', 'accepted', 'implemented', 'rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+	try {
+		const existing = await getAsync('SELECT id FROM speciality_suggestions WHERE id = ?', [id]);
+		if (!existing) return res.status(404).json({ error: 'Suggestion not found' });
+		await runAsync('UPDATE speciality_suggestions SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?', [status, req.session.userId, Date.now(), id]);
+		res.json({ success: true });
+	} catch (e) {
+		console.error('Admin taxonomy suggestion update error:', e);
+		res.status(500).json({ error: 'Server error' });
+	}
+});
+
 app.get('/api/admin/medical-taxonomy', requireAdmin, async (req, res) => {
 	try {
 		const overview = await getMedicalTaxonomyOverview();
@@ -2915,9 +2965,10 @@ app.post('/api/upload-picture', requireAuth, (req, res) => {
 app.get('/api/user/:id', (req, res) => {
 	const uid = req.params.id;
 	const viewerId = Number(req.session.userId || 0);
-	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], (err, user) => {
+	db.get('SELECT id, username, name, nickname, gender, date_of_birth, bio, status_description, achievements, place_from, country, state, pincode, contact_country_code, contact_number, institute, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, profile_picture, privacy_show_online, privacy_discoverability, level, title FROM users WHERE id = ? AND username <> ?', [uid, SUPERADMIN_USERNAME], async (err, user) => {
 		if (err || !user) return res.status(404).json({ error: 'User not found' });
 		const safeUser = applyProfileFieldDecryption(user);
+		await attachMedicalTaxonomyToUser(safeUser);
 		if (safeUser.privacy_discoverability === 'nobody' && (!viewerId || Number(uid) !== viewerId)) {
 			return res.status(404).json({ error: 'User not found' });
 		}
@@ -3806,11 +3857,15 @@ app.get('/api/xp/levels', (req, res) => {
 });
 
 app.post('/api/speciality/suggest', requireAuth, async (req, res) => {
+	const suggestionType = typeof req.body.suggestionType === 'string' ? req.body.suggestionType.trim().toLowerCase() : 'speciality';
 	const suggestion = typeof req.body.suggestion === 'string' ? req.body.suggestion.trim() : '';
 	if (!suggestion) return res.status(400).json({ error: 'Suggestion is required' });
 	if (suggestion.length > 120) return res.status(400).json({ error: 'Suggestion too long' });
+	if (!['domain', 'speciality', 'subspeciality', 'topic'].includes(suggestionType)) {
+		return res.status(400).json({ error: 'Invalid suggestion type' });
+	}
 	try {
-		await runAsync('INSERT INTO speciality_suggestions (user_id, suggestion, created_at) VALUES (?, ?, ?)', [req.session.userId, suggestion, Date.now()]);
+		await runAsync('INSERT INTO speciality_suggestions (user_id, suggestion_type, suggestion, status, created_at) VALUES (?, ?, ?, ?, ?)', [req.session.userId, suggestionType, suggestion, 'open', Date.now()]);
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });

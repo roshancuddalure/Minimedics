@@ -2740,6 +2740,51 @@ button {
   background: color-mix(in oklab, var(--card) 88%, transparent);
 }
 
+.taxonomy-compact-card {
+  padding: 0.75rem 0.8rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: linear-gradient(145deg, color-mix(in oklab, var(--accent) 9%, transparent), color-mix(in oklab, var(--card) 90%, transparent));
+}
+
+.taxonomy-compact-head {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--text) 72%, var(--accent));
+}
+
+.taxonomy-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.taxonomy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.42rem 0.68rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line-soft));
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  font-size: 0.84rem;
+  line-height: 1.2;
+  color: color-mix(in oklab, var(--text) 90%, var(--accent));
+}
+
+.taxonomy-pill strong {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
 .profile-bio-block h4 {
   margin: 0 0 0.28rem;
   font-size: 0.9rem;

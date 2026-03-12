@@ -88,7 +88,13 @@
           <p id="profileSpecialitySummary" class="muted">Your current taxonomy selection will appear here.</p>
           <textarea id="profileEditBio" maxlength="400" placeholder="Bio (max 400 chars)"></textarea>
           <div class="row" style="justify-content:flex-start">
-            <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Speciality not listed? Suggest one" />
+            <select id="specialitySuggestionType">
+              <option value="speciality">Suggest specialty</option>
+              <option value="domain">Suggest domain</option>
+              <option value="subspeciality">Suggest subspecialty</option>
+              <option value="topic">Suggest topic tag</option>
+            </select>
+            <input id="specialitySuggestionInput" type="text" maxlength="120" placeholder="Domain / specialty / topic not listed? Suggest one" />
             <button id="specialitySuggestBtn" class="btn secondary" type="button">Suggest</button>
           </div>
           <div class="row">

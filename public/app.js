@@ -259,6 +259,27 @@ function createMedicalTaxonomyController(config) {
   return controller;
 }
 
+function getUserTaxonomyParts(user) {
+  const parts = [];
+  if (user && user.speciality_domain_name) parts.push({ label: user.speciality_domain_name, kind: 'Domain' });
+  if (user && user.speciality_specialty_name) parts.push({ label: user.speciality_specialty_name, kind: 'Specialty' });
+  if (user && user.speciality_subspecialty_name) parts.push({ label: user.speciality_subspecialty_name, kind: 'Topic' });
+  return parts;
+}
+
+function buildCompactTaxonomyMarkup(user) {
+  const parts = getUserTaxonomyParts(user);
+  if (!parts.length) return '';
+  const items = parts.map((part) => `<span class="taxonomy-pill"><strong>${escapeHtml(part.kind)}</strong>${escapeHtml(part.label)}</span>`).join('');
+  return `<div class="taxonomy-compact-card">
+    <div class="taxonomy-compact-head">
+      <span class="iconify" data-icon="lucide:stethoscope"></span>
+      <span>Medical Focus</span>
+    </div>
+    <div class="taxonomy-pill-row">${items}</div>
+  </div>`;
+}
+
 function initNotificationAudioUnlock() {
   if (notificationAudioUnlocked) return;
   const unlock = () => {
@@ -2181,6 +2202,76 @@ async function loadAdminFeatureSuggestions() {
   });
 }
 
+async function loadAdminTaxonomySuggestions() {
+  const box = document.getElementById('adminTaxonomySuggestions');
+  if (!box) return;
+  const qEl = document.getElementById('adminTaxonomySuggestionsSearch');
+  const statusEl = document.getElementById('adminTaxonomySuggestionsStatus');
+  const q = qEl ? qEl.value.trim() : '';
+  const status = statusEl ? statusEl.value.trim() : '';
+  const res = await api(`/api/admin/speciality-suggestions?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`);
+  if (res.error) {
+    box.innerHTML = '<div class="muted">Unable to load taxonomy suggestions.</div>';
+    return;
+  }
+  const suggestions = Array.isArray(res.suggestions) ? res.suggestions : [];
+  if (!suggestions.length) {
+    box.innerHTML = '<div class="muted">No taxonomy suggestions found.</div>';
+    return;
+  }
+  const rows = suggestions.map((item) => `<tr data-taxonomy-suggestion-id="${Number(item.id) || 0}">
+      <td>${Number(item.id) || 0}</td>
+      <td>${escapeHtml(item.name || item.username || 'User')}</td>
+      <td>${escapeHtml(item.suggestion_type || 'speciality')}</td>
+      <td>${escapeHtml(item.suggestion || '')}</td>
+      <td>${formatDateTime(item.created_at)}</td>
+      <td>
+        <select class="admin-taxonomy-status">
+          <option value="open" ${item.status === 'open' ? 'selected' : ''}>open</option>
+          <option value="accepted" ${item.status === 'accepted' ? 'selected' : ''}>accepted</option>
+          <option value="implemented" ${item.status === 'implemented' ? 'selected' : ''}>implemented</option>
+          <option value="rejected" ${item.status === 'rejected' ? 'selected' : ''}>rejected</option>
+        </select>
+      </td>
+      <td><button class="btn secondary tiny-btn admin-taxonomy-update-btn" type="button">Update</button></td>
+    </tr>`).join('');
+  box.innerHTML = `<div class="admin-users-table-wrap">
+    <table class="admin-users-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Type</th>
+          <th>Suggestion</th>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  Array.from(box.querySelectorAll('.admin-taxonomy-update-btn')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!row) return;
+      const suggestionId = Number(row.getAttribute('data-taxonomy-suggestion-id'));
+      const statusSelect = row.querySelector('.admin-taxonomy-status');
+      const status = statusSelect ? String(statusSelect.value || '') : '';
+      if (!suggestionId || !status) return;
+      btn.disabled = true;
+      const updateRes = await api(`/api/admin/speciality-suggestions/${suggestionId}/status`, 'POST', { status });
+      btn.disabled = false;
+      if (updateRes && updateRes.success) {
+        showToast('Taxonomy suggestion updated');
+        loadAdminTaxonomySuggestions();
+      } else {
+        showToast((updateRes && updateRes.error) || 'Unable to update taxonomy suggestion', 'error');
+      }
+    });
+  });
+}
+
 async function loadAdminMedicalTaxonomy() {
   const box = document.getElementById('adminMedicalTaxonomy');
   if (!box) return;
@@ -2281,7 +2372,10 @@ function initAdminTabs() {
     if (tab === 'clans') loadAdminClans();
     if (tab === 'reports') loadAdminReports();
     if (tab === 'tickets') loadAdminTickets();
-    if (tab === 'features') loadAdminFeatureSuggestions();
+    if (tab === 'features') {
+      loadAdminFeatureSuggestions();
+      loadAdminTaxonomySuggestions();
+    }
     if (tab === 'taxonomy') loadAdminMedicalTaxonomy();
   };
   tabBtns.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.tab || 'users')));
@@ -3372,16 +3466,18 @@ async function handleClanLoungeSubmit(e) {
 }
 
 async function suggestSpeciality() {
+  const typeEl = document.getElementById('specialitySuggestionType');
   const input = document.getElementById('specialitySuggestionInput');
+  const suggestionType = typeEl ? typeEl.value.trim() : 'speciality';
   const suggestion = input ? input.value.trim() : '';
   if (!suggestion) {
-    showToast('Enter a speciality suggestion first', 'error');
+    showToast('Enter a taxonomy suggestion first', 'error');
     return;
   }
-  const res = await api('/api/speciality/suggest', 'POST', { suggestion });
+  const res = await api('/api/speciality/suggest', 'POST', { suggestionType, suggestion });
   if (res && res.success) {
     if (input) input.value = '';
-    showToast('Speciality suggestion submitted');
+    showToast('Taxonomy suggestion submitted');
   } else {
     showToast(res.error || 'Unable to submit suggestion', 'error');
   }
@@ -3427,6 +3523,7 @@ async function loadPublicProfilePage() {
   const publicLocationLine = publicLocationRaw ? `${publicLocationRaw}${u.pincode ? ` | PIN: ${u.pincode}` : ''}` : (u.pincode ? `PIN: ${u.pincode}` : '');
   const publicContactLine = formatContactLine(u);
   const publicBio = escapeHtml(u.bio || '');
+  const taxonomyMarkup = buildCompactTaxonomyMarkup(u);
   profileBox.innerHTML = `<div class="gamified-profile-card">
     <div class="profile-head">
       <img src="${getProfilePictureUrl(u)}" class="profile-picture" />
@@ -3443,8 +3540,8 @@ async function loadPublicProfilePage() {
       <div class="profile-stat"><span class="iconify" data-icon="lucide:users"></span><span>${u.connections_count || 0} connections</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:user-plus"></span><span>${u.followers_count || 0} followers</span></div>
     </div>
+    ${taxonomyMarkup}
     ${publicBio ? `<div class="profile-bio-block"><h4>Bio</h4><p class="muted">${publicBio}</p></div>` : ''}
-    ${u.speciality ? `<p class="muted">${escapeHtml(u.speciality)}</p>` : ''}
     ${u.institute ? `<p class="muted">${escapeHtml(u.institute)}</p>` : ''}
   </div>`;
   if (actionsBox) {
@@ -5230,6 +5327,7 @@ async function loadProfile() {
   const level = Number(res.user.level) || 1;
   const xp = Number(res.user.xp) || 0;
   const progress = getLevelXpProgress(level, xp);
+  const taxonomyMarkup = buildCompactTaxonomyMarkup(res.user);
   const adminActions = res.user.role === 'admin' ? '<div class="row" style="justify-content:flex-start;margin-top:0.6rem"><a class="btn tiny-btn" href="/admin">Open Admin Management</a></div>' : '';
   holder.innerHTML = `<div class="profile card gamified-profile-card">
     <div class="profile-head">
@@ -5249,6 +5347,7 @@ async function loadProfile() {
       </div>
       <div class="muted xp-next-line">${progress.remaining} XP to next level</div>
     </div>
+    ${taxonomyMarkup}
     <div class="profile-stat-grid">
       <div class="profile-stat"><span class="iconify" data-icon="lucide:cake"></span><span>${dobDisplay}</span></div>
       <div class="profile-stat"><span class="iconify" data-icon="lucide:map-pin"></span><span>${locationDisplay}</span></div>
@@ -5590,6 +5689,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (isAdmin && document.getElementById('adminClans')) loadAdminClans();
     if (isAdmin && document.getElementById('adminTickets')) loadAdminTickets();
     if (isAdmin && document.getElementById('adminFeatureSuggestions')) loadAdminFeatureSuggestions();
+    if (isAdmin && document.getElementById('adminTaxonomySuggestions')) loadAdminTaxonomySuggestions();
     if (isAdmin && document.getElementById('adminMedicalTaxonomy')) loadAdminMedicalTaxonomy();
     const usersSearchBtn = document.getElementById('adminUsersSearchBtn');
     if (usersSearchBtn) usersSearchBtn.onclick = () => loadAdminUsers();
@@ -5601,6 +5701,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (ticketsSearchBtn) ticketsSearchBtn.onclick = () => loadAdminTickets();
     const featureSuggestionsSearchBtn = document.getElementById('adminFeatureSuggestionsSearchBtn');
     if (featureSuggestionsSearchBtn) featureSuggestionsSearchBtn.onclick = () => loadAdminFeatureSuggestions();
+    const taxonomySuggestionsSearchBtn = document.getElementById('adminTaxonomySuggestionsSearchBtn');
+    if (taxonomySuggestionsSearchBtn) taxonomySuggestionsSearchBtn.onclick = () => loadAdminTaxonomySuggestions();
     const taxonomySyncBtn = document.getElementById('adminTaxonomySyncBtn');
     if (taxonomySyncBtn) {
       taxonomySyncBtn.onclick = async () => {
