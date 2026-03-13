@@ -5357,15 +5357,30 @@ function ensureGlobalChatUi() {
   }
 }
 
+function teardownGlobalChatUi() {
+  const launcher = document.getElementById('globalChatLauncherBtn');
+  const panel = document.getElementById('chatPanel');
+  const picker = document.getElementById('globalChatPicker');
+  if (launcher) launcher.remove();
+  if (panel) panel.remove();
+  if (picker) picker.remove();
+  currentChatUser = null;
+  currentChatName = '';
+  currentChatAvatar = '';
+  chatMinimized = false;
+  clearChatAttachment();
+}
+
 function upsertGlobalChatLauncher(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('globalChatLauncherBtn');
   if (!user || !user.id) {
-    if (existing) existing.remove();
+    teardownGlobalChatUi();
     return;
   }
   ensureGlobalChatUi();
+  initChatControls();
   if (existing) return;
   const btn = document.createElement('button');
   btn.id = 'globalChatLauncherBtn';
@@ -5383,6 +5398,13 @@ function upsertGlobalChatLauncher(user) {
 }
 
 async function openGlobalChatPicker() {
+  const meRes = await api('/api/me');
+  if (!meRes || !meRes.user || !meRes.user.id) {
+    teardownGlobalChatUi();
+    location.href = '/login.html';
+    return;
+  }
+  window.__me = meRes.user;
   const modal = document.getElementById('globalChatPicker');
   const existingList = document.getElementById('globalChatExistingList');
   const newList = document.getElementById('globalChatNewList');
@@ -5625,7 +5647,14 @@ function initChatControls() {
 
 async function openChat(otherId, otherName, knownOnline = null, otherAvatar = '') {
   const meRes = await api('/api/me');
-  if (!meRes.user) return alert('Please log in');
+  if (!meRes || !meRes.user || !meRes.user.id) {
+    teardownGlobalChatUi();
+    showToast('Please log in first', 'error');
+    location.href = '/login.html';
+    return;
+  }
+  ensureGlobalChatUi();
+  initChatControls();
   const me = meRes.user;
   window.__me = me; // ensure current user is stored
   const a = Number(me.id), b = Number(otherId);
@@ -6481,6 +6510,7 @@ async function handleLogout() {
     showToast(res.error || 'Unable to logout', 'error');
     return;
   }
+  teardownGlobalChatUi();
   if (celebrationPollInterval) {
     window.clearInterval(celebrationPollInterval);
     celebrationPollInterval = null;
@@ -6523,22 +6553,25 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   
   // Initialize socket immediately
   ensureSocket();
-  ensureGlobalChatUi();
-  initChatControls();
   parseDashboardShareTargetParams();
   resolveSharedTargetFromToken().catch(() => {});
   api('/api/me').then((res) => {
     if (res && res.user) {
       cachedMe = res.user;
       window.__me = res.user;
+      ensureGlobalChatUi();
+      initChatControls();
       upsertGlobalChatLauncher(res.user);
       upsertSavedListsTopButton(res.user);
       upsertActivityTopButton(res.user);
       upsertNotificationsTopButton(res.user);
     } else {
+      teardownGlobalChatUi();
       upsertGlobalChatLauncher(null);
     }
-  }).catch(() => {});
+  }).catch(() => {
+    teardownGlobalChatUi();
+  });
   
   // Dashboard-specific
   if (document.getElementById('connections')) loadConnectionPanels();
