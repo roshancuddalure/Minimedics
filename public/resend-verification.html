@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Resend Verification - Mednecta</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+  <link rel="shortcut icon" href="/favicon.ico?v=2" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="auth-page light-mode">
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <button id="themeToggle" class="btn secondary auth-theme-btn" type="button">Dark</button>
+
+  <main class="auth-shell">
+    <section class="auth-intro">
+      <span class="eyebrow">Email Verification</span>
+      <h1>Request a new verification email</h1>
+      <p class="muted">Verification links are valid for 3 hours. If yours expired, send a fresh one here.</p>
+      <a class="btn secondary" href="/login.html">Back to Login</a>
+    </section>
+
+    <section class="card auth-card">
+      <h2>Resend verification</h2>
+      <form id="resendVerificationForm" class="form">
+        <input id="resendVerificationIdentifier" placeholder="Username or email" required />
+        <div class="row">
+          <button id="resendVerificationBtn" class="btn primary" type="submit">Resend verification email</button>
+        </div>
+      </form>
+      <p id="resendVerificationStatus" class="muted auth-link">Enter your username or email to get a new verification link.</p>
+      <p class="muted auth-link">Already verified? <a href="/login.html">Log in</a></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

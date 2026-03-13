@@ -144,6 +144,28 @@ function createVerificationToken() {
 	return crypto.randomBytes(32).toString('hex');
 }
 
+const EMAIL_VERIFICATION_TOKEN_TTL_MS = 3 * 60 * 60 * 1000;
+
+function getEmailVerificationExpiresAt(now = Date.now()) {
+	return now + EMAIL_VERIFICATION_TOKEN_TTL_MS;
+}
+
+function getEmailVerificationResendPath(identifier) {
+	const safeIdentifier = String(identifier || '').trim();
+	return safeIdentifier
+		? `/resend-verification.html?identifier=${encodeURIComponent(safeIdentifier)}`
+		: '/resend-verification.html';
+}
+
+function buildEmailVerificationMeta(req, rawToken) {
+	const verifyPath = `/verify-email.html?token=${encodeURIComponent(rawToken)}`;
+	return {
+		verifyPath,
+		verifyUrl: `${getPublicBaseUrl(req)}${verifyPath}`,
+		expiresAt: getEmailVerificationExpiresAt()
+	};
+}
+
 function hashToken(rawToken) {
 	return crypto.createHash('sha256').update(String(rawToken || '')).digest('hex');
 }
@@ -233,6 +255,7 @@ async function sendVerificationEmail(toEmail, verifyUrl) {
 			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
 				<h2 style="margin:0 0 10px">Welcome to ${APP_NAME}</h2>
 				<p style="margin:0 0 12px">Please verify your email to activate your account.</p>
+				<p style="margin:0 0 12px;color:#475569">This verification link expires in 3 hours.</p>
 				<p style="margin:0 0 16px">
 					<a href="${verifyUrl}" style="display:inline-block;padding:10px 16px;background:#0f9f9a;color:#ffffff;text-decoration:none;border-radius:8px">Verify Email</a>
 				</p>
@@ -2233,6 +2256,7 @@ async function initializeDatabase() {
 		speciality_subspecialty_id BIGINT,
 		email_verified INTEGER DEFAULT 0,
 		email_verify_token TEXT,
+		email_verify_expires_at BIGINT,
 		password_reset_token_hash TEXT,
 		password_reset_expires_at BIGINT,
 		last_login BIGINT,
@@ -2275,6 +2299,7 @@ async function initializeDatabase() {
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality_subspecialty_id BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
+	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires_at BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at BIGINT`);
 	await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_show_online TEXT DEFAULT 'connections'`);
@@ -2883,18 +2908,18 @@ app.post('/api/register', async (req, res) => {
 		const hash = await bcrypt.hash(password, 10);
 		const role = isFirstUser ? 'admin' : 'user';
 		const verifyToken = createVerificationToken();
+		const verificationMeta = buildEmailVerificationMeta(req, verifyToken);
 		const created = await runAsync(
 			`INSERT INTO users
-				(username, password, name, email, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, role, email_verified, email_verify_token)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			[username, hash, name || '', safeEmail || null, instituteSelection.canonicalName || safeInstitute || null, instituteSelection.instituteId, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, role, 0, verifyToken]
+				(username, password, name, email, institute, institute_id, institute_raw_name, program_type, degree, academic_year, speciality, speciality_domain_id, speciality_specialty_id, speciality_subspecialty_id, role, email_verified, email_verify_token, email_verify_expires_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[username, hash, name || '', safeEmail || null, instituteSelection.canonicalName || safeInstitute || null, instituteSelection.instituteId, safeInstitute || null, safeProgramType || null, safeDegree || null, safeAcademicYear || null, taxonomySelection.speciality || null, taxonomySelection.domainId, taxonomySelection.specialtyId, taxonomySelection.subspecialtyId, role, 0, verifyToken, verificationMeta.expiresAt]
 		);
 		const userId = created.lastID;
 		if (userId && !instituteSelection.instituteId) {
 			await queueInstituteSubmission(safeInstitute, normalizeInstituteName(safeInstitute), userId, null, null).catch(() => {});
 		}
-		const verifyPath = `/verify-email.html?token=${encodeURIComponent(verifyToken)}`;
-		const verifyUrl = `${getPublicBaseUrl(req)}${verifyPath}`;
+		const verifyUrl = verificationMeta.verifyUrl;
 		console.log(`User registered: ${username} (ID: ${userId}, Role: ${role})`);
 		try {
 			await sendVerificationEmail(safeEmail, verifyUrl);
@@ -2909,6 +2934,7 @@ app.post('/api/register', async (req, res) => {
 			id: userId,
 			role,
 			emailVerified: false,
+			verificationExpiresAt: verificationMeta.expiresAt,
 			message: 'Registration successful. Please check your email to verify your account.'
 		};
 		if (!isProduction) {
@@ -2951,7 +2977,22 @@ app.post('/api/login', (req, res) => {
 				return res.status(403).json({ error: 'Your account is blocked. Contact administrator.' });
 			}
 			if (!Number(user.email_verified)) {
-				return res.status(403).json({ error: 'Please verify your email before logging in' });
+				const expiresAt = Number(user.email_verify_expires_at) || 0;
+				const resendPath = getEmailVerificationResendPath(user.email || user.username);
+				if (!user.email_verify_token || !expiresAt || expiresAt <= Date.now()) {
+					await runAsync('UPDATE users SET email_verify_token = NULL, email_verify_expires_at = NULL WHERE id = ?', [user.id]).catch(() => {});
+					return res.status(403).json({
+						error: 'Your email verification link has expired. Please request a new verification email.',
+						code: 'EMAIL_VERIFICATION_EXPIRED',
+						verificationExpired: true,
+						resendUrl: resendPath
+					});
+				}
+				return res.status(403).json({
+					error: 'Please verify your email before logging in',
+					code: 'EMAIL_VERIFICATION_REQUIRED',
+					resendUrl: resendPath
+				});
 			}
 			
 			const ts = Date.now();
@@ -3175,11 +3216,57 @@ app.get('/api/verify-email', async (req, res) => {
 	const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
 	if (!token) return res.status(400).json({ error: 'Invalid token' });
 	try {
-		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE email_verify_token = ?', [token]);
+		const user = await getAsync('SELECT id, email, username, email_verify_expires_at FROM users WHERE email_verify_token = ?', [token]);
+		if (!user) return res.status(400).json({ error: 'Invalid or expired verification token' });
+		const expiresAt = Number(user.email_verify_expires_at) || 0;
+		if (!expiresAt || expiresAt <= Date.now()) {
+			await runAsync('UPDATE users SET email_verify_token = NULL, email_verify_expires_at = NULL WHERE id = ?', [user.id]);
+			return res.status(400).json({
+				error: 'This verification link has expired. Request a new verification email.',
+				code: 'EMAIL_VERIFICATION_EXPIRED',
+				verificationExpired: true,
+				resendUrl: getEmailVerificationResendPath(user.email || user.username)
+			});
+		}
+		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL, email_verify_expires_at = NULL WHERE id = ?', [user.id]);
 		if (!updated.changes) return res.status(400).json({ error: 'Invalid or expired verification token' });
 		res.json({ success: true });
 	} catch (e) {
 		res.status(500).json({ error: 'Server error' });
+	}
+});
+
+app.post('/api/resend-verification', async (req, res) => {
+	const identifier = typeof req.body.identifier === 'string' ? req.body.identifier.trim() : '';
+	if (!identifier) return res.status(400).json({ error: 'Username or email is required' });
+	try {
+		const user = await getAsync('SELECT id, username, email, email_verified FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
+		if (!user) {
+			return res.json({ success: true, message: 'If your account exists, a new verification email has been sent.' });
+		}
+		if (Number(user.email_verified)) {
+			return res.json({ success: true, alreadyVerified: true, message: 'Email already verified. You can log in.' });
+		}
+		if (!user.email) {
+			return res.status(400).json({ error: 'No email address is available for this account.' });
+		}
+		const verifyToken = createVerificationToken();
+		const verificationMeta = buildEmailVerificationMeta(req, verifyToken);
+		await runAsync('UPDATE users SET email_verify_token = ?, email_verify_expires_at = ? WHERE id = ?', [verifyToken, verificationMeta.expiresAt, user.id]);
+		await sendVerificationEmail(user.email, verificationMeta.verifyUrl);
+		const payload = {
+			success: true,
+			message: 'Verification email sent. The link expires in 3 hours.',
+			expiresAt: verificationMeta.expiresAt
+		};
+		if (!isProduction) {
+			payload.verifyUrl = verificationMeta.verifyUrl;
+			payload.verifyToken = verifyToken;
+		}
+		return res.json(payload);
+	} catch (e) {
+		console.error('Resend verification error:', e);
+		return res.status(500).json({ error: 'Unable to resend verification email right now.' });
 	}
 });
 
@@ -3188,12 +3275,13 @@ app.get('/api/dev/verify-link', async (req, res) => {
 	const identifier = typeof req.query.identifier === 'string' ? req.query.identifier.trim() : '';
 	if (!identifier) return res.status(400).json({ error: 'identifier is required (username or email)' });
 	try {
-		const user = await getAsync('SELECT id, username, email_verified, email_verify_token FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
+		const user = await getAsync('SELECT id, username, email_verified, email_verify_token, email_verify_expires_at FROM users WHERE username = ? OR email = ?', [identifier, identifier]);
 		if (!user) return res.status(404).json({ error: 'User not found' });
 		let token = user.email_verify_token;
-		if (!Number(user.email_verified) && !token) {
+		const expiresAt = Number(user.email_verify_expires_at) || 0;
+		if (!Number(user.email_verified) && (!token || !expiresAt || expiresAt <= Date.now())) {
 			token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-			await runAsync('UPDATE users SET email_verify_token = ? WHERE id = ?', [token, user.id]);
+			await runAsync('UPDATE users SET email_verify_token = ?, email_verify_expires_at = ? WHERE id = ?', [token, getEmailVerificationExpiresAt(), user.id]);
 		}
 		if (Number(user.email_verified)) {
 			return res.json({ success: true, username: user.username, alreadyVerified: true, loginUrl: `${getPublicBaseUrl(req)}/login.html` });
@@ -3212,13 +3300,14 @@ app.get('/dev/verify-user/:username', async (req, res) => {
 	const username = typeof req.params.username === 'string' ? req.params.username.trim() : '';
 	if (!username) return res.status(400).send('Username is required');
 	try {
-		const user = await getAsync('SELECT id, email_verified, email_verify_token FROM users WHERE username = ?', [username]);
+		const user = await getAsync('SELECT id, email_verified, email_verify_token, email_verify_expires_at FROM users WHERE username = ?', [username]);
 		if (!user) return res.status(404).send('User not found');
 		if (Number(user.email_verified)) return res.redirect('/login.html?verified=1');
 		let token = user.email_verify_token;
-		if (!token) {
+		const expiresAt = Number(user.email_verify_expires_at) || 0;
+		if (!token || !expiresAt || expiresAt <= Date.now()) {
 			token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-			await runAsync('UPDATE users SET email_verify_token = ? WHERE id = ?', [token, user.id]);
+			await runAsync('UPDATE users SET email_verify_token = ?, email_verify_expires_at = ? WHERE id = ?', [token, getEmailVerificationExpiresAt(), user.id]);
 		}
 		return res.redirect(`/verify-email.html?token=${encodeURIComponent(token)}`);
 	} catch (e) {
@@ -3684,7 +3773,7 @@ app.post('/api/admin/users/:id/verify-email', requireAdmin, async (req, res) => 
 		const target = await getAsync('SELECT username FROM users WHERE id = ?', [userId]);
 		if (!target) return res.status(404).json({ error: 'User not found' });
 		if (target.username === SUPERADMIN_USERNAME) return res.status(403).json({ error: 'Operation not allowed for this account' });
-		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE id = ?', [userId]);
+		const updated = await runAsync('UPDATE users SET email_verified = 1, email_verify_token = NULL, email_verify_expires_at = NULL WHERE id = ?', [userId]);
 		if (!updated.changes) return res.status(404).json({ error: 'User not found' });
 		return res.json({ success: true });
 	} catch (e) {

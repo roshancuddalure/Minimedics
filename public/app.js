@@ -4348,8 +4348,50 @@ async function handleVerifyEmailPage() {
   const res = await api(`/api/verify-email?token=${encodeURIComponent(token)}`);
   if (res && res.success) {
     statusEl.textContent = 'Email verified successfully. You can now log in.';
+  } else if (res && res.verificationExpired && res.resendUrl) {
+    statusEl.textContent = res.error || 'This verification link has expired.';
+    setTimeout(() => { location.href = res.resendUrl; }, 1200);
   } else {
     statusEl.textContent = res.error || 'Unable to verify email.';
+  }
+}
+
+async function handleResendVerification(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = document.getElementById('resendVerificationBtn') || form.querySelector('button[type="submit"]');
+  const identifierEl = document.getElementById('resendVerificationIdentifier');
+  const statusEl = document.getElementById('resendVerificationStatus');
+  const identifier = identifierEl ? identifierEl.value.trim() : '';
+  if (!identifier) {
+    if (statusEl) statusEl.textContent = 'Username or email is required.';
+    showToast('Username or email is required', 'error');
+    return;
+  }
+
+  setLoading(form, true);
+  if (submitBtn) submitBtn.textContent = 'Sending...';
+  const res = await api('/api/resend-verification', 'POST', { identifier });
+  setLoading(form, false);
+  if (submitBtn) submitBtn.textContent = 'Resend verification email';
+
+  if (res && res.success) {
+    if (statusEl) statusEl.textContent = res.message || 'Verification email sent.';
+    showToast(res.message || 'Verification email sent.');
+  } else {
+    if (statusEl) statusEl.textContent = res.error || 'Unable to resend verification email.';
+    showToast(res.error || 'Unable to resend verification email.', 'error');
+  }
+}
+
+function initResendVerificationPage() {
+  const identifierEl = document.getElementById('resendVerificationIdentifier');
+  const statusEl = document.getElementById('resendVerificationStatus');
+  if (!identifierEl) return;
+  const identifier = String(new URLSearchParams(window.location.search).get('identifier') || '').trim();
+  if (identifier) {
+    identifierEl.value = identifier;
+    if (statusEl) statusEl.textContent = 'Your verification link expired. Request a new email below.';
   }
 }
 
@@ -5930,6 +5972,11 @@ async function handleLogin(e){
     const nextPath = nextRaw.startsWith('/') && !nextRaw.startsWith('//') ? nextRaw : '/dashboard';
     setTimeout(() => { location.href = nextPath; }, 800);
   } else { 
+    if (res && res.verificationExpired && res.resendUrl) {
+      showToast(res.error || 'Verification link expired.', 'error');
+      setTimeout(() => { location.href = res.resendUrl; }, 700);
+      return;
+    }
     showToast(res.error||'Login failed', 'error');
   }
 }
@@ -6629,6 +6676,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if (document.getElementById('forgotForm')) {
     document.getElementById('forgotForm').addEventListener('submit', handleForgotPassword);
     initForgotPasswordPage();
+  }
+  if (document.getElementById('resendVerificationForm')) {
+    document.getElementById('resendVerificationForm').addEventListener('submit', handleResendVerification);
+    initResendVerificationPage();
   }
   if (document.getElementById('profileEditForm')) {
     document.getElementById('profileEditForm').addEventListener('submit', handleProfileEditSubmit);
