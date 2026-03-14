@@ -5375,6 +5375,10 @@ function upsertGlobalChatLauncher(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('globalChatLauncherBtn');
+  if (isPublicHomePage()) {
+    teardownGlobalChatUi();
+    return;
+  }
   if (!user || !user.id) {
     teardownGlobalChatUi();
     return;
@@ -6559,8 +6563,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (res && res.user) {
       cachedMe = res.user;
       window.__me = res.user;
-      ensureGlobalChatUi();
-      initChatControls();
+      if (!isPublicHomePage()) {
+        ensureGlobalChatUi();
+        initChatControls();
+      }
       upsertGlobalChatLauncher(res.user);
       upsertSavedListsTopButton(res.user);
       upsertActivityTopButton(res.user);
