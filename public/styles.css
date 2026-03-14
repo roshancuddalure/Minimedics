@@ -3388,8 +3388,11 @@ button {
   }
 
   .help-hero-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     justify-content: flex-start;
     max-width: none;
+    width: 100%;
   }
 
   .help-hero-actions .btn {
@@ -3401,6 +3404,26 @@ button {
   }
 
   .help-support-actions {
+    justify-content: flex-start;
+  }
+
+  .site-footer-inner,
+  .about-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .about-feature-grid,
+  .about-trust-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .site-footer-links,
+  .site-footer-meta {
+    justify-content: flex-start;
+  }
+
+  .about-hero .actions {
+    width: 100%;
     justify-content: flex-start;
   }
 
@@ -3584,6 +3607,17 @@ button {
     gap: 0.95rem;
   }
 
+  .about-founder-head {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .about-founder-avatar-shell,
+  .about-founder-avatar {
+    width: 108px;
+    height: 108px;
+  }
+
   .help-hero .brand-logo {
     width: min(280px, 100%);
     max-height: 74px;
@@ -3594,10 +3628,13 @@ button {
     flex-direction: column;
   }
 
+  .help-search-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .help-hero-actions {
-    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
   }
 
   .help-filter-row,
@@ -3617,6 +3654,67 @@ button {
     width: 100%;
     min-width: 0;
     padding-inline: 0.75rem;
+  }
+
+  .site-footer {
+    width: calc(100% - 1rem);
+  }
+
+  .site-footer-inner {
+    padding: 0.95rem 0.9rem;
+    border-radius: 14px;
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+
+  .site-footer-links {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    width: 100%;
+  }
+
+  .site-footer-links a {
+    justify-content: flex-start;
+    width: 100%;
+    border-radius: 14px;
+    padding: 0.7rem 0.85rem;
+    text-align: left;
+  }
+
+  .site-footer-link-label {
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .site-footer-meta {
+    justify-content: flex-end;
+  }
+
+  .about-hero .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .about-hero .actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .about-founder-name {
+    font-size: 1.45rem;
+  }
+
+  .about-founder-role {
+    margin-bottom: 0.55rem;
+  }
+
+  .about-feature-card,
+  .about-trust-item,
+  .about-quote-card {
+    padding: 0.9rem;
+    border-radius: 16px;
   }
 
   .help-accordion summary,
@@ -3922,6 +4020,19 @@ button {
   .help-hero-actions {
     grid-template-columns: 1fr;
   }
+
+  .about-hero .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .site-footer-links {
+    grid-template-columns: 1fr;
+  }
+
+  .site-footer-tag {
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+  }
 }
 
 @media (min-width: 1280px) {
@@ -3991,12 +4102,14 @@ button {
 
 .help-hero-copy {
   max-width: 32rem;
+  min-width: 0;
 }
 
 .help-hero-copy .muted {
   margin: 0;
   font-size: clamp(1rem, 1.75vw, 1.12rem);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .help-hero .brand {
@@ -4030,7 +4143,9 @@ button {
   align-items: center;
   justify-content: center;
   gap: 0.48rem;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
 }
 
 .help-hero-actions .btn .btn-iconify {
@@ -4091,6 +4206,11 @@ button {
   color: var(--text-dim);
 }
 
+.help-search-meta > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .help-inline-link {
   color: var(--accent-strong);
   text-decoration: none;
@@ -4113,6 +4233,7 @@ button {
 
 .help-section-head h3 {
   margin: 0.1rem 0 0.3rem;
+  overflow-wrap: anywhere;
 }
 
 .help-section-head p {
@@ -4132,7 +4253,7 @@ button {
 }
 
 .help-stat-card {
-  padding: 1rem;
+  padding: 0.95rem;
   border: 1px solid var(--line-soft);
   border-radius: 18px;
   background: color-mix(in oklab, var(--card-strong) 78%, transparent);
@@ -4160,10 +4281,13 @@ button {
 .help-stat-card strong {
   margin-top: 0.8rem;
   font-size: 1rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .help-stat-card p {
   margin: 0.45rem 0 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .help-filter-row {
@@ -4187,7 +4311,7 @@ button {
 .help-topic-card {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.72rem;
 }
 
 .help-topic-empty {
@@ -4201,14 +4325,20 @@ button {
   gap: 0.8rem;
 }
 
+.help-topic-head > div {
+  min-width: 0;
+}
+
 .help-topic-head h3 {
   margin: 0.1rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .help-chip-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .help-chip {
@@ -4223,6 +4353,9 @@ button {
   font-size: 0.78rem;
   font-weight: 700;
   color: color-mix(in oklab, var(--text) 88%, var(--accent));
+  text-align: center;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .help-accordion {
@@ -4237,6 +4370,7 @@ button {
   list-style: none;
   padding: 0.9rem 1rem;
   font-weight: 700;
+  line-height: 1.45;
 }
 
 .help-accordion summary::-webkit-details-marker {
@@ -4272,6 +4406,7 @@ button {
   list-style: none;
   padding: 1rem;
   font-weight: 700;
+  line-height: 1.45;
 }
 
 .help-faq-card summary::-webkit-details-marker {
@@ -4282,6 +4417,7 @@ button {
   margin: 0;
   padding: 0 1rem 1rem;
   color: var(--text-dim);
+  overflow-wrap: anywhere;
 }
 
 .help-support-banner {
@@ -4296,10 +4432,12 @@ button {
 
 .help-support-banner h3 {
   margin: 0.15rem 0 0.4rem;
+  overflow-wrap: anywhere;
 }
 
 .help-support-banner p {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .help-support-actions {
@@ -4307,6 +4445,324 @@ button {
   gap: 0.6rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  width: min(1180px, calc(100% - 2.4rem));
+  margin: 1.2rem auto 1.8rem;
+}
+
+.site-footer-inner {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-strong) 92%, #ffffff 8%), var(--card)),
+    radial-gradient(circle at top left, rgba(86, 214, 198, 0.1), transparent 32%);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+}
+
+.site-footer-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in oklab, #3b82f6 65%, var(--accent)));
+  pointer-events: none;
+}
+
+.site-footer-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.site-footer-copy {
+  margin: 0.22rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.85rem 1rem;
+  min-width: 0;
+}
+
+.site-footer-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 0.4rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 70%, transparent);
+  border: 1px solid color-mix(in oklab, var(--line-soft) 88%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.site-footer-links .iconify {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex: 0 0 0.95rem;
+  color: var(--accent-strong);
+}
+
+.site-footer-link-label {
+  min-width: 0;
+}
+
+.site-footer-links a:hover,
+.site-footer-links a:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: none;
+  border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
+  background: color-mix(in oklab, var(--accent) 10%, var(--surface));
+}
+
+.site-footer-meta {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.site-footer-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--text-dim) 72%, transparent);
+  opacity: 0.7;
+}
+
+.about-hero {
+  align-items: center;
+}
+
+.about-hero .actions {
+  justify-content: flex-end;
+}
+
+.about-hero .actions .btn,
+.help-topic-head .btn,
+.help-support-actions .btn {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.about-intro-card {
+  background:
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.14), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card) 86%, #ffffff 14%), var(--card));
+}
+
+.about-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.about-founder-panel,
+.about-story-panel {
+  min-height: 100%;
+  min-width: 0;
+}
+
+.about-founder-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.about-founder-avatar-shell {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  flex: 0 0 132px;
+}
+
+.about-founder-avatar {
+  display: block;
+  width: 132px;
+  height: 132px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 4px solid color-mix(in oklab, var(--accent) 24%, white);
+  box-shadow: 0 18px 38px rgba(7, 18, 32, 0.16);
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+}
+
+.about-founder-avatar-placeholder {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 1rem;
+  color: var(--text-dim);
+}
+
+.about-founder-avatar-placeholder strong,
+.about-founder-avatar-placeholder span {
+  display: block;
+}
+
+.about-founder-avatar-placeholder span {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.about-founder-identity {
+  min-width: 0;
+}
+
+.about-founder-identity .muted {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.about-founder-name {
+  margin: 0.1rem 0 0;
+  font-size: clamp(1.45rem, 2.5vw, 2.05rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.about-founder-role {
+  margin: 0.4rem 0 0.7rem;
+  color: var(--accent-strong);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.about-copy-block + .about-copy-block {
+  margin-top: 1rem;
+}
+
+.about-copy-block h3 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.05rem, 1.5vw, 1.25rem);
+  overflow-wrap: anywhere;
+}
+
+.about-copy-block p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-image-note {
+  margin-top: 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px dashed color-mix(in oklab, var(--accent) 30%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--surface) 72%, transparent);
+  font-size: 0.9rem;
+}
+
+.about-quote-card {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--accent) 22%, var(--line));
+  border-radius: 18px;
+  background: linear-gradient(145deg, color-mix(in oklab, var(--accent) 10%, transparent), color-mix(in oklab, var(--card-strong) 82%, transparent));
+}
+
+.about-quote-card p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: color-mix(in oklab, var(--text) 92%, var(--accent));
+  overflow-wrap: anywhere;
+}
+
+.about-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.about-feature-card {
+  padding: 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--card-strong) 78%, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.about-feature-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 26%, var(--line));
+  box-shadow: 0 14px 30px rgba(6, 18, 31, 0.12);
+}
+
+.about-feature-card .iconify {
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--accent);
+}
+
+.about-feature-card h4 {
+  margin: 0.85rem 0 0.42rem;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.about-feature-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-trust-card {
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 28%),
+    linear-gradient(140deg, color-mix(in oklab, var(--card) 92%, transparent), color-mix(in oklab, var(--surface) 92%, transparent));
+}
+
+.about-trust-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.about-trust-item {
+  padding: 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--card-strong) 78%, transparent);
+}
+
+.about-trust-item strong {
+  display: block;
+  margin-bottom: 0.42rem;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.about-trust-item p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1180px) {
+  .about-page-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Simplified profile card tuning: lighter typography + reliable icon placement + responsive layout */
@@ -4581,5 +5037,377 @@ button {
   .xp-history-item-head span {
     text-align: left;
   }
+}
+
+/* Final responsive overrides for Help Center, About, and shared footer */
+@media (max-width: 900px) {
+  .about-page-grid,
+  .help-guide-grid,
+  .help-faq-grid,
+  .help-stat-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .about-founder-panel,
+  .about-story-panel,
+  .about-feature-card,
+  .about-trust-item,
+  .help-guide-grid > *,
+  .help-faq-grid > *,
+  .help-stat-grid > *,
+  .help-topic-card,
+  .help-accordion,
+  .help-faq-card {
+    min-width: 0 !important;
+  }
+
+  .help-hero-top,
+  .help-hero-body,
+  .help-topic-head,
+  .help-section-head,
+  .help-support-banner {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-hero,
+  .help-center-main,
+  .help-guide-grid,
+  .help-faq-grid,
+  .help-stat-grid {
+    gap: 0.8rem !important;
+  }
+
+  .help-hero .brand,
+  .help-hero-copy,
+  .help-topic-head > div,
+  .help-section-head > div,
+  .help-support-banner > div,
+  .help-search-meta > *,
+  .about-founder-identity,
+  .about-copy-block,
+  .about-quote-card,
+  .about-feature-card,
+  .about-trust-item {
+    min-width: 0 !important;
+  }
+
+  .help-chip-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+    align-items: stretch !important;
+  }
+
+  .help-filter-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+    align-items: stretch !important;
+  }
+
+  .help-support-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+    align-items: stretch !important;
+  }
+
+  .help-chip {
+    width: 100% !important;
+    border-radius: 12px !important;
+    justify-content: center !important;
+    padding: 0.58rem 0.72rem !important;
+    text-align: center !important;
+    min-height: 44px !important;
+  }
+
+  .site-footer {
+    width: calc(100% - 1rem) !important;
+    margin: 0.9rem auto 1rem !important;
+  }
+
+  .site-footer-inner {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+    padding: 0.85rem !important;
+    border-radius: 16px !important;
+  }
+
+  .site-footer-brand,
+  .site-footer-meta {
+    min-width: 0 !important;
+  }
+
+  .site-footer-copy {
+    font-size: 0.84rem !important;
+    line-height: 1.5 !important;
+  }
+
+  .site-footer-links {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+  }
+
+  .site-footer-links a {
+    display: grid !important;
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    align-items: center !important;
+    justify-content: start !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0.68rem 0.78rem !important;
+    border-radius: 12px !important;
+    text-align: left !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    white-space: normal !important;
+  }
+
+  .site-footer-links .iconify {
+    width: 0.95rem !important;
+    height: 0.95rem !important;
+  }
+
+  .site-footer-link-label {
+    display: block !important;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    line-height: 1.2 !important;
+  }
+
+  .site-footer-meta {
+    justify-content: flex-start !important;
+    align-items: center !important;
+  }
+
+  .site-footer-tag {
+    font-size: 0.54rem !important;
+    letter-spacing: 0.1em !important;
+    opacity: 0.5 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .help-hero-top,
+  .help-hero-body,
+  .help-topic-head,
+  .help-section-head,
+  .help-support-banner {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-hero,
+  .help-center-main,
+  .help-guide-grid,
+  .help-faq-grid,
+  .help-stat-grid {
+    gap: 0.75rem !important;
+  }
+
+  .help-guide-grid,
+  .help-faq-grid,
+  .help-stat-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-hero .brand,
+  .help-hero-copy,
+  .help-topic-head > div,
+  .help-section-head > div,
+  .help-support-banner > div,
+  .help-search-meta > *,
+  .about-founder-identity,
+  .about-copy-block,
+  .about-quote-card,
+  .about-feature-card,
+  .about-trust-item {
+    min-width: 0 !important;
+  }
+
+  .help-hero-actions,
+  .about-hero .actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    gap: 0.55rem !important;
+  }
+
+  .help-hero-actions .btn,
+  .about-hero .actions .btn,
+  .help-topic-head .btn,
+  .help-support-actions .btn,
+  .help-filter-row .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    text-align: center !important;
+    line-height: 1.3 !important;
+    padding: 0.72rem 0.78rem !important;
+  }
+
+  .help-search-shell {
+    min-height: 3rem !important;
+    padding: 0.72rem 0.85rem !important;
+  }
+
+  .help-search-meta {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 0.35rem !important;
+    align-items: start !important;
+  }
+
+  .help-stat-card,
+  .help-topic-card,
+  .help-faq-card,
+  .help-support-banner,
+  .about-intro-card,
+  .about-feature-card,
+  .about-trust-item,
+  .about-quote-card {
+    border-radius: 14px !important;
+  }
+
+  .help-stat-card,
+  .about-feature-card,
+  .about-trust-item,
+  .about-quote-card {
+    padding: 0.88rem !important;
+  }
+
+  .help-chip-row,
+  .help-filter-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+
+  .help-support-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+
+  .help-chip {
+    width: 100% !important;
+    border-radius: 12px !important;
+    justify-content: center !important;
+    padding: 0.55rem 0.7rem !important;
+    text-align: center !important;
+    min-height: 44px !important;
+  }
+
+  .help-filter-row .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 44px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    text-align: center !important;
+    line-height: 1.3 !important;
+    padding: 0.72rem 0.78rem !important;
+  }
+
+  .help-support-actions .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 44px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    text-align: center !important;
+    line-height: 1.3 !important;
+    padding: 0.72rem 0.78rem !important;
+  }
+
+  .help-topic-card {
+    padding: 0.85rem !important;
+  }
+
+  .help-topic-head h3,
+  .help-section-head h3,
+  .help-support-banner h3 {
+    font-size: 1.05rem !important;
+    line-height: 1.3 !important;
+  }
+
+  .help-topic-card .eyebrow,
+  .help-section-head .eyebrow,
+  .help-support-banner .eyebrow {
+    margin-bottom: 0.2rem !important;
+  }
+
+  .help-topic-card .muted,
+  .help-section-head .muted,
+  .help-support-banner .muted,
+  .help-stat-card .muted {
+    font-size: 0.92rem !important;
+    line-height: 1.55 !important;
+  }
+
+  .help-topic-head .btn {
+    margin-top: 0.15rem !important;
+  }
+
+  .help-accordion summary,
+  .help-faq-card summary {
+    padding: 0.85rem 0.9rem !important;
+    font-size: 0.96rem !important;
+  }
+
+  .help-accordion ol,
+  .help-accordion ul,
+  .help-accordion p,
+  .help-faq-card p {
+    padding: 0.8rem 0.9rem 0.95rem 1.55rem !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .help-hero-actions,
+  .about-hero .actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-chip-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-filter-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-support-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .site-footer-links {
+    grid-template-columns: 1fr !important;
+  }
+
+  .help-chip {
+    justify-content: flex-start !important;
+    text-align: left !important;
+  }
+
+  .site-footer-tag {
+    font-size: 0.5rem !important;
+  }
+}
+
+.help-chip-action {
+  cursor: pointer;
+}
+
+.help-accordion,
+.help-faq-card,
+.help-topic-card {
+  scroll-margin-top: 1rem;
 }
 

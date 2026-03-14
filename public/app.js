@@ -100,6 +100,48 @@ function initBrandMasthead() {
   });
 }
 
+function ensureSiteFooter() {
+  if (document.getElementById('siteFooter')) return;
+  const footer = document.createElement('footer');
+  footer.id = 'siteFooter';
+  footer.className = 'site-footer';
+  footer.innerHTML = `<div class="site-footer-inner">
+    <div class="site-footer-brand">
+      <div class="site-footer-title">Mednecta</div>
+      <p class="site-footer-copy">Medical community, support, and collaboration in one connected space.</p>
+    </div>
+    <nav class="site-footer-links" aria-label="Footer">
+      <a href="/help-center.html"><span class="iconify" data-icon="lucide:circle-help" aria-hidden="true"></span><span class="site-footer-link-label">Help Center</span></a>
+      <a href="/activity.html"><span class="iconify" data-icon="lucide:lightbulb" aria-hidden="true"></span><span class="site-footer-link-label">Suggest Us</span></a>
+      <a href="/reach-us.html"><span class="iconify" data-icon="lucide:life-buoy" aria-hidden="true"></span><span class="site-footer-link-label">Reach Us</span></a>
+      <a href="/about-us.html"><span class="iconify" data-icon="lucide:badge-info" aria-hidden="true"></span><span class="site-footer-link-label">About Us</span></a>
+    </nav>
+    <div class="site-footer-meta">
+      <span class="site-footer-tag">AELR product</span>
+    </div>
+  </div>`;
+  document.body.appendChild(footer);
+}
+
+function pruneSupportHeroLinks() {
+  const actionsList = Array.from(document.querySelectorAll('.actions'));
+  if (!actionsList.length) return;
+  actionsList.forEach((actions) => {
+    const links = Array.from(actions.querySelectorAll('a[href], button[data-footer-promote]'));
+    links.forEach((node) => {
+      const href = node.getAttribute('href') || '';
+      if (
+        href === '/help-center.html' ||
+        href === '/reach-us.html' ||
+        href === '/activity' ||
+        href === '/activity.html'
+      ) {
+        node.remove();
+      }
+    });
+  });
+}
+
 // Search functionality
 async function handleSearch(query) {
   const resultsBox = document.getElementById('searchResults');
@@ -5092,27 +5134,7 @@ function upsertActivityTopButton(user) {
   const actions = document.querySelector('.actions');
   if (!actions) return;
   const existing = document.getElementById('activityMenuBtn');
-  if (isPublicHomePage()) {
-    if (existing) existing.remove();
-    return;
-  }
-  const isAuthenticated = Boolean(user && user.id);
-  if (!isAuthenticated) {
-    if (existing) existing.remove();
-    return;
-  }
-  if (existing) return;
-  const anchor = document.createElement('a');
-  anchor.id = 'activityMenuBtn';
-  anchor.className = 'btn';
-  anchor.href = '/activity';
-  anchor.textContent = 'Suggest Us';
-  const savedBtn = document.getElementById('savedListsMenuBtn');
-  if (savedBtn && savedBtn.parentElement === actions) {
-    savedBtn.insertAdjacentElement('afterend', anchor);
-  } else {
-    actions.appendChild(anchor);
-  }
+  if (existing) existing.remove();
 }
 
 function ensureNotificationPanel() {
@@ -6609,6 +6631,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     });
   }
 
+  ensureSiteFooter();
+  pruneSupportHeroLinks();
+
   // Make brand title clickable to homepage
   const brandTitle = document.querySelector('.brand h1');
   if (brandTitle) {
@@ -6800,6 +6825,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     upsertSavedListsTopButton(cachedMe);
     upsertActivityTopButton(cachedMe);
     upsertNotificationsTopButton(cachedMe);
+    pruneSupportHeroLinks();
     const isAdmin = cachedMe && cachedMe.role === 'admin';
     const dashboardAdmin = document.getElementById('dashboardAdminSection');
     if (dashboardAdmin) dashboardAdmin.classList.toggle('hidden', !isAdmin);

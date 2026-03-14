@@ -27,7 +27,7 @@
       </div>
       <div class="help-hero-body">
         <div class="help-hero-copy">
-          <p class="muted">Everything users need to get started, post confidently, manage their profile, join clans, grow connections, and get support quickly.</p>
+          <p class="muted">A faster guide to accounts, posting, clans, profile tools, progress, and support.</p>
         </div>
         <div class="help-hero-search">
           <label class="help-search-shell" for="helpSearchInput">
@@ -36,7 +36,7 @@
           </label>
           <div class="help-search-meta">
             <span id="helpResultCount">Showing all topics</span>
-            <a class="help-inline-link" href="/activity.html">Submit a support request</a>
+            <span>Browse guides below or use the footer for support pages.</span>
           </div>
         </div>
       </div>
@@ -48,7 +48,7 @@
           <div>
             <p class="eyebrow">Quick Start</p>
             <h3>Learn the platform in a few minutes</h3>
-            <p class="muted">Use these shortcuts to understand the full Mednecta workflow from account setup to community activity.</p>
+            <p class="muted">Start with the essentials, then jump into the right feature area.</p>
           </div>
         </div>
         <div class="help-stat-grid">
@@ -84,7 +84,7 @@
           <div>
             <p class="eyebrow">Explore By Topic</p>
             <h3>Browse all product features</h3>
-            <p class="muted">Filter the help center by area so users can quickly find the right part of the platform.</p>
+            <p class="muted">Filter by area to find the right workflow faster.</p>
           </div>
         </div>
         <div class="help-filter-row" role="tablist" aria-label="Help categories">
@@ -108,12 +108,12 @@
             <a class="btn secondary tiny-btn" href="/register.html">Register</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">Register</span>
-            <span class="help-chip">Login</span>
-            <span class="help-chip">Email verification</span>
-            <span class="help-chip">Forgot password</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="account-create">Register</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="account-login">Login</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="account-create">Email verification</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="account-reset">Forgot password</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="account-create" class="help-accordion" open>
             <summary>Create your account</summary>
             <ol>
               <li>Open <a href="/register.html">Register</a> and enter your username, full name, and password.</li>
@@ -121,7 +121,7 @@
               <li>Use your inbox verification flow when prompted so account recovery and notifications work correctly.</li>
             </ol>
           </details>
-          <details class="help-accordion">
+          <details id="account-login" class="help-accordion">
             <summary>Log in and stay signed in</summary>
             <ol>
               <li>Go to <a href="/login.html">Login</a> and enter your username and password.</li>
@@ -129,7 +129,7 @@
               <li>After logging in, your dashboard becomes the main place for feed, stories, connections, and chat.</li>
             </ol>
           </details>
-          <details class="help-accordion">
+          <details id="account-reset" class="help-accordion">
             <summary>Reset or recover your password</summary>
             <ol>
               <li>Open <a href="/forgot.html">Forgot Password</a>.</li>
@@ -148,12 +148,12 @@
             <a class="btn secondary tiny-btn" href="/dashboard">Open dashboard</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">Share Something</span>
-            <span class="help-chip">Stories</span>
-            <span class="help-chip">Reminder posts</span>
-            <span class="help-chip">Quiz mode</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="posting-feed">Share Something</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="posting-stories">Stories</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="posting-modes">Reminder posts</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="posting-modes">Quiz mode</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="posting-feed" class="help-accordion" open>
             <summary>Post to your feed</summary>
             <ol>
               <li>Open the dashboard and use the <strong>Share Something</strong> composer.</li>
@@ -161,7 +161,7 @@
               <li>Publish it to make it visible to the selected audience.</li>
             </ol>
           </details>
-          <details class="help-accordion">
+          <details id="posting-visibility" class="help-accordion">
             <summary>Choose the right post visibility</summary>
             <ul>
               <li><strong>Public</strong> is best for broad visibility.</li>
@@ -169,7 +169,7 @@
               <li><strong>Connections Only</strong> keeps the post limited to accepted connections.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="posting-modes" class="help-accordion">
             <summary>Use reminder mode and quiz mode</summary>
             <ul>
               <li>Reminder mode lets you schedule a due time and optionally tag connections.</li>
@@ -177,7 +177,7 @@
               <li>Quiz mode helps share learning content using a question, answer choices, and a correct option.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="posting-stories" class="help-accordion">
             <summary>Create and reply to stories</summary>
             <ul>
               <li>Use <strong>Add Story</strong> from the dashboard for short text or image updates.</li>
@@ -196,12 +196,12 @@
             <a class="btn secondary tiny-btn" href="/clan.html">Open clan area</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">Connection requests</span>
-            <span class="help-chip">Direct chat</span>
-            <span class="help-chip">Public and private clans</span>
-            <span class="help-chip">Clan lounge</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="community-connections">Connection requests</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="community-chat">Direct chat</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="community-clans">Public and private clans</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="community-clans">Clan lounge</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="community-connections" class="help-accordion" open>
             <summary>Manage connections</summary>
             <ul>
               <li>Use search, profile pages, or connection suggestions to find people.</li>
@@ -209,7 +209,7 @@
               <li>Accepted connections unlock direct chat and more private sharing flows.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="community-chat" class="help-accordion">
             <summary>Use direct chat</summary>
             <ul>
               <li>Start a chat from a user profile, connection list, or story reply flow.</li>
@@ -217,7 +217,7 @@
               <li>Chats can be minimized, reopened, and continued without leaving the dashboard.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="community-clans" class="help-accordion">
             <summary>Join or manage a clan</summary>
             <ul>
               <li>Users can have one active clan membership at a time.</li>
@@ -225,7 +225,7 @@
               <li>Inside a clan you may see activity, posts, lounge chat, invite links, requests, and role-based permissions.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="community-rules" class="help-accordion">
             <summary>Community behavior expectations</summary>
             <ul>
               <li>Keep interactions professional, relevant, and respectful.</li>
@@ -244,12 +244,12 @@
             <a class="btn secondary tiny-btn" href="/profile">Edit profile</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">Profile details</span>
-            <span class="help-chip">Institute and specialty</span>
-            <span class="help-chip">Privacy</span>
-            <span class="help-chip">Saved lists</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="profile-update">Profile details</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="profile-update">Institute and specialty</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="profile-privacy">Privacy</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="profile-saved">Saved lists</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="profile-update" class="help-accordion" open>
             <summary>Update your profile</summary>
             <ol>
               <li>Open <a href="/profile">Edit Profile Details</a>.</li>
@@ -257,7 +257,7 @@
               <li>Save changes to keep your public and dashboard profile cards current.</li>
             </ol>
           </details>
-          <details class="help-accordion">
+          <details id="profile-privacy" class="help-accordion">
             <summary>Manage profile privacy and discoverability</summary>
             <ul>
               <li>Review privacy-related controls from your profile settings.</li>
@@ -265,7 +265,7 @@
               <li>Choose settings that match how public or focused you want your professional presence to be.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="profile-saved" class="help-accordion">
             <summary>Organize saved content</summary>
             <ul>
               <li>Save useful posts directly from the feed.</li>
@@ -284,12 +284,12 @@
             <a class="btn secondary tiny-btn" href="/xp-history.html">XP history</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">XP</span>
-            <span class="help-chip">Levels</span>
-            <span class="help-chip">Titles</span>
-            <span class="help-chip">Activity history</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="progress-xp">XP</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="progress-xp">Levels</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="progress-xp">Titles</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="progress-history">Activity history</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="progress-xp" class="help-accordion" open>
             <summary>How XP, levels, and titles work</summary>
             <ul>
               <li>Mednecta awards XP through activity like posting and engagement.</li>
@@ -297,7 +297,7 @@
               <li>Your profile card surfaces the current progress snapshot.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="progress-history" class="help-accordion">
             <summary>Use the leaderboard and activity history</summary>
             <ul>
               <li>The Top Medics leaderboard highlights active contributors.</li>
@@ -316,12 +316,12 @@
             <a class="btn secondary tiny-btn" href="/activity.html">Open support center</a>
           </div>
           <div class="help-chip-row">
-            <span class="help-chip">Tickets</span>
-            <span class="help-chip">Feature suggestions</span>
-            <span class="help-chip">Issue reporting</span>
-            <span class="help-chip">Status tracking</span>
+            <button class="help-chip help-chip-action" type="button" data-help-open="support-ticket">Tickets</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="support-feature">Feature suggestions</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="support-ticket">Issue reporting</button>
+            <button class="help-chip help-chip-action" type="button" data-help-open="support-ticket">Status tracking</button>
           </div>
-          <details class="help-accordion" open>
+          <details id="support-ticket" class="help-accordion" open>
             <summary>When to raise a support ticket</summary>
             <ul>
               <li>Use a ticket for login problems, bugs, broken UI, access issues, or anything that prevents normal use.</li>
@@ -329,7 +329,7 @@
               <li>Review your previously submitted tickets from the support history area.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="support-feature" class="help-accordion">
             <summary>When to submit a feature suggestion</summary>
             <ul>
               <li>Use feature suggestions for product improvements, missing workflow ideas, or better UX proposals.</li>
@@ -337,7 +337,7 @@
               <li>Admins can review and update the status of feature requests.</li>
             </ul>
           </details>
-          <details class="help-accordion">
+          <details id="support-troubleshoot" class="help-accordion">
             <summary>Before reporting a problem</summary>
             <ul>
               <li>Check whether the action needs an accepted connection, clan permission, or verified account state.</li>
@@ -353,7 +353,7 @@
           <div>
             <p class="eyebrow">Common Questions</p>
             <h3>Frequently asked questions</h3>
-            <p class="muted">Short answers to the things users ask most often.</p>
+            <p class="muted">Short answers to common user questions.</p>
           </div>
         </div>
         <div class="help-faq-grid">
@@ -396,7 +396,7 @@
         <div>
           <p class="eyebrow">Need More Help?</p>
           <h3>Contact support or send product feedback</h3>
-          <p class="muted">If the guides above do not solve the issue, move straight into the support flow and include the exact page, feature, and steps involved.</p>
+          <p class="muted">If the guides do not solve it, use support and include the page, feature, and steps involved.</p>
         </div>
         <div class="help-support-actions">
           <a class="btn primary" href="/activity.html">Raise A Ticket</a>
@@ -464,6 +464,17 @@
       if (searchInput) {
         searchInput.addEventListener('input', updateResults);
       }
+
+      Array.from(document.querySelectorAll('.help-chip-action')).forEach((button) => {
+        button.addEventListener('click', function () {
+          const targetId = button.getAttribute('data-help-open');
+          if (!targetId) return;
+          const target = document.getElementById(targetId);
+          if (!target) return;
+          target.open = true;
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
 
       updateResults();
     }());
