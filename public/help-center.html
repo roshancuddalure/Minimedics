@@ -13,133 +13,396 @@
   <div class="bg-orb orb-b"></div>
 
   <div class="container">
-    <header class="hero">
-      <div class="brand">
-        <span class="eyebrow">Manual and FAQ</span>
-        <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
-        <p class="muted">Basic instructions for all regular users.</p>
+    <header class="hero help-hero">
+      <div class="help-hero-top">
+        <div class="brand">
+          <span class="eyebrow">Help Center</span>
+          <h1 class="brand-wordmark"><span class="wm-med">Med</span><span class="wm-necta">necta</span></h1>
+        </div>
+        <div class="actions help-hero-actions">
+          <button id="themeToggle" class="btn secondary">Dark</button>
+          <a class="btn" href="/dashboard">Dashboard</a>
+          <a class="btn" href="/activity.html">Support</a>
+        </div>
       </div>
-      <div class="actions">
-        <button id="themeToggle" class="btn secondary">Dark</button>
-        <a class="btn" href="/dashboard">Dashboard</a>
-        <a class="btn" href="/reach-us.html">Reach Us</a>
+      <div class="help-hero-body">
+        <div class="help-hero-copy">
+          <p class="muted">Everything users need to get started, post confidently, manage their profile, join clans, grow connections, and get support quickly.</p>
+        </div>
+        <div class="help-hero-search">
+          <label class="help-search-shell" for="helpSearchInput">
+            <span class="iconify" data-icon="lucide:search" aria-hidden="true"></span>
+            <input id="helpSearchInput" type="text" placeholder="Search help topics, features, or common issues..." />
+          </label>
+          <div class="help-search-meta">
+            <span id="helpResultCount">Showing all topics</span>
+            <a class="help-inline-link" href="/activity.html">Submit a support request</a>
+          </div>
+        </div>
       </div>
     </header>
 
-    <main class="stack" style="margin-top:1rem">
-      <section class="card">
-        <h3>Getting Started</h3>
-        <div class="help-grid section-gap">
-          <article class="help-item">
-            <h4>Register</h4>
-            <ol>
-              <li>Open <a href="/register.html">Register</a>.</li>
-              <li>Enter username, full name, and password.</li>
-              <li>Submit the form and log in from the login page.</li>
-            </ol>
+    <main class="stack help-center-main" style="margin-top:1rem">
+      <section class="card help-spotlight">
+        <div class="help-section-head">
+          <div>
+            <p class="eyebrow">Quick Start</p>
+            <h3>Learn the platform in a few minutes</h3>
+            <p class="muted">Use these shortcuts to understand the full Mednecta workflow from account setup to community activity.</p>
+          </div>
+        </div>
+        <div class="help-stat-grid">
+          <article class="help-stat-card">
+            <span class="iconify" data-icon="lucide:user-round-plus" aria-hidden="true"></span>
+            <strong>Create your account</strong>
+            <p class="muted">Register, log in, verify your email, and reset your password if needed.</p>
+            <a class="help-inline-link" href="#account-help">Open account help</a>
           </article>
-          <article class="help-item">
-            <h4>Login</h4>
-            <ol>
-              <li>Open <a href="/login.html">Login</a>.</li>
-              <li>Enter your username and password.</li>
-              <li>Use "Stay logged in for 7 days" if you want a longer session.</li>
-            </ol>
+          <article class="help-stat-card">
+            <span class="iconify" data-icon="lucide:square-pen" aria-hidden="true"></span>
+            <strong>Share content</strong>
+            <p class="muted">Post updates, add stories, use reminders, and publish quiz-style content.</p>
+            <a class="help-inline-link" href="#posting-help">Open posting help</a>
           </article>
-          <article class="help-item">
-            <h4>Forgot Password</h4>
-            <ol>
-              <li>Open <a href="/forgot.html">Forgot Password</a>.</li>
-              <li>Enter username, your saved name (if present), and new password.</li>
-              <li>Reset and log in with the new password.</li>
-            </ol>
+          <article class="help-stat-card">
+            <span class="iconify" data-icon="lucide:users" aria-hidden="true"></span>
+            <strong>Grow your network</strong>
+            <p class="muted">Manage connections, chat, explore clans, and interact professionally.</p>
+            <a class="help-inline-link" href="#community-help">Open community help</a>
+          </article>
+          <article class="help-stat-card">
+            <span class="iconify" data-icon="lucide:life-buoy" aria-hidden="true"></span>
+            <strong>Get support</strong>
+            <p class="muted">Raise a ticket, suggest a feature, and review your submitted requests.</p>
+            <a class="help-inline-link" href="#support-help">Open support help</a>
           </article>
         </div>
       </section>
 
       <section class="card">
-        <h3>Posting and Feed</h3>
-        <article class="help-item section-gap">
-          <h4>How to Post a Feed</h4>
-          <ol>
-            <li>Go to dashboard and use “Share Something”.</li>
-            <li>Add text, optional image, and choose post privacy.</li>
-            <li>Optional: switch to reminder mode or quiz mode.</li>
-            <li>Click “Post”.</li>
-          </ol>
+        <div class="help-section-head">
+          <div>
+            <p class="eyebrow">Explore By Topic</p>
+            <h3>Browse all product features</h3>
+            <p class="muted">Filter the help center by area so users can quickly find the right part of the platform.</p>
+          </div>
+        </div>
+        <div class="help-filter-row" role="tablist" aria-label="Help categories">
+          <button class="btn tiny-btn help-filter-btn is-active" type="button" data-help-filter="all">All</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="account">Account</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="posting">Posting</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="community">Community</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="profile">Profile</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="progress">Progress</button>
+          <button class="btn secondary tiny-btn help-filter-btn" type="button" data-help-filter="support">Support</button>
+        </div>
+      </section>
+
+      <section class="help-guide-grid">
+        <article id="account-help" class="card help-topic-card" data-help-category="account" data-help-search="account register login signup password verify email forgot reset security">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Account Basics</p>
+              <h3>Register, log in, verify, and recover access</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/register.html">Register</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">Register</span>
+            <span class="help-chip">Login</span>
+            <span class="help-chip">Email verification</span>
+            <span class="help-chip">Forgot password</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>Create your account</summary>
+            <ol>
+              <li>Open <a href="/register.html">Register</a> and enter your username, full name, and password.</li>
+              <li>Submit the form, then sign in from <a href="/login.html">Login</a>.</li>
+              <li>Use your inbox verification flow when prompted so account recovery and notifications work correctly.</li>
+            </ol>
+          </details>
+          <details class="help-accordion">
+            <summary>Log in and stay signed in</summary>
+            <ol>
+              <li>Go to <a href="/login.html">Login</a> and enter your username and password.</li>
+              <li>Enable the 7-day stay-signed-in option if you are using a private device.</li>
+              <li>After logging in, your dashboard becomes the main place for feed, stories, connections, and chat.</li>
+            </ol>
+          </details>
+          <details class="help-accordion">
+            <summary>Reset or recover your password</summary>
+            <ol>
+              <li>Open <a href="/forgot.html">Forgot Password</a>.</li>
+              <li>Request a reset link or follow the token-based reset flow if you already opened the recovery email.</li>
+              <li>Create a new password, confirm it, and log in again with the updated credentials.</li>
+            </ol>
+          </details>
         </article>
-        <article class="help-item section-gap">
-          <h4>Stories</h4>
-          <ul>
-            <li>Stories are short updates that auto-expire in 24 hours.</li>
-            <li>Use “Add Story”, add text/image, and post.</li>
-            <li>Users can like, share, and reply to stories.</li>
-          </ul>
+
+        <article id="posting-help" class="card help-topic-card" data-help-category="posting" data-help-search="feed post share reminder quiz story image caption privacy followers connections comments likes shares dashboard composer">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Posting And Feed</p>
+              <h3>Create posts, stories, reminders, and quizzes</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/dashboard">Open dashboard</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">Share Something</span>
+            <span class="help-chip">Stories</span>
+            <span class="help-chip">Reminder posts</span>
+            <span class="help-chip">Quiz mode</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>Post to your feed</summary>
+            <ol>
+              <li>Open the dashboard and use the <strong>Share Something</strong> composer.</li>
+              <li>Add your text, optional image, and choose the privacy level for the post.</li>
+              <li>Publish it to make it visible to the selected audience.</li>
+            </ol>
+          </details>
+          <details class="help-accordion">
+            <summary>Choose the right post visibility</summary>
+            <ul>
+              <li><strong>Public</strong> is best for broad visibility.</li>
+              <li><strong>Followers + Connections</strong> is useful for a semi-private audience.</li>
+              <li><strong>Connections Only</strong> keeps the post limited to accepted connections.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Use reminder mode and quiz mode</summary>
+            <ul>
+              <li>Reminder mode lets you schedule a due time and optionally tag connections.</li>
+              <li>Tagged connections receive in-app reminders and email notifications when the reminder becomes due.</li>
+              <li>Quiz mode helps share learning content using a question, answer choices, and a correct option.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Create and reply to stories</summary>
+            <ul>
+              <li>Use <strong>Add Story</strong> from the dashboard for short text or image updates.</li>
+              <li>Stories auto-expire after 24 hours.</li>
+              <li>Viewers can like, share, and reply, and replies are sent as direct messages to the story owner.</li>
+            </ul>
+          </details>
+        </article>
+
+        <article id="community-help" class="card help-topic-card" data-help-category="community" data-help-search="connections request accept ignore suggestions search people chat message clan group member invite role lounge moderation community">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Connections And Community</p>
+              <h3>Build your network, chat, and work inside clans</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/clan.html">Open clan area</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">Connection requests</span>
+            <span class="help-chip">Direct chat</span>
+            <span class="help-chip">Public and private clans</span>
+            <span class="help-chip">Clan lounge</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>Manage connections</summary>
+            <ul>
+              <li>Use search, profile pages, or connection suggestions to find people.</li>
+              <li>Send requests, review received requests, and manage accepted, sent, and ignored states from the dashboard.</li>
+              <li>Accepted connections unlock direct chat and more private sharing flows.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Use direct chat</summary>
+            <ul>
+              <li>Start a chat from a user profile, connection list, or story reply flow.</li>
+              <li>You can send text and supported image attachments.</li>
+              <li>Chats can be minimized, reopened, and continued without leaving the dashboard.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Join or manage a clan</summary>
+            <ul>
+              <li>Users can have one active clan membership at a time.</li>
+              <li>Public clans are easier to join, while private clans require approval.</li>
+              <li>Inside a clan you may see activity, posts, lounge chat, invite links, requests, and role-based permissions.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Community behavior expectations</summary>
+            <ul>
+              <li>Keep interactions professional, relevant, and respectful.</li>
+              <li>Avoid abusive, misleading, or harmful medical content.</li>
+              <li>Clan admins and platform admins may moderate content or remove access for repeated violations.</li>
+            </ul>
+          </details>
+        </article>
+
+        <article id="profile-help" class="card help-topic-card" data-help-category="profile" data-help-search="profile bio institute specialty privacy followers profile picture edit settings saved lists search identity">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Profile And Personalization</p>
+              <h3>Edit your profile and control what others see</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/profile">Edit profile</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">Profile details</span>
+            <span class="help-chip">Institute and specialty</span>
+            <span class="help-chip">Privacy</span>
+            <span class="help-chip">Saved lists</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>Update your profile</summary>
+            <ol>
+              <li>Open <a href="/profile">Edit Profile Details</a>.</li>
+              <li>Update your bio, institution, specialty details, and any profile image or public-facing fields.</li>
+              <li>Save changes to keep your public and dashboard profile cards current.</li>
+            </ol>
+          </details>
+          <details class="help-accordion">
+            <summary>Manage profile privacy and discoverability</summary>
+            <ul>
+              <li>Review privacy-related controls from your profile settings.</li>
+              <li>Search and connection visibility affect how easily others can find and interact with you.</li>
+              <li>Choose settings that match how public or focused you want your professional presence to be.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Organize saved content</summary>
+            <ul>
+              <li>Save useful posts directly from the feed.</li>
+              <li>Open <a href="/saved">Saved</a> to create custom lists for cases, exams, research, protocols, or any topic you prefer.</li>
+              <li>Move saved posts between lists as your collections grow.</li>
+            </ul>
+          </details>
+        </article>
+
+        <article id="progress-help" class="card help-topic-card" data-help-category="progress" data-help-search="xp level title leaderboard activity history rewards progress gamification rank top medics">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Progress And Activity</p>
+              <h3>Track XP, titles, leaderboard rank, and your activity</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/xp-history.html">XP history</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">XP</span>
+            <span class="help-chip">Levels</span>
+            <span class="help-chip">Titles</span>
+            <span class="help-chip">Activity history</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>How XP, levels, and titles work</summary>
+            <ul>
+              <li>Mednecta awards XP through activity like posting and engagement.</li>
+              <li>As XP increases, your level and title update automatically.</li>
+              <li>Your profile card surfaces the current progress snapshot.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Use the leaderboard and activity history</summary>
+            <ul>
+              <li>The Top Medics leaderboard highlights active contributors.</li>
+              <li>Your activity and XP history pages help review what you submitted, earned, or requested over time.</li>
+              <li>Use filters and search in XP history to inspect specific transactions more quickly.</li>
+            </ul>
+          </details>
+        </article>
+
+        <article id="support-help" class="card help-topic-card" data-help-category="support" data-help-search="support ticket bug feature suggestion report issue contact admin troubleshooting help center reach us activity page">
+          <div class="help-topic-head">
+            <div>
+              <p class="eyebrow">Support And Troubleshooting</p>
+              <h3>Know where to ask for help and what to include</h3>
+            </div>
+            <a class="btn secondary tiny-btn" href="/activity.html">Open support center</a>
+          </div>
+          <div class="help-chip-row">
+            <span class="help-chip">Tickets</span>
+            <span class="help-chip">Feature suggestions</span>
+            <span class="help-chip">Issue reporting</span>
+            <span class="help-chip">Status tracking</span>
+          </div>
+          <details class="help-accordion" open>
+            <summary>When to raise a support ticket</summary>
+            <ul>
+              <li>Use a ticket for login problems, bugs, broken UI, access issues, or anything that prevents normal use.</li>
+              <li>Write a clear subject and explain the issue in detail, including what page or action caused it.</li>
+              <li>Review your previously submitted tickets from the support history area.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>When to submit a feature suggestion</summary>
+            <ul>
+              <li>Use feature suggestions for product improvements, missing workflow ideas, or better UX proposals.</li>
+              <li>Describe the user problem, the expected behavior, and where the feature should appear.</li>
+              <li>Admins can review and update the status of feature requests.</li>
+            </ul>
+          </details>
+          <details class="help-accordion">
+            <summary>Before reporting a problem</summary>
+            <ul>
+              <li>Check whether the action needs an accepted connection, clan permission, or verified account state.</li>
+              <li>Refresh the page and retry the workflow once.</li>
+              <li>If the issue continues, report the exact feature name, steps tried, and the visible result.</li>
+            </ul>
+          </details>
         </article>
       </section>
 
       <section class="card">
-        <h3>Connections, Clan, and Community</h3>
-        <article class="help-item section-gap">
-          <h4>Connections: How it Works</h4>
-          <ul>
-            <li>Send requests from suggestions or user profile.</li>
-            <li>Accept or decline requests in your connections panel.</li>
-            <li>Accepted connections can chat and share posts directly.</li>
-          </ul>
-        </article>
-        <article class="help-item section-gap">
-          <h4>Clan: Regular User Rules and Workflow</h4>
-          <ul>
-            <li>You can have one active clan membership at a time.</li>
-            <li>Public clans can be joined directly; private clans require approval.</li>
-            <li>Follow clan role permissions for posting, requests, and moderation features.</li>
-            <li>Respect medical professionalism and avoid harmful, abusive, or misleading content.</li>
-            <li>Repeated violations may lead to removal or account action.</li>
-          </ul>
-        </article>
+        <div class="help-section-head">
+          <div>
+            <p class="eyebrow">Common Questions</p>
+            <h3>Frequently asked questions</h3>
+            <p class="muted">Short answers to the things users ask most often.</p>
+          </div>
+        </div>
+        <div class="help-faq-grid">
+          <details class="help-faq-card" data-help-category="account" data-help-search="email verification login verify email account">
+            <summary>Why should I verify my email?</summary>
+            <p>Verification helps with account recovery and can support important notifications and trust-related platform flows.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="posting" data-help-search="who can see my post privacy public connections followers">
+            <summary>Who can see my post?</summary>
+            <p>That depends on the privacy option you selected while posting, such as public, followers plus connections, or connections only.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="posting" data-help-search="stories expire delete story 24 hours">
+            <summary>How long do stories stay visible?</summary>
+            <p>Stories are temporary and automatically expire after 24 hours.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="community" data-help-search="chat message who can chat connections">
+            <summary>Who can I chat with?</summary>
+            <p>Direct chat is designed around accepted connections and certain contextual flows like story replies.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="community" data-help-search="how many clans can i join one active clan">
+            <summary>Can I join more than one clan?</summary>
+            <p>No. Regular users can have one active clan membership at a time.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="profile" data-help-search="where edit profile bio institute specialty">
+            <summary>Where do I update my bio and institute?</summary>
+            <p>Open the profile editor from the dashboard or go directly to the profile page to update those fields.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="progress" data-help-search="xp levels title leaderboard">
+            <summary>How do levels and titles change?</summary>
+            <p>They update automatically as your XP increases through platform activity and engagement.</p>
+          </details>
+          <details class="help-faq-card" data-help-category="support" data-help-search="bug report feature request support ticket suggestion">
+            <summary>Should I raise a ticket or suggest a feature?</summary>
+            <p>Use a ticket for something broken or blocked. Use a feature suggestion for an improvement idea or missing capability.</p>
+          </details>
+        </div>
       </section>
 
-      <section class="card">
-        <h3>Progress and Personalization</h3>
-        <article class="help-item section-gap">
-          <h4>XP Points, Levels, and Titles</h4>
-          <ul>
-            <li>XP is earned from product activity such as posting and engagement.</li>
-            <li>As XP increases, your level and title update automatically.</li>
-            <li>Your current level/title are shown on your profile card.</li>
-          </ul>
-        </article>
-        <article class="help-item section-gap">
-          <h4>Edit Profile Details</h4>
-          <ol>
-            <li>Open “Edit Profile Details” from dashboard profile card.</li>
-            <li>Update bio, institute, privacy options, and other fields.</li>
-            <li>Save changes from the profile page.</li>
-          </ol>
-        </article>
-        <article class="help-item section-gap">
-          <h4>Top Medics Leaderboard</h4>
-          <ul>
-            <li>Leaderboard ranks users by XP.</li>
-            <li>Use it to discover active contributors.</li>
-          </ul>
-        </article>
-        <article class="help-item section-gap">
-          <h4>Saved Lists</h4>
-          <ul>
-            <li>Save useful posts from feed cards.</li>
-            <li>Create custom saved lists from profile page.</li>
-            <li>Move saved posts between lists as needed.</li>
-          </ul>
-        </article>
-        <article class="help-item section-gap">
-          <h4>Theme Toggle</h4>
-          <ul>
-            <li>Use the “Dark/Light” button in the top action bar.</li>
-            <li>Your preference is saved in the browser for future visits.</li>
-          </ul>
-        </article>
+      <section class="card help-support-banner">
+        <div>
+          <p class="eyebrow">Need More Help?</p>
+          <h3>Contact support or send product feedback</h3>
+          <p class="muted">If the guides above do not solve the issue, move straight into the support flow and include the exact page, feature, and steps involved.</p>
+        </div>
+        <div class="help-support-actions">
+          <a class="btn primary" href="/activity.html">Raise A Ticket</a>
+          <a class="btn secondary" href="/activity.html">Suggest A Feature</a>
+          <a class="btn secondary" href="/reach-us.html">Open Legacy Support Page</a>
+        </div>
       </section>
     </main>
   </div>
@@ -147,5 +410,63 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
   <script src="/app.js"></script>
+  <script>
+    (function () {
+      const searchInput = document.getElementById('helpSearchInput');
+      const resultCount = document.getElementById('helpResultCount');
+      const filterButtons = Array.from(document.querySelectorAll('.help-filter-btn'));
+      const topicCards = Array.from(document.querySelectorAll('.help-topic-card'));
+      const faqCards = Array.from(document.querySelectorAll('.help-faq-card'));
+      const searchableItems = [...topicCards, ...faqCards];
+      let activeFilter = 'all';
+
+      function updateResults() {
+        const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+        let visibleCount = 0;
+
+        searchableItems.forEach((item) => {
+          const category = item.getAttribute('data-help-category') || '';
+          const searchText = item.getAttribute('data-help-search') || '';
+          const categoryMatch = activeFilter === 'all' || category === activeFilter;
+          const searchMatch = !query || searchText.includes(query) || item.textContent.toLowerCase().includes(query);
+          const show = categoryMatch && searchMatch;
+          item.classList.toggle('hidden', !show);
+          if (show) visibleCount += 1;
+        });
+
+        topicCards.forEach((card) => {
+          card.classList.toggle('help-topic-empty', card.classList.contains('hidden'));
+        });
+
+        if (resultCount) {
+          if (!query && activeFilter === 'all') {
+            resultCount.textContent = 'Showing all topics';
+          } else if (visibleCount === 0) {
+            resultCount.textContent = 'No matching help topics';
+          } else {
+            resultCount.textContent = 'Showing ' + visibleCount + ' matching item' + (visibleCount === 1 ? '' : 's');
+          }
+        }
+      }
+
+      filterButtons.forEach((button) => {
+        button.addEventListener('click', function () {
+          activeFilter = button.getAttribute('data-help-filter') || 'all';
+          filterButtons.forEach((btn) => {
+            const isActive = btn === button;
+            btn.classList.toggle('is-active', isActive);
+            btn.classList.toggle('secondary', !isActive);
+          });
+          updateResults();
+        });
+      });
+
+      if (searchInput) {
+        searchInput.addEventListener('input', updateResults);
+      }
+
+      updateResults();
+    }());
+  </script>
 </body>
 </html>
